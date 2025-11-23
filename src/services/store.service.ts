@@ -39,6 +39,7 @@ export class StoreService {
   readonly activeProjectId = signal<string | null>(null);
   readonly activeView = signal<'text' | 'flow'>('text');
   readonly filterMode = signal<'all' | string>('all'); // 'all' or a root task ID
+  readonly activeTextTaskId = signal<string | null>(null);
   readonly activeFlowTaskId = signal<string | null>(null);
   
   // UI State for Text Column
@@ -150,6 +151,35 @@ export class StoreService {
         ]
     });
     this.activeProjectId.set('proj-1');
+
+    effect(() => {
+        // Reset selections when project changes to avoid stale references
+        this.activeProjectId();
+        this.activeTextTaskId.set(null);
+        this.activeFlowTaskId.set(null);
+    });
+
+    effect(() => {
+        const id = this.activeFlowTaskId();
+        if (!id) return;
+        const exists = this.tasks().some(t => t.id === id && t.stage !== null);
+        if (!exists) {
+            this.activeFlowTaskId.set(null);
+        }
+    });
+  }
+
+  setActiveTask(taskId: string | null, opts?: { syncFlow?: boolean; syncText?: boolean; openFlowDetail?: boolean }) {
+      const syncFlow = opts?.syncFlow ?? true;
+      const syncText = opts?.syncText ?? true;
+
+      if (syncText) this.activeTextTaskId.set(taskId);
+      if (syncFlow) {
+          this.activeFlowTaskId.set(taskId);
+          if (opts?.openFlowDetail && taskId) {
+              this.isFlowDetailOpen.set(true);
+          }
+      }
   }
 
   private normalizeStageOrders(tasks: Task[]): Task[] {

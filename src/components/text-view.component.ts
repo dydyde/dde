@@ -1,5 +1,5 @@
 
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -167,20 +167,17 @@ export class TextViewComponent {
   store = inject(StoreService);
   sanitizer = inject(DomSanitizer);
   // isUnfinishedOpen removed as it is now in store
-  selectedTaskId = signal<string | null>(null);
+  selectedTaskId = computed(() => this.store.activeTextTaskId());
 
   // toggleUnfinished removed
 
   selectTask(task: Task) {
-      if (this.selectedTaskId() === task.id) {
-          this.selectedTaskId.set(null); // toggle off
-      } else {
-          this.selectedTaskId.set(task.id);
-      }
+      const next = this.selectedTaskId() === task.id ? null : task.id;
+      this.store.setActiveTask(next, { openFlowDetail: true });
   }
   
   jumpToTask(id: string) {
-      this.selectedTaskId.set(id);
+      this.store.setActiveTask(id, { openFlowDetail: true });
       // logic to scroll to element would go here
   }
 

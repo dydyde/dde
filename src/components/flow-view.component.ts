@@ -196,8 +196,7 @@ export class FlowViewComponent implements AfterViewInit {
                 locationSpot: go.Spot.Center,
                 selectionAdorned: true,
                 doubleClick: (e: any, node: any) => {
-                    this.store.activeFlowTaskId.set(node.data.key);
-                    this.store.isFlowDetailOpen.set(true); // Auto open details on double click
+                    this.store.setActiveTask(node.data.key, { openFlowDetail: true });
                 }
             },
             new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
@@ -226,8 +225,7 @@ export class FlowViewComponent implements AfterViewInit {
           const node = e.subject.part;
           if (node && node.data) {
               this.lastSelectedNode = node;
-              this.store.activeFlowTaskId.set(node.data.key);
-              this.store.isFlowDetailOpen.set(true);
+              this.store.setActiveTask(node.data.key, { openFlowDetail: true });
           }
       });
 
@@ -260,6 +258,7 @@ export class FlowViewComponent implements AfterViewInit {
 
              // Update task in store and persist position
              this.store.assignTaskToStage(task.id, 1, null, undefined, { x: loc.x, y: loc.y });
+             this.store.setActiveTask(task.id, { openFlowDetail: true });
           }
       });
   }
@@ -306,11 +305,7 @@ export class FlowViewComponent implements AfterViewInit {
 
   centerOnNode(taskId: string) {
       if (!this.diagram) return;
-      const node = this.diagram.findNodeForKey(taskId);
-      if (node) {
-          this.diagram.centerRect(node.actualBounds);
-          this.diagram.select(node);
-      }
+      this.store.setActiveTask(taskId, { openFlowDetail: true });
   }
 
   findTaskById(id: string | null): Task | undefined {
