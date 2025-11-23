@@ -1,7 +1,8 @@
 
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 @Component({
   selector: 'app-text-view',
@@ -111,7 +112,7 @@ import { StoreService, Task } from '../services/store.service';
                       
                       <!-- Collapsed Content Preview -->
                       @if (selectedTaskId() !== task.id) {
-                          <div class="text-xs text-stone-400 line-clamp-2 font-light leading-relaxed">{{task.content}}</div>
+                          <div class="text-xs text-stone-400 line-clamp-2 font-light leading-relaxed" [innerHTML]="renderMarkdown(task.content)"></div>
                       }
 
                       <!-- Expanded Editing Area -->
@@ -164,21 +165,19 @@ import { StoreService, Task } from '../services/store.service';
 })
 export class TextViewComponent {
   store = inject(StoreService);
+  sanitizer = inject(DomSanitizer);
   // isUnfinishedOpen removed as it is now in store
-  selectedTaskId = signal<string | null>(null);
+  selectedTaskId = computed(() => this.store.activeTextTaskId());
 
   // toggleUnfinished removed
 
   selectTask(task: Task) {
-      if (this.selectedTaskId() === task.id) {
-          this.selectedTaskId.set(null); // toggle off
-      } else {
-          this.selectedTaskId.set(task.id);
-      }
+      const next = this.selectedTaskId() === task.id ? null : task.id;
+      this.store.setActiveTask(next, { openFlowDetail: true });
   }
   
   jumpToTask(id: string) {
-      this.selectedTaskId.set(id);
+      this.store.setActiveTask(id, { openFlowDetail: true });
       // logic to scroll to element would go here
   }
 
@@ -198,13 +197,13 @@ export class TextViewComponent {
   
   addSibling(task: Task, e: Event) {
       e.stopPropagation();
-      this.store.addTask("新同级任务", "详情...", task.stage, task.parentId, true);
+      this.store.addTask("新同级任务", "详情...", task.stage, task.parentId, true, undefined, task.id);
   }
   
   addChild(task: Task, e: Event) {
       e.stopPropagation();
       const nextStage = (task.stage || 0) + 1;
-      this.store.addTask("新子任务", "详情...", nextStage, task.id, false);
+      this.store.addTask("新子任务", "详情...", nextStage, task.id, false, undefined, undefined);
   }
   
   createUnassigned() {
@@ -215,6 +214,26 @@ export class TextViewComponent {
       // Adds a task to a new max stage + 1
       const maxStage = Math.max(...this.store.stages().map(s => s.stageNumber), 0);
       this.store.addTask("新阶段任务", "开始...", maxStage + 1, null, false);
+  }
+
+  renderMarkdown(content: string): SafeHtml {
+      const escaped = content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+      const html = escaped
+          .replace(/^###\s(.+)$/gm, '<h3 class="font-semibold text-sm mb-1">$1</h3>')
+          .replace(/^##\s(.+)$/gm, '<h2 class="font-semibold text-base mb-1">$1</h2>')
+          .replace(/^#\s(.+)$/gm, '<h1 class="font-bold text-lg mb-1">$1</h1>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code class="bg-stone-100 px-1 rounded">$1</code>')
+          .replace(/^- \[ \]\s(.+)$/gm, '<div class="flex items-start gap-2 text-xs"><span class="inline-block w-3 h-3 rounded border border-stone-200"></span><span>$1</span></div>')
+          .replace(/^- \[x\]\s(.+)$/gim, '<div class="flex items-start gap-2 text-xs"><span class="inline-block w-3 h-3 rounded border border-stone-200 bg-emerald-200"></span><span>$1</span></div>')
+          .replace(/\n/g, '<br>');
+
+      return this.sanitizer.bypassSecurityTrustHtml(html);
   }
   
   async askAI(task: Task, e: Event) {

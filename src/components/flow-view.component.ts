@@ -105,11 +105,21 @@ declare var go: any;
                                     </div>
                                 </div>
                             }
-                            
+
                             <!-- Contextual Details (e.g. selected node) could go here -->
-                            <div class="p-4 border border-dashed border-stone-200 rounded-lg text-center text-stone-400 text-xs font-light">
-                                点击节点查看详情
-                            </div>
+                            @if (store.activeFlowTaskId(); as activeId) {
+                                @if (findTaskById(activeId); as activeTask) {
+                                    <div class="p-4 border border-stone-200 rounded-lg text-left text-stone-600 text-xs space-y-2 bg-white/50">
+                                        <div class="font-mono text-[11px] text-stone-400">{{activeTask.displayId}}</div>
+                                        <div class="font-semibold text-sm text-stone-800">{{activeTask.title}}</div>
+                                        <div class="text-[11px] text-stone-500 leading-relaxed">{{activeTask.content}}</div>
+                                    </div>
+                                }
+                            } @else {
+                                <div class="p-4 border border-dashed border-stone-200 rounded-lg text-center text-stone-400 text-xs font-light">
+                                    点击节点查看详情
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -121,14 +131,26 @@ declare var go: any;
 export class FlowViewComponent implements AfterViewInit {
   @ViewChild('diagramDiv') diagramDiv!: ElementRef;
   store = inject(StoreService);
-  
+
   private diagram: any;
+  private lastSelectedNode: any = null;
 
   constructor() {
       effect(() => {
           const tasks = this.store.tasks();
           if (this.diagram) {
               this.updateDiagram(tasks);
+          }
+      });
+
+      effect(() => {
+          if (!this.diagram) return;
+          const targetId = this.store.activeFlowTaskId();
+          if (!targetId) return;
+          const node = this.diagram.findNodeForKey(targetId);
+          if (node) {
+              this.diagram.select(node);
+              this.diagram.centerRect(node.actualBounds);
           }
       });
   }
@@ -148,7 +170,7 @@ export class FlowViewComponent implements AfterViewInit {
           "undoManager.isEnabled": true,
           "animationManager.isEnabled": true,
           "allowDrop": true, // accept drops from HTML
-          layout: $(go.LayeredDigraphLayout, { 
+          layout: $(go.LayeredDigraphLayout, {
               direction: 0, 
               layerSpacing: 100, 
               columnSpacing: 40,
@@ -156,14 +178,25 @@ export class FlowViewComponent implements AfterViewInit {
           })
       });
 
+      // Allow keyboard focus for shortcuts
+      this.diagram.div.tabIndex = 0;
+      this.diagram.div.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.altKey && e.key.toLowerCase() === 'z') {
+              const node = this.diagram.selection.first();
+              if (node) {
+                  this.store.detachTaskToUnassigned(node.data.key);
+              }
+          }
+      });
+
       // Node Template
       this.diagram.nodeTemplate =
           $(go.Node, "Auto",
-            { 
+            {
                 locationSpot: go.Spot.Center,
                 selectionAdorned: true,
                 doubleClick: (e: any, node: any) => {
-                    this.store.isFlowDetailOpen.set(true); // Auto open details on double click
+                    this.store.setActiveTask(node.data.key, { openFlowDetail: true });
                 }
             },
             new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
@@ -182,11 +215,32 @@ export class FlowViewComponent implements AfterViewInit {
 
       // Link Template
       this.diagram.linkTemplate =
-          $(go.Link, 
+          $(go.Link,
             { routing: go.Link.Orthogonal, corner: 10 },
             $(go.Shape, { strokeWidth: 1.5, stroke: "#d6d3d1" }),
             $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#d6d3d1" })
           );
+
+      this.diagram.addDiagramListener("ObjectSingleClicked", (e: any) => {
+          const node = e.subject.part;
+          if (node && node.data) {
+              this.lastSelectedNode = node;
+              this.store.setActiveTask(node.data.key, { openFlowDetail: true });
+          }
+      });
+
+      this.diagram.addDiagramListener("SelectionMoved", (e: any) => {
+          e.subject.each((part: any) => {
+              if (part.data) {
+                  this.store.updateTaskPosition(part.data.key, part.location.x, part.location.y);
+              }
+          });
+      });
+
+      this.diagram.addDiagramListener("BackgroundDoubleClicked", (e: any) => {
+          const pt = e.diagram.lastInput.documentPoint;
+          this.store.addTask('新待分配任务', '', null, null, false, { x: pt.x, y: pt.y });
+      });
 
       // Handle External Drops
       this.diagram.div.addEventListener("dragover", (e: DragEvent) => {
@@ -199,18 +253,12 @@ export class FlowViewComponent implements AfterViewInit {
           const data = e.dataTransfer?.getData("text");
           if (data) {
              const task = JSON.parse(data);
-             // Logic to add task to stage?
-             // Prompt says: "Dragging to a node (stage) renders them in flow".
-             // Here we drop onto canvas.
-             // Let's assign it a stage based on drop, or just make it active (Stage 1 default if dropped on blank?)
-             // We'll verify if dropped on existing node?
-             
              const pt = this.diagram.lastInput.viewPoint;
              const loc = this.diagram.transformViewToDoc(pt);
-             
-             // Update task in store
-             // We assume dropping on canvas assigns it to stage 1 for now to show it.
-             this.store.moveTaskToStage(task.id, 1);
+
+             // Update task in store and persist position
+             this.store.assignTaskToStage(task.id, 1, null, undefined, { x: loc.x, y: loc.y });
+             this.store.setActiveTask(task.id, { openFlowDetail: true });
           }
       });
   }
@@ -257,10 +305,11 @@ export class FlowViewComponent implements AfterViewInit {
 
   centerOnNode(taskId: string) {
       if (!this.diagram) return;
-      const node = this.diagram.findNodeForKey(taskId);
-      if (node) {
-          this.diagram.centerRect(node.actualBounds);
-          this.diagram.select(node);
-      }
+      this.store.setActiveTask(taskId, { openFlowDetail: true });
+  }
+
+  findTaskById(id: string | null): Task | undefined {
+      if (!id) return undefined;
+      return this.store.tasks().find(t => t.id === id);
   }
 }
