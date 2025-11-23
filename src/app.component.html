@@ -1,37 +1,41 @@
 
-<div class="flex h-full w-full bg-slate-100 overflow-hidden font-sans">
+<div class="flex h-full w-full bg-[#F9F8F6] overflow-hidden font-sans text-stone-600">
   
   <!-- Left Sidebar: Project List -->
-  <aside class="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 transition-all duration-300"
+  <aside class="bg-[#F9F8F6] border-r border-stone-200/50 flex flex-col shrink-0 transition-all duration-75 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 overflow-hidden"
+         [style.width.px]="isSidebarOpen() ? store.sidebarWidth() : 0"
          [class.w-0]="!isSidebarOpen()">
-    <div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-      <h1 class="font-bold text-lg text-slate-800 tracking-tight">NanoFlow</h1>
-      <button (click)="createNewProject()" class="text-blue-500 hover:bg-blue-50 p-1 rounded text-xl font-bold" title="新建项目">+</button>
+    
+    <!-- Sidebar Header -->
+    <div class="mx-6 mt-8 mb-6 flex justify-between items-center min-w-[200px] shrink-0">
+      <h1 class="font-bold text-2xl text-stone-800 tracking-tight font-serif">NanoFlow</h1>
+      <button (click)="createNewProject()" class="text-stone-400 hover:text-stone-800 hover:bg-stone-200/50 w-8 h-8 flex items-center justify-center rounded-full transition-all text-xl font-light" title="新建项目">+</button>
     </div>
 
     <!-- Project List -->
-    <div class="flex-1 overflow-y-auto p-2 space-y-1">
+    <div class="flex-1 overflow-y-auto px-4 space-y-1 min-w-[240px]">
       @for (proj of store.projects(); track proj.id) {
         <div 
           (click)="selectProject(proj.id)"
-          class="p-3 rounded-lg cursor-pointer transition-colors border border-transparent"
-          [class.bg-blue-50]="store.activeProjectId() === proj.id"
-          [class.border-blue-200]="store.activeProjectId() === proj.id"
-          [class.hover:bg-slate-50]="store.activeProjectId() !== proj.id">
-          <div class="font-semibold text-slate-700 truncate">{{ proj.name }}</div>
+          class="px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 group"
+          [class.bg-indigo-100/60]="store.activeProjectId() === proj.id"
+          [class.text-indigo-900]="store.activeProjectId() === proj.id"
+          [class.text-stone-500]="store.activeProjectId() !== proj.id"
+          [class.hover:bg-stone-100]="store.activeProjectId() !== proj.id">
+          <div class="font-medium text-sm transition-colors">{{ proj.name }}</div>
           @if (store.activeProjectId() === proj.id) {
-            <div class="text-xs text-slate-500 mt-1 animate-fade-in">
-              {{ proj.createdDate | date:'shortDate' }}<br>
-              <span class="truncate block">{{ proj.description }}</span>
+            <div class="text-[10px] text-indigo-400 mt-1 animate-fade-in leading-relaxed font-mono">
+              {{ proj.createdDate | date:'MM/dd' }}
             </div>
           }
         </div>
       }
     </div>
     
-    <div class="p-4 border-t border-slate-100">
-      <button (click)="openSettings()" class="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-sm font-medium transition-colors flex items-center justify-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <!-- Sidebar Footer -->
+    <div class="mx-4 mb-6 min-w-[200px] shrink-0">
+      <button (click)="openSettings()" class="w-full py-3 px-4 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-xl text-xs font-medium transition-all flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
@@ -40,63 +44,90 @@
     </div>
   </aside>
 
+  <!-- Sidebar Resizer -->
+  <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize transition-all z-50 flex-shrink-0 relative group"
+       (mousedown)="startSidebarResize($event)">
+       <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
+  </div>
+
   <!-- Main Content -->
-  <main class="flex-1 flex flex-col h-full relative bg-slate-50">
-    <!-- Top Bar / Tabs -->
-    <header class="h-14 bg-white border-b border-slate-200 flex items-center px-4 justify-between shrink-0 z-20 shadow-sm">
-      <div class="flex items-center gap-4">
-        <button (click)="toggleSidebar()" class="text-slate-500 hover:text-slate-800">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        
-        <div class="flex bg-slate-100 rounded-lg p-1">
-          <button 
-            (click)="store.activeView.set('text')"
-            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
-            [class.bg-white]="store.activeView() === 'text'"
-            [class.shadow-sm]="store.activeView() === 'text'"
-            [class.text-blue-600]="store.activeView() === 'text'"
-            [class.text-slate-600]="store.activeView() !== 'text'">
-            文本视图
-          </button>
-          <button 
-            (click)="store.activeView.set('flow')"
-            class="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
-            [class.bg-white]="store.activeView() === 'flow'"
-            [class.shadow-sm]="store.activeView() === 'flow'"
-            [class.text-blue-600]="store.activeView() === 'flow'"
-            [class.text-slate-600]="store.activeView() !== 'flow'">
-            流程图
-          </button>
+  <main class="flex-1 flex h-full relative bg-[#F9F8F6] overflow-hidden">
+    @if (store.activeProjectId()) {
+      <!-- Text Column -->
+      <div class="flex flex-col border-r border-stone-200/60 min-w-[300px] bg-[#F9F8F6]"
+           [style.width.%]="store.textColumnRatio()">
+        <!-- Header for Text Column -->
+        <div class="h-16 mx-6 mt-6 flex items-center justify-between shrink-0 z-10">
+           <div class="flex items-center gap-3">
+             <button (click)="toggleSidebar()" class="text-stone-400 hover:text-stone-600 transition-colors p-2 hover:bg-stone-200/50 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+             </button>
+             <span class="font-bold text-stone-800 text-lg tracking-tight">文本视图</span>
+           </div>
+           <!-- Filter -->
+           <div class="relative">
+             <button 
+                (click)="isFilterOpen.set(!isFilterOpen()); $event.stopPropagation()"
+                class="flex items-center gap-2 bg-transparent text-xs font-medium text-stone-500 hover:text-indigo-800 transition-colors py-1.5 px-3 rounded-lg hover:bg-indigo-50 border border-transparent active:bg-indigo-100">
+                 <span>{{ currentFilterLabel() }}</span>
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform duration-200" [class.rotate-180]="isFilterOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                 </svg>
+             </button>
+             
+             @if (isFilterOpen()) {
+                <!-- Backdrop to close -->
+                <div class="fixed inset-0 z-40" (click)="isFilterOpen.set(false)"></div>
+                
+                <!-- Dropdown Menu -->
+                <div class="absolute right-0 top-full mt-1 w-48 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-fade-in overflow-hidden">
+                    <div 
+                        (click)="store.filterMode.set('all'); isFilterOpen.set(false)"
+                        class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                        <span>全部任务</span>
+                        @if (store.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                    </div>
+                    <div class="h-px bg-stone-100 my-1"></div>
+                    @for(root of store.rootTasks(); track root.id) {
+                        <div 
+                            (click)="store.filterMode.set(root.id); isFilterOpen.set(false)"
+                            class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                            <span class="truncate">{{root.title}}</span>
+                            @if (store.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                        </div>
+                    }
+                </div>
+             }
+           </div>
         </div>
+        <app-text-view class="flex-1 overflow-hidden"></app-text-view>
       </div>
 
-      <!-- Filter / Global Actions -->
-      <div class="flex items-center gap-2">
-         @if(store.activeView() === 'text') {
-             <span class="text-xs text-slate-400 font-medium uppercase tracking-wider mr-2">筛选任务:</span>
-             <select 
-                (change)="updateFilter($event)" 
-                class="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-sm text-slate-700 focus:outline-none focus:border-blue-400 transition-colors">
-                 <option value="all">全部任务</option>
-                 @for(root of store.rootTasks(); track root.id) {
-                     <option [value]="root.id">{{root.title}} ({{root.displayId}})</option>
-                 }
-             </select>
-         }
+      <!-- Content Resizer -->
+      <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize z-20 flex-shrink-0 relative group"
+           (mousedown)="startContentResize($event)">
+           <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
       </div>
-    </header>
 
-    <!-- View Container -->
-    <div class="flex-1 overflow-hidden relative">
-      @if (store.activeView() === 'text') {
-        <app-text-view class="block h-full w-full"></app-text-view>
-      } @else {
-        <app-flow-view class="block h-full w-full"></app-flow-view>
-      }
-    </div>
+      <!-- Flow Column -->
+      <div class="flex-1 flex flex-col min-w-[300px] relative bg-[#F9F8F6]">
+         <div class="h-16 mx-6 mt-6 flex items-center shrink-0 z-10">
+            <span class="font-bold text-stone-800 text-lg tracking-tight">流程视图</span>
+         </div>
+         <app-flow-view class="flex-1 overflow-hidden"></app-flow-view>
+      </div>
+    } @else {
+      <div class="flex-1 flex items-center justify-center text-stone-300 flex-col gap-6">
+        <div class="w-24 h-24 rounded-full bg-stone-100 flex items-center justify-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+        </div>
+        <p class="font-light tracking-widest text-sm">请选择或创建一个项目</p>
+      </div>
+    }
   </main>
 
   <!-- Settings Modal Overlay -->

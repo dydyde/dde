@@ -1,4 +1,3 @@
-
 import { Injectable, signal, computed, effect } from '@angular/core';
 import { GoogleGenAI } from '@google/genai';
 
@@ -40,6 +39,19 @@ export class StoreService {
   readonly activeProjectId = signal<string | null>(null);
   readonly activeView = signal<'text' | 'flow'>('text');
   readonly filterMode = signal<'all' | string>('all'); // 'all' or a root task ID
+  
+  // UI State for Text Column
+  readonly isTextUnfinishedOpen = signal(true);
+  readonly isTextUnassignedOpen = signal(true);
+
+  // UI State for Flow Column
+  readonly isFlowUnfinishedOpen = signal(true);
+  readonly isFlowUnassignedOpen = signal(true);
+  readonly isFlowDetailOpen = signal(false);
+  
+  // Layout Dimensions
+  readonly sidebarWidth = signal(280); // px
+  readonly textColumnRatio = signal(50); // percentage of main content
   
   // Settings
   readonly layoutDirection = signal<'ltr' | 'rtl'>('ltr');

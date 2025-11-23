@@ -1,5 +1,4 @@
-
-import { Component, inject, signal, WritableSignal } from '@angular/core';
+import { Component, inject, signal, WritableSignal, HostListener, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from './services/store.service';
 import { TextViewComponent } from './components/text-view.component';
@@ -16,6 +15,15 @@ export class AppComponent {
   store = inject(StoreService);
   
   isSidebarOpen = signal(true);
+  isFilterOpen = signal(false); // Add this line
+  
+  currentFilterLabel = computed(() => {
+    const filterId = this.store.filterMode();
+    if (filterId === 'all') return '全部任务';
+    const task = this.store.rootTasks().find(t => t.id === filterId);
+    return task ? task.title : '全部任务';
+  });
+
   showSettings = signal(false);
   showNewProjectModal = signal(false);
   showGenAIModal = signal(false);
@@ -25,8 +33,66 @@ export class AppComponent {
   editingImage: WritableSignal<string | null> = signal(null);
   isGenerating = signal(false);
 
+  // Resizing State
+  isResizingSidebar = false;
+  isResizingContent = false;
+  private startX = 0;
+  private startWidth = 0;
+  private startRatio = 0;
+  private mainContentWidth = 0;
+
   toggleSidebar() {
     this.isSidebarOpen.update(v => !v);
+  }
+
+  // --- Resizing Logic ---
+
+  startSidebarResize(e: MouseEvent) {
+      e.preventDefault();
+      this.isResizingSidebar = true;
+      this.startX = e.clientX;
+      this.startWidth = this.store.sidebarWidth();
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+  }
+
+  startContentResize(e: MouseEvent) {
+      e.preventDefault();
+      this.isResizingContent = true;
+      this.startX = e.clientX;
+      this.startRatio = this.store.textColumnRatio();
+      
+      // Get current main content width
+      const mainEl = document.querySelector('main');
+      this.mainContentWidth = mainEl ? mainEl.clientWidth : 1000;
+      
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  onMouseMove(e: MouseEvent) {
+      if (this.isResizingSidebar) {
+          const delta = e.clientX - this.startX;
+          const newWidth = Math.max(200, Math.min(600, this.startWidth + delta));
+          this.store.sidebarWidth.set(newWidth);
+      } else if (this.isResizingContent) {
+          const delta = e.clientX - this.startX;
+          // Convert delta pixels to percentage
+          const deltaPercent = (delta / this.mainContentWidth) * 100;
+          const newRatio = Math.max(20, Math.min(80, this.startRatio + deltaPercent));
+          this.store.textColumnRatio.set(newRatio);
+      }
+  }
+
+  @HostListener('document:mouseup')
+  onMouseUp() {
+      if (this.isResizingSidebar || this.isResizingContent) {
+          this.isResizingSidebar = false;
+          this.isResizingContent = false;
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+      }
   }
 
   selectProject(id: string) {
