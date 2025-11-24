@@ -1,0 +1,39 @@
+<div cdkDropListGroup class="outline-tree">
+  <div
+    cdkDropList
+    [id]="listId(null)"
+    [cdkDropListData]="viewTree()"
+    (cdkDropListDropped)="drop($event, null)"
+    class="node-list root-list"
+  >
+    <ng-container *ngFor="let node of viewTree(); trackBy: trackNode">
+      <ng-container
+        *ngTemplateOutlet="nodeTemplate; context: { $implicit: node }"
+      ></ng-container>
+    </ng-container>
+  </div>
+</div>
+
+<ng-template #nodeTemplate let-node>
+  <div class="outline-node" [attr.id]="'node-' + node.id" cdkDrag [cdkDragData]="node">
+    <div class="node-header">
+      <span class="index">{{ node.displayIndex }}</span>
+      <span class="content">{{ node.content }}</span>
+      <span class="stage">[{{ node.stageId }}]</span>
+    </div>
+
+    <div
+      class="child-list"
+      cdkDropList
+      [id]="listId(node.id)"
+      [cdkDropListData]="node.children"
+      (cdkDropListDropped)="drop($event, node.id)"
+    >
+      <ng-container *ngFor="let child of node.children; trackBy: trackNode">
+        <ng-container
+          *ngTemplateOutlet="nodeTemplate; context: { $implicit: child }"
+        ></ng-container>
+      </ng-container>
+    </div>
+  </div>
+</ng-template>

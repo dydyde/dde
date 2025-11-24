@@ -5,19 +5,19 @@
   "projects": {
     "app": {
       "projectType": "application",
-      "root": "",
-      "sourceRoot": "./",
+      "root": ".",
+      "sourceRoot": ".",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "outputPath": {
-              "base": "./dist",
-              "browser": "."
-            },
+            "outputPath": "dist",
             "browser": "index.tsx",
-            "tsConfig": "tsconfig.json"
+            "tsConfig": "tsconfig.json",
+            "styles": [
+              "src/styles.css"
+            ]
           },
           "configurations": {
             "production": {
