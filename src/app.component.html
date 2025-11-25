@@ -15,18 +15,59 @@
     <!-- Project List -->
     <div class="flex-1 overflow-y-auto px-4 space-y-1 min-w-[240px]">
       @for (proj of store.projects(); track proj.id) {
-        <div 
-          (click)="selectProject(proj.id)"
-          class="px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 group"
-          [class.bg-indigo-100/60]="store.activeProjectId() === proj.id"
-          [class.text-indigo-900]="store.activeProjectId() === proj.id"
-          [class.text-stone-500]="store.activeProjectId() !== proj.id"
-          [class.hover:bg-stone-100]="store.activeProjectId() !== proj.id">
-          <div class="font-medium text-sm transition-colors">{{ proj.name }}</div>
-          @if (store.activeProjectId() === proj.id) {
-            <div class="text-[10px] text-indigo-400 mt-1 animate-fade-in leading-relaxed font-mono">
-              {{ proj.createdDate | date:'MM/dd' }}
-            </div>
+        <div class="space-y-2">
+          <div 
+            (click)="selectProject(proj.id)"
+            (dblclick)="handleProjectDoubleClick(proj.id, $event)"
+            class="px-4 py-3 rounded-lg cursor-pointer transition-all duration-200 group"
+            [class.bg-indigo-100/60]="store.activeProjectId() === proj.id"
+            [class.text-indigo-900]="store.activeProjectId() === proj.id"
+            [class.text-stone-500]="store.activeProjectId() !== proj.id"
+            [class.hover:bg-stone-100]="store.activeProjectId() !== proj.id">
+            <div class="font-medium text-sm transition-colors">{{ proj.name }}</div>
+            @if (store.activeProjectId() === proj.id) {
+              <div class="text-[10px] text-indigo-400 mt-1 animate-fade-in leading-relaxed font-mono">
+                {{ proj.createdDate | date:'MM/dd' }}
+              </div>
+            }
+          </div>
+
+          @if (expandedProjectId() === proj.id) {
+            @if (projectDraft(proj.id); as draft) {
+              <div class="mx-4 mt-1 mb-3 p-4 rounded-xl border border-stone-200 bg-white/90 text-xs text-stone-600 space-y-3 shadow-sm cursor-default" (click)="$event.stopPropagation()">
+                <div class="flex flex-col gap-1">
+                  <label class="font-semibold text-[11px] text-stone-400 uppercase tracking-wide">创建时间</label>
+                  <div class="w-full border border-transparent px-3 py-2 text-stone-500">
+                    {{ proj.createdDate | date:'yyyy-MM-dd HH:mm' }}
+                  </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="font-semibold text-[11px] text-stone-400 uppercase tracking-wide">简介</label>
+                  @if (isEditingDescription()) {
+                    <textarea
+                      rows="3"
+                      class="w-full border border-stone-200 rounded-lg px-3 py-2 text-stone-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+                      [ngModel]="draft.description"
+                      (ngModelChange)="updateProjectDraft(proj.id, 'description', $event)"></textarea>
+                    <div class="flex justify-end">
+                      <button
+                        type="button"
+                        class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 transition"
+                        (click)="saveProjectDetails(proj.id)">
+                        保存
+                      </button>
+                    </div>
+                  } @else {
+                    <div 
+                      class="w-full border border-transparent px-3 py-2 text-stone-600 whitespace-pre-wrap min-h-[3em] hover:bg-stone-50 rounded-lg transition-colors cursor-text"
+                      (dblclick)="handleProjectDoubleClick(proj.id, $event)"
+                      title="双击编辑">
+                      {{ draft.description || '无简介' }}
+                    </div>
+                  }
+                </div>
+              </div>
+            }
           }
         </div>
       }

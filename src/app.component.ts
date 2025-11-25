@@ -16,6 +16,9 @@ export class AppComponent {
   
   isSidebarOpen = signal(true);
   isFilterOpen = signal(false); // Add this line
+  expandedProjectId = signal<string | null>(null);
+  isEditingDescription = signal(false);
+  projectDrafts = signal<Record<string, { description: string; createdDate: string }>>({});
   
   currentFilterLabel = computed(() => {
     const filterId = this.store.filterMode();
@@ -96,7 +99,75 @@ export class AppComponent {
   }
 
   selectProject(id: string) {
+    if (this.expandedProjectId() === id) {
+      this.expandedProjectId.set(null);
+      this.isEditingDescription.set(false);
+    } else {
+      this.store.activeProjectId.set(id);
+      this.expandedProjectId.set(id);
+      this.ensureProjectDraft(id);
+      this.isEditingDescription.set(false);
+    }
+  }
+
+  handleProjectDoubleClick(id: string, event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    // Ensure it's expanded and active
     this.store.activeProjectId.set(id);
+    this.expandedProjectId.set(id);
+    this.ensureProjectDraft(id);
+    // Enter edit mode
+    this.isEditingDescription.set(true);
+  }
+
+  projectDraft(projectId: string) {
+    return this.projectDrafts()[projectId] ?? null;
+  }
+
+  updateProjectDraft(projectId: string, field: 'description' | 'createdDate', value: string) {
+    const base = this.projectDraft(projectId) ?? { description: '', createdDate: '' };
+    const next = { ...base, [field]: value };
+    this.projectDrafts.update(drafts => ({ ...drafts, [projectId]: next }));
+  }
+
+  saveProjectDetails(projectId: string) {
+    const draft = this.projectDraft(projectId);
+    if (!draft) return;
+    // Only update description, createdDate is read-only in UI logic now
+    this.store.updateProjectMetadata(projectId, {
+      description: draft.description
+    });
+    // Exit edit mode
+    this.isEditingDescription.set(false);
+  }
+
+  private ensureProjectDraft(projectId: string) {
+    const drafts = this.projectDrafts();
+    if (drafts[projectId]) return drafts[projectId];
+    const project = this.store.projects().find(p => p.id === projectId);
+    if (!project) return null;
+    const draft = {
+      description: project.description ?? '',
+      createdDate: this.formatDateInput(project.createdDate)
+    };
+    this.projectDrafts.update(curr => ({ ...curr, [projectId]: draft }));
+    return draft;
+  }
+
+  private formatDateInput(value?: string) {
+    if (!value) return '';
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return '';
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  }
+
+  private isoOrNow(value: string) {
+    if (!value) return new Date().toISOString();
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+    return parsed.toISOString();
   }
 
   createNewProject() {

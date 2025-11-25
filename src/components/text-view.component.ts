@@ -78,27 +78,69 @@ import { StoreService, Task } from '../services/store.service';
         <div class="h-full min-h-0 min-w-full w-fit rounded-3xl bg-panel/40 border border-retro-muted/20 backdrop-blur-md px-6 py-6 shadow-inner">
           <div class="flex flex-col h-full min-h-0">
             <div class="flex items-center justify-between mb-4 text-xs text-stone-500">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 relative">
                 <span class="font-medium text-retro-muted">阶段筛选</span>
-                <select class="border border-retro-muted/30 rounded-md px-2 py-1 bg-canvas/70 backdrop-blur text-retro-dark"
-                        [value]="store.stageFilter()"
-                        (change)="onStageFilterChange($event)">
-                  <option value="all">全部</option>
-                  @for (stage of store.stages(); track stage.stageNumber) {
-                    <option [value]="stage.stageNumber">阶段 {{stage.stageNumber}}</option>
-                  }
-                </select>
+                <button 
+                  (click)="isStageFilterOpen.set(!isStageFilterOpen()); isRootFilterOpen.set(false); $event.stopPropagation()"
+                  class="flex items-center gap-2 border border-retro-muted/30 rounded-md px-3 py-1.5 bg-canvas/70 backdrop-blur text-retro-dark hover:bg-retro-muted/10 transition-colors text-xs min-w-[80px] justify-between">
+                  <span>{{ currentStageLabel }}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform duration-200" [class.rotate-180]="isStageFilterOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                @if (isStageFilterOpen()) {
+                  <div class="fixed inset-0 z-40" (click)="isStageFilterOpen.set(false)"></div>
+                  <div class="absolute left-0 top-full mt-1 w-32 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-fade-in overflow-hidden">
+                    <div 
+                      (click)="store.setStageFilter('all'); isStageFilterOpen.set(false)"
+                      class="px-4 py-2 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                      <span>全部</span>
+                      @if (store.stageFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                    </div>
+                    <div class="h-px bg-stone-100 my-1"></div>
+                    @for (stage of store.stages(); track stage.stageNumber) {
+                      <div 
+                        (click)="store.setStageFilter(stage.stageNumber); isStageFilterOpen.set(false)"
+                        class="px-4 py-2 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                        <span>阶段 {{stage.stageNumber}}</span>
+                        @if (store.stageFilter() === stage.stageNumber) { <span class="text-indigo-600 font-bold">✓</span> }
+                      </div>
+                    }
+                  </div>
+                }
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 relative">
                 <span class="font-medium text-retro-muted">延伸筛选</span>
-                <select class="border border-retro-muted/30 rounded-md px-2 py-1 bg-canvas/70 backdrop-blur text-retro-dark"
-                        [value]="store.filterMode()"
-                        (change)="updateRootFilter($event)">
-                  <option value="all">全部任务</option>
-                  @for (root of store.rootTasks(); track root.id) {
-                    <option [value]="root.id">{{root.title}}</option>
-                  }
-                </select>
+                <button 
+                  (click)="isRootFilterOpen.set(!isRootFilterOpen()); isStageFilterOpen.set(false); $event.stopPropagation()"
+                  class="flex items-center gap-2 border border-retro-muted/30 rounded-md px-3 py-1.5 bg-canvas/70 backdrop-blur text-retro-dark hover:bg-retro-muted/10 transition-colors text-xs min-w-[100px] justify-between">
+                  <span class="truncate max-w-[120px]">{{ currentRootLabel }}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform duration-200" [class.rotate-180]="isRootFilterOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                @if (isRootFilterOpen()) {
+                  <div class="fixed inset-0 z-40" (click)="isRootFilterOpen.set(false)"></div>
+                  <div class="absolute left-0 top-full mt-1 w-48 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-fade-in overflow-hidden">
+                    <div 
+                      (click)="store.stageViewRootFilter.set('all'); isRootFilterOpen.set(false)"
+                      class="px-4 py-2 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                      <span>全部任务</span>
+                      @if (store.stageViewRootFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                    </div>
+                    <div class="h-px bg-stone-100 my-1"></div>
+                    @for (root of store.allStage1Tasks(); track root.id) {
+                      <div 
+                        (click)="store.stageViewRootFilter.set(root.id); isRootFilterOpen.set(false)"
+                        class="px-4 py-2 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                        <span class="truncate">{{root.title}}</span>
+                        @if (store.stageViewRootFilter() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                      </div>
+                    }
+                  </div>
+                }
               </div>
             </div>
             <div class="flex h-full min-h-0 gap-8">
@@ -202,6 +244,21 @@ export class TextViewComponent {
 
   hoveredTask = signal<{ id: string; stage: number; index: number } | null>(null);
   draggingTaskId = signal<string | null>(null);
+  isStageFilterOpen = signal(false);
+  isRootFilterOpen = signal(false);
+
+  get currentStageLabel() {
+    const filter = this.store.stageFilter();
+    if (filter === 'all') return '全部';
+    return `阶段 ${filter}`;
+  }
+
+  get currentRootLabel() {
+    const filter = this.store.stageViewRootFilter();
+    if (filter === 'all') return '全部任务';
+    const task = this.store.allStage1Tasks().find(t => t.id === filter);
+    return task ? task.title : '全部任务';
+  }
 
   selectTask(task: Task) {
       if (this.selectedTaskId() === task.id) {
@@ -275,7 +332,7 @@ export class TextViewComponent {
 
   updateRootFilter(e: Event) {
       const val = (e.target as HTMLSelectElement).value;
-      this.store.filterMode.set(val);
+      this.store.stageViewRootFilter.set(val);
   }
 
   onStageFilterChange(e: Event) {
@@ -284,9 +341,23 @@ export class TextViewComponent {
   }
 
   shouldShow(task: Task, stageNumber?: number, index?: number) {
+      // Stage Filter
       if (this.store.stageFilter() !== 'all' && task.stage !== this.store.stageFilter()) {
           return false;
       }
+      
+      // Root Task Filter (Stage View Only)
+      const rootFilter = this.store.stageViewRootFilter();
+      if (rootFilter !== 'all') {
+          const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
+          if (root) {
+              // Show if it's the root itself or a descendant (based on displayId prefix)
+              // e.g. root="1", child="1,a"
+              const isRelated = task.id === root.id || task.displayId.startsWith(root.displayId + ',');
+              if (!isRelated) return false;
+          }
+      }
+
       return true;
   }
   

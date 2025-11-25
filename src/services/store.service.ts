@@ -40,7 +40,8 @@ export class StoreService {
   readonly projects = signal<Project[]>([]);
   readonly activeProjectId = signal<string | null>(null);
   readonly activeView = signal<'text' | 'flow' | null>('text');
-  readonly filterMode = signal<'all' | string>('all'); // 'all' or a root task ID
+  readonly filterMode = signal<'all' | string>('all'); // 'all' or a root task ID (for To-Do list)
+  readonly stageViewRootFilter = signal<'all' | string>('all'); // 'all' or a root task ID (for Stage View)
   readonly stageFilter = signal<'all' | number>('all');
   
   // UI State for Text Column
@@ -132,7 +133,9 @@ export class StoreService {
 
   private computeInsertRank(stage: number, siblings: Task[], beforeId?: string | null, parentRank?: number | null) {
     const sorted = siblings.filter(t => t.stage === stage).sort((a, b) => a.rank - b.rank);
-    const base = parentRank ?? this.stageBase(stage);
+    const base = parentRank !== null && parentRank !== undefined 
+      ? parentRank + this.rankStep 
+      : this.stageBase(stage);
     let prev: Task | null = null;
     let next: Task | null = null;
     if (beforeId) {
@@ -365,7 +368,7 @@ export class StoreService {
   });
 
   readonly rootTasks = computed(() => {
-    // Used for filter dropdown
+    // Used for To-Do filter dropdown (only roots with unfinished tasks)
     const tasks = this.tasks();
     const regex = /- \[ \]/;
     const tasksWithUnfinished = tasks.filter(t => regex.test(t.content || ''));
@@ -374,6 +377,11 @@ export class StoreService {
         if (tasksWithUnfinished.some(u => u.id === root.id)) return true;
         return tasksWithUnfinished.some(u => u.displayId.startsWith(root.displayId + ','));
     });
+  });
+
+  readonly allStage1Tasks = computed(() => {
+    // Used for Stage View filter dropdown (all roots)
+    return this.tasks().filter(t => t.stage === 1).sort((a, b) => a.rank - b.rank);
   });
 
   constructor() {
@@ -413,6 +421,14 @@ export class StoreService {
 
   addProject(project: Project) {
     this.projects.update(p => [...p, this.rebalance(project)]);
+  }
+
+  updateProjectMetadata(projectId: string, metadata: { description?: string; createdDate?: string }) {
+    this.projects.update(projects => projects.map(p => p.id === projectId ? {
+      ...p,
+      description: metadata.description ?? p.description,
+      createdDate: metadata.createdDate ?? p.createdDate
+    } : p));
   }
 
   toggleView(view: 'text' | 'flow') {

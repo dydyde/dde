@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, effect } from '@angular/core';
+import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, effect, NgZone, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
 
@@ -130,6 +130,7 @@ declare var go: any;
 export class FlowViewComponent implements AfterViewInit {
   @ViewChild('diagramDiv') diagramDiv!: ElementRef;
   store = inject(StoreService);
+    private readonly zone = inject(NgZone);
   
   private diagram: any;
 
@@ -198,11 +199,30 @@ export class FlowViewComponent implements AfterViewInit {
           })
       });
 
+      // Helper to create ports
+      function makePort(name: string, spot: any, output: boolean, input: boolean) {
+        return $(go.Shape, "Circle",
+          {
+            fill: "transparent",
+            stroke: null,
+            desiredSize: new go.Size(10, 10),
+            alignment: spot,
+            alignmentFocus: spot,
+            portId: name,
+            fromLinkable: output,
+            toLinkable: input,
+            cursor: "pointer",
+            fromSpot: spot,
+            toSpot: spot,
+            mouseEnter: (e: any, port: any) => { if (!e.diagram.isReadOnly) port.fill = "#a8a29e"; },
+            mouseLeave: (e: any, port: any) => port.fill = "transparent"
+          });
+      }
+
       // Node Template
       this.diagram.nodeTemplate =
-          $(go.Node, "Auto",
+          $(go.Node, "Spot",
             { 
-                width: 200, // Force fixed width for the entire node
                 locationSpot: go.Spot.Center,
                 selectionAdorned: true,
                 click: (e: any, node: any) => {
@@ -214,25 +234,59 @@ export class FlowViewComponent implements AfterViewInit {
                 }
             },
             new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
-            $(go.Shape, "RoundedRectangle", 
-              { fill: "white", stroke: "#e7e5e4", strokeWidth: 1, portId: "", fromLinkable: true, toLinkable: true, cursor: "pointer", parameter1: 10 },
-              new go.Binding("fill", "color"),
-              new go.Binding("stroke", "isSelected", (s: boolean) => s ? "#a8a29e" : "#e7e5e4").ofObject()
+            
+            // Main Content
+            $(go.Panel, "Auto",
+                { width: 200 }, // Fixed width
+                $(go.Shape, "RoundedRectangle", 
+                  { 
+                      fill: "white", 
+                      stroke: "#e7e5e4", 
+                      strokeWidth: 1, 
+                      parameter1: 10,
+                      // Make the body NOT linkable, so it's draggable
+                      portId: "", 
+                      fromLinkable: false, 
+                      toLinkable: false, 
+                      cursor: "move" 
+                  },
+                  new go.Binding("fill", "color"),
+                  new go.Binding("stroke", "isSelected", (s: boolean) => s ? "#a8a29e" : "#e7e5e4").ofObject()
+                ),
+                $(go.Panel, "Vertical", { margin: 16 },
+                    $(go.TextBlock, { font: "bold 10px monospace", stroke: "#a8a29e", alignment: go.Spot.Left },
+                        new go.Binding("text", "displayId")),
+                    $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "500 13px sans-serif", stroke: "#44403c", maxSize: new go.Size(160, NaN) },
+                        new go.Binding("text", "title"))
+                )
             ),
-            $(go.Panel, "Vertical", { margin: 16 },
-                $(go.TextBlock, { font: "bold 10px monospace", stroke: "#a8a29e", alignment: go.Spot.Left },
-                    new go.Binding("text", "displayId")),
-                $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "500 13px sans-serif", stroke: "#44403c", maxSize: new go.Size(160, NaN) },
-                    new go.Binding("text", "title"))
-            )
+
+            // Ports
+            makePort("T", go.Spot.Top, true, true),
+            makePort("L", go.Spot.Left, true, true),
+            makePort("R", go.Spot.Right, true, true),
+            makePort("B", go.Spot.Bottom, true, true)
           );
 
       // Link Template
       this.diagram.linkTemplate =
           $(go.Link, 
-            { routing: go.Link.Orthogonal, corner: 10 },
-            $(go.Shape, { strokeWidth: 1.5, stroke: "#d6d3d1" }),
-            $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#d6d3d1" })
+            { 
+                routing: go.Link.AvoidsNodes, 
+                curve: go.Link.JumpOver, 
+                corner: 12,
+                toShortLength: 4,
+                relinkableFrom: true,
+                relinkableTo: true,
+                reshapable: true,
+                resegmentable: true
+            },
+            // Transparent fat line for easier selection
+            $(go.Shape, { isPanelMain: true, strokeWidth: 8, stroke: "transparent" }),
+            // Visible line
+            $(go.Shape, { isPanelMain: true, strokeWidth: 2, stroke: "#94a3b8" }),
+            // Arrowhead
+            $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#94a3b8", scale: 1.2 })
           );
 
       // Initialize model with linkKeyProperty for proper merging
@@ -266,6 +320,9 @@ export class FlowViewComponent implements AfterViewInit {
              this.store.moveTaskToStage(task.id, 1);
           }
       });
+
+      this.diagram.addDiagramListener('LinkDrawn', (e: any) => this.handleLinkGesture(e));
+      this.diagram.addDiagramListener('LinkRelinked', (e: any) => this.handleLinkGesture(e));
   }
 
   updateDiagram(tasks: Task[]) {
@@ -351,4 +408,50 @@ export class FlowViewComponent implements AfterViewInit {
           this.diagram.select(node);
       }
   }
+
+  @HostListener('window:keydown', ['$event'])
+  handleDiagramShortcut(event: KeyboardEvent) {
+      if (!this.diagram) return;
+      if (!event.altKey || event.key.toLowerCase() !== 'z') return;
+
+      const targets: string[] = [];
+      const it = this.diagram.selection?.iterator;
+      if (it) {
+          while (it.next()) {
+              const part = it.value;
+              const key = part?.data?.key;
+              const isNode = typeof go !== 'undefined' ? part instanceof go.Node : !part?.category;
+              if (isNode && key) {
+                  targets.push(key);
+              }
+          }
+      }
+
+      if (!targets.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      this.zone.run(() => {
+          targets.forEach(id => this.store.detachTask(id));
+      });
+  }
+
+    private handleLinkGesture(e: any) {
+            if (!this.diagram) return;
+            const link = e.subject;
+            const fromNode = link?.fromNode;
+            const toNode = link?.toNode;
+            const parentId = fromNode?.data?.key;
+            const childId = toNode?.data?.key;
+            if (!parentId || !childId || parentId === childId) return;
+
+            const parentStage = typeof fromNode.data?.stage === 'number' ? fromNode.data.stage : null;
+            const childStage = typeof toNode.data?.stage === 'number' ? toNode.data.stage : null;
+            const nextStage = parentStage !== null ? parentStage + 1 : (childStage ?? 1);
+
+            this.diagram.remove(link);
+            this.zone.run(() => {
+                    this.store.moveTaskToStage(childId, nextStage, undefined, parentId);
+            });
+    }
 }
