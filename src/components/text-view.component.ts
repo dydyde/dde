@@ -181,7 +181,7 @@ import { StoreService, Task } from '../services/store.service';
           
           <!-- 阶段列表 -->
           <div class="w-full flex-1 overflow-auto"
-               [ngClass]="{'grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4 content-start': !isMobile(), 'flex flex-col gap-2': isMobile()}">
+               [ngClass]="{'grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4 content-start items-start': !isMobile(), 'flex flex-col gap-2': isMobile()}">
             @for (stage of visibleStages(); track stage.stageNumber) {
               <article 
                 [attr.data-stage-number]="stage.stageNumber"

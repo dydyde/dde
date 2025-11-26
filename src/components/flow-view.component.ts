@@ -18,7 +18,7 @@ declare var go: any;
            <div class="flex-none mx-4 mt-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
                <div (click)="store.isFlowUnfinishedOpen.set(!store.isFlowUnfinishedOpen())" 
                     class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                   <span class="font-bold text-stone-800 text-sm flex items-center gap-3 tracking-tight">
+                   <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
                        <span class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.4)]"></span>
                        待办事项
                    </span>
@@ -31,8 +31,8 @@ declare var go: any;
                            @for (item of store.unfinishedItems(); track item.taskId + item.text) {
                                <li class="text-xs text-stone-600 flex items-center gap-3 bg-white/80 backdrop-blur-sm border border-stone-100/50 p-2 rounded-lg hover:border-orange-200 cursor-pointer group shadow-sm transition-all" (click)="centerOnNode(item.taskId)">
                                    <span class="w-1 h-1 rounded-full bg-stone-200 group-hover:bg-orange-400 transition-colors ml-1"></span>
-                                   <span class="font-mono text-stone-400 text-[10px]">{{item.taskDisplayId}}</span>
-                                   <span class="truncate flex-1 font-medium group-hover:text-stone-900 transition-colors">{{item.text}}</span>
+                                   <span class="font-bold text-retro-muted text-[9px] tracking-wider">{{item.taskDisplayId}}</span>
+                                   <span class="truncate flex-1 group-hover:text-stone-900 transition-colors">{{item.text}}</span>
                                </li>
                            }
                            @if (store.unfinishedItems().length === 0) {
@@ -47,7 +47,7 @@ declare var go: any;
            <div class="flex-none mx-4 mt-2 mb-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-teal-50/60 border border-teal-100/50 backdrop-blur-sm z-10 relative">
                <div (click)="store.isFlowUnassignedOpen.set(!store.isFlowUnassignedOpen())" 
                     class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                   <span class="font-bold text-stone-800 text-sm flex items-center gap-3 tracking-tight">
+                   <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
                        <span class="w-1.5 h-1.5 rounded-full bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]"></span>
                        待分配
                    </span>
@@ -127,7 +127,7 @@ declare var go: any;
                         
                         <div class="p-4 border-b border-stone-100 flex justify-between items-center bg-transparent"
                              [class.p-3]="store.isMobile()">
-                            <h3 class="font-bold text-stone-800 tracking-tight text-sm">任务详情</h3>
+                            <h3 class="font-bold text-stone-700 tracking-tight text-sm">任务详情</h3>
                             <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
                               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -141,7 +141,7 @@ declare var go: any;
                                 <!-- 选中的任务详情 - 可编辑 -->
                                 <div class="space-y-3">
                                     <div class="flex items-center gap-2">
-                                        <span class="font-mono text-[10px] font-medium text-stone-400 bg-stone-100 px-2 py-0.5 rounded">{{task.displayId}}</span>
+                                        <span class="font-bold text-retro-muted text-[9px] tracking-wider bg-stone-100 px-2 py-0.5 rounded">{{task.displayId}}</span>
                                         <span class="text-[10px] text-stone-400">{{task.createdDate | date:'yyyy-MM-dd HH:mm'}}</span>
                                     </div>
                                     
@@ -495,9 +495,9 @@ export class FlowViewComponent implements AfterViewInit {
                   new go.Binding("stroke", "isSelected", (s: boolean) => s ? "#a8a29e" : "#e7e5e4").ofObject()
                 ),
                 $(go.Panel, "Vertical", { margin: 16 },
-                    $(go.TextBlock, { font: "bold 10px monospace", stroke: "#a8a29e", alignment: go.Spot.Left },
+                    $(go.TextBlock, { font: "bold 9px sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
                         new go.Binding("text", "displayId")),
-                    $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "500 13px sans-serif", stroke: "#44403c", maxSize: new go.Size(160, NaN) },
+                    $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px sans-serif", stroke: "#57534e", maxSize: new go.Size(160, NaN) },
                         new go.Binding("text", "title"))
                 )
             ),
