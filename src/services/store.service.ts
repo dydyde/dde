@@ -109,6 +109,8 @@ export class StoreService {
   private rankRootBase = 10000;
   private rankStep = 500;
   private rankMinGap = 50;
+  private hasPendingLocalChanges = false; // 用于避免实时同步覆盖正在输入的内容
+  private lastPersistAt = 0;
 
   private resolveApiKey() {
     const candidate = (globalThis as any).__GENAI_API_KEY__;
@@ -162,6 +164,7 @@ export class StoreService {
       return p;
     }));
     if (updated) {
+      this.hasPendingLocalChanges = true;
       this.schedulePersist();
     }
   }
@@ -665,18 +668,26 @@ export class StoreService {
   private remoteChangeTimer: ReturnType<typeof setTimeout> | null = null;
   
   private async handleRemoteChange(payload: any) {
-    // 防抖 300ms，避免快速连续变更导致频繁刷新
-    if (this.remoteChangeTimer) {
-      clearTimeout(this.remoteChangeTimer);
-    }
-    this.remoteChangeTimer = setTimeout(async () => {
+    // 先等本地输入/同步完成，避免覆盖正在输入的内容
+    const processChange = async () => {
+      // 有本地未落盘或刚刚持久化完，延迟处理
+      if (this.hasPendingLocalChanges || this.isSyncing() || Date.now() - this.lastPersistAt < 600) {
+        this.remoteChangeTimer = setTimeout(processChange, 500);
+        return;
+      }
       try {
         await this.loadProjects();
       } catch (e) {
         console.error('处理实时更新失败', e);
+      } finally {
+        this.remoteChangeTimer = null;
       }
-      this.remoteChangeTimer = null;
-    }, 300);
+    };
+
+    if (this.remoteChangeTimer) {
+      clearTimeout(this.remoteChangeTimer);
+    }
+    this.remoteChangeTimer = setTimeout(processChange, 300);
   }
 
   async loadProjects() {
@@ -737,10 +748,18 @@ export class StoreService {
   private async persistActiveProject() {
     const project = this.activeProject();
     this.saveOfflineSnapshot();
-    if (!project) return;
+    if (!project) {
+      this.hasPendingLocalChanges = false;
+      return;
+    }
 
     const userId = this.currentUserId();
-    if (!userId || !this.supabase.isConfigured) return;
+    if (!userId || !this.supabase.isConfigured) {
+      // 无远端配置时，只更新本地缓存并认为已落盘
+      this.hasPendingLocalChanges = false;
+      this.lastPersistAt = Date.now();
+      return;
+    }
 
     this.isSyncing.set(true);
     try {
@@ -764,6 +783,8 @@ export class StoreService {
       this.offlineMode.set(true);
     } finally {
       this.isSyncing.set(false);
+      this.hasPendingLocalChanges = false;
+      this.lastPersistAt = Date.now();
     }
   }
 
@@ -1116,6 +1137,3 @@ export class StoreService {
     }
   }
 }
-
-
-
