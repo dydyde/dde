@@ -82,6 +82,20 @@ declare var go: any;
            <!-- GoJS Diagram Div -->
            <div #diagramDiv class="absolute inset-0 w-full h-full z-0"></div>
 
+           <!-- Zoom Controls -->
+           <div class="absolute bottom-4 left-4 z-10 flex flex-col gap-2">
+               <button (click)="zoomIn()" class="bg-white/90 backdrop-blur p-2 rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600" title="放大">
+                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                   </svg>
+               </button>
+               <button (click)="zoomOut()" class="bg-white/90 backdrop-blur p-2 rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600" title="缩小">
+                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                   </svg>
+               </button>
+           </div>
+
            <!-- 4. 详情区域 (Floating Right) -->
            <div class="absolute top-6 right-0 bottom-6 z-20 flex pointer-events-none">
                 <!-- Container for positioning -->
@@ -147,6 +161,24 @@ export class FlowViewComponent implements AfterViewInit {
               this.updateDiagram(tasks);
           }
       });
+  }
+
+  public refreshLayout() {
+      if (this.diagram) {
+          this.diagram.requestUpdate();
+      }
+  }
+
+  zoomIn() {
+      if (this.diagram) {
+          this.diagram.commandHandler.increaseZoom();
+      }
+  }
+
+  zoomOut() {
+      if (this.diagram) {
+          this.diagram.commandHandler.decreaseZoom();
+      }
   }
 
   startPaletteResize(e: MouseEvent) {

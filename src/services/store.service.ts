@@ -1,5 +1,7 @@
-import { Injectable, signal, computed, effect } from '@angular/core';
+﻿import { Injectable, signal, computed, inject } from '@angular/core';
 import { GoogleGenAI } from '@google/genai';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { SupabaseClientService } from './supabase-client.service';
 
 export interface Task {
   id: string;
@@ -32,12 +34,41 @@ export interface UnfinishedItem {
   text: string; // The text after "- [ ]"
 }
 
+interface ProjectRow {
+  id: string;
+  owner_id: string;
+  title?: string | null;
+  description?: string | null;
+  created_date?: string | null;
+  data?: {
+    tasks?: Task[];
+    connections?: { source: string; target: string }[];
+  } | null;
+  updated_at?: string | null;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class StoreService {
+  supabase = inject(SupabaseClientService);
+  
+  // UI State
+  isMobile = signal(false);
+  
   // State
-  readonly projects = signal<Project[]>([]);
+  projects = signal<Project[]>([]);
+  readonly currentUserId = signal<string | null>(null);
+  readonly isLoadingRemote = signal(false);
+  readonly isSyncing = signal(false);
+  readonly syncError = signal<string | null>(null);
+  readonly offlineMode = signal(false);
+
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly offlineCacheKey = 'nanoflow.offline-cache-v1';
+  private realtimeChannel: RealtimeChannel | null = null;
+
+  // State
   readonly activeProjectId = signal<string | null>(null);
   readonly activeView = signal<'text' | 'flow' | null>('text');
   readonly filterMode = signal<'all' | string>('all'); // 'all' or a root task ID (for To-Do list)
@@ -101,7 +132,7 @@ export class StoreService {
     const violatesParent = parentRank !== null && nextRank <= parentRank;
     const violatesChild = Number.isFinite(minChildRank) && nextRank >= minChildRank;
     if (violatesParent || violatesChild) {
-      console.warn('拒绝排序：违反拓扑约束', {
+      console.warn('Refused ordering: violates parent/child constraints', {
         taskId: target.id,
         parentRank,
         minChildRank,
@@ -113,7 +144,17 @@ export class StoreService {
   }
 
   private updateActiveProject(mutator: (project: Project) => Project) {
-    this.projects.update(projects => projects.map(p => p.id === this.activeProjectId() ? mutator(p) : p));
+    let updated = false;
+    this.projects.update(projects => projects.map(p => {
+      if (p.id === this.activeProjectId()) {
+        updated = true;
+        return mutator(p);
+      }
+      return p;
+    }));
+    if (updated) {
+      this.schedulePersist();
+    }
   }
 
   private gridPosition(stage: number, index: number) {
@@ -390,37 +431,241 @@ export class StoreService {
         if (key) {
             this.ai = new GoogleGenAI({ apiKey: key });
         } else {
-            console.info('AI 未初始化：未提供 __GENAI_API_KEY__');
+            console.info('AI not initialized: missing __GENAI_API_KEY__');
         }
     } catch (e) {
         console.warn('AI init failed', e);
     }
 
-    // Seed data
-    this.addProject({
-        id: 'proj-1',
-        name: 'Alpha 协议开发',
-        description: 'NanoFlow 核心引擎的初始化协议开发计划。',
-        createdDate: new Date().toISOString(),
+    this.loadFromCacheOrSeed();
+  }
+
+  async setCurrentUser(userId: string | null) {
+    if (this.currentUserId() === userId) return;
+    this.currentUserId.set(userId);
+    this.activeProjectId.set(null);
+    this.projects.set([]);
+    this.syncError.set(null);
+    this.teardownRealtimeSubscription();
+    if (userId && this.supabase.isConfigured) {
+      await this.loadProjects();
+      await this.initRealtimeSubscription();
+    } else {
+      this.loadFromCacheOrSeed();
+    }
+  }
+
+  private seedProjects(): Project[] {
+    const now = new Date().toISOString();
+    return [
+      this.rebalance({
+        id: 'proj-seed-1',
+        name: 'Alpha Protocol',
+        description: 'NanoFlow core engine boot plan.',
+        createdDate: now,
         tasks: [
-            { 
-                id: 't1', title: '阶段 1: 环境初始化', content: '项目基础环境搭建。\n- [ ] 配置 Git 仓库\n- [ ] 安装 Node.js 依赖', 
-                stage: 1, parentId: null, order: 1, rank: 10000, status: 'active', x: 100, y: 100, createdDate: new Date().toISOString(), displayId: '1' 
-            },
-             { 
-                id: 't2', title: '核心逻辑实现', content: '开发核心业务逻辑。\n- [ ] 编写单元测试用例', 
-                stage: 2, parentId: 't1', order: 1, rank: 10500, status: 'active', x: 300, y: 100, createdDate: new Date().toISOString(), displayId: '1,a' 
-            }
+          {
+            id: 't1',
+            title: 'Stage 1: Environment setup',
+            content: 'Bootstrap project environment.\n- [ ] Init git repo\n- [ ] Install Node.js deps',
+            stage: 1,
+            parentId: null,
+            order: 1,
+            rank: 10000,
+            status: 'active',
+            x: 100,
+            y: 100,
+            createdDate: now,
+            displayId: '1'
+          },
+          {
+            id: 't2',
+            title: 'Core logic implementation',
+            content: 'Deliver core business logic.\n- [ ] Write unit tests',
+            stage: 2,
+            parentId: 't1',
+            order: 1,
+            rank: 10500,
+            status: 'active',
+            x: 300,
+            y: 100,
+            createdDate: now,
+            displayId: '1,a'
+          }
         ],
         connections: [
-            { source: 't1', target: 't2' }
+          { source: 't1', target: 't2' }
         ]
+      })
+    ];
+  }
+
+  private loadFromCacheOrSeed() {
+    let projects: Project[] | null = null;
+    try {
+      const cached = typeof localStorage !== 'undefined' ? localStorage.getItem(this.offlineCacheKey) : null;
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed?.projects)) {
+          projects = parsed.projects.map((p: Project) => this.rebalance(p));
+        }
+      }
+    } catch (e) {
+      console.warn('Offline cache read failed', e);
+    }
+    if (!projects || projects.length === 0) {
+      projects = this.seedProjects();
+    }
+    this.projects.set(projects);
+    this.activeProjectId.set(projects[0]?.id ?? null);
+    this.offlineMode.set(true);
+  }
+
+  private saveOfflineSnapshot() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(this.offlineCacheKey, JSON.stringify({ projects: this.projects() }));
+    } catch (e) {
+      console.warn('Offline cache write failed', e);
+    }
+  }
+
+  private teardownRealtimeSubscription() {
+    if (this.realtimeChannel && this.supabase.isConfigured) {
+      void this.supabase.client().removeChannel(this.realtimeChannel);
+    }
+    this.realtimeChannel = null;
+  }
+
+  async initRealtimeSubscription() {
+    if (!this.supabase.isConfigured || !this.currentUserId()) return;
+    this.teardownRealtimeSubscription();
+
+    const channel = this.supabase.client()
+      .channel('public:projects')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'projects',
+          filter: `owner_id=eq.${this.currentUserId()}`
+        },
+        payload => {
+          console.log('收到云端变更:', payload);
+          void this.handleRemoteChange(payload);
+        }
+      );
+
+    this.realtimeChannel = channel;
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.info('Realtime channel ready');
+      }
     });
-    this.activeProjectId.set('proj-1');
+  }
+
+  private async handleRemoteChange(payload: any) {
+    try {
+      await this.loadProjects();
+    } catch (e) {
+      console.error('处理实时更新失败', e);
+    }
+  }
+
+  async loadProjects() {
+    const userId = this.currentUserId();
+    if (!userId || !this.supabase.isConfigured) {
+      this.loadFromCacheOrSeed();
+      return;
+    }
+    const previousActive = this.activeProjectId();
+    this.isLoadingRemote.set(true);
+    try {
+      const { data, error } = await this.supabase.client()
+        .from('projects')
+        .select('*')
+        .eq('owner_id', userId)
+        .order('created_date', { ascending: true });
+      if (error) throw error;
+      const mapped = (data || []).map(row => this.mapRowToProject(row as ProjectRow));
+      this.projects.set(mapped);
+      if (previousActive && mapped.some(p => p.id === previousActive)) {
+        this.activeProjectId.set(previousActive);
+      } else {
+        this.activeProjectId.set(mapped[0]?.id ?? null);
+      }
+      this.syncError.set(null);
+      this.offlineMode.set(false);
+      this.saveOfflineSnapshot();
+    } catch (e: any) {
+      console.error('Loading Supabase failed', e);
+      this.syncError.set(e?.message ?? String(e));
+      this.loadFromCacheOrSeed();
+    } finally {
+      this.isLoadingRemote.set(false);
+    }
+  }
+
+  private mapRowToProject(row: ProjectRow): Project {
+    return this.rebalance({
+      id: row.id,
+      name: row.title ?? 'Untitled project',
+      description: row.description ?? '',
+      createdDate: row.created_date ?? new Date().toISOString(),
+      tasks: row.data?.tasks ?? [],
+      connections: row.data?.connections ?? []
+    });
+  }
+
+  private schedulePersist() {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.persistActiveProject();
+    }, 800);
+  }
+
+  private async persistActiveProject() {
+    const project = this.activeProject();
+    this.saveOfflineSnapshot();
+    if (!project) return;
+
+    const userId = this.currentUserId();
+    if (!userId || !this.supabase.isConfigured) return;
+
+    this.isSyncing.set(true);
+    try {
+      const { error } = await this.supabase.client().from('projects').upsert({
+        id: project.id,
+        owner_id: userId,
+        title: project.name,
+        description: project.description,
+        created_date: project.createdDate || new Date().toISOString(),
+        data: {
+          tasks: project.tasks,
+          connections: project.connections
+        }
+      });
+      if (error) throw error;
+      this.syncError.set(null);
+      this.offlineMode.set(false);
+    } catch (e: any) {
+      console.error('Sync project failed', e);
+      this.syncError.set(e?.message ?? String(e));
+      this.offlineMode.set(true);
+    } finally {
+      this.isSyncing.set(false);
+    }
   }
 
   addProject(project: Project) {
-    this.projects.update(p => [...p, this.rebalance(project)]);
+    const balanced = this.rebalance(project);
+    this.projects.update(p => [...p, balanced]);
+    this.activeProjectId.set(balanced.id);
+    this.schedulePersist();
   }
 
   updateProjectMetadata(projectId: string, metadata: { description?: string; createdDate?: string }) {
@@ -429,6 +674,9 @@ export class StoreService {
       description: metadata.description ?? p.description,
       createdDate: metadata.createdDate ?? p.createdDate
     } : p));
+    if (this.activeProjectId() === projectId) {
+      this.schedulePersist();
+    }
   }
 
   toggleView(view: 'text' | 'flow') {
@@ -633,66 +881,69 @@ export class StoreService {
 
   // AI Capabilities
   async think(prompt: string): Promise<string> {
-    if (!this.ai) return "AI 服务未初始化 (请检查 API Key)";
+    if (!this.ai) return "AI not initialized (missing API key)";
     try {
-        const result = await this.ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                thinkingConfig: { thinkingBudget: 1024 }
-            }
-        });
-        return result.text || "AI 未返回任何内容。";
+      const result = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          thinkingConfig: { thinkingBudget: 1024 }
+        }
+      });
+      return result.text || "AI returned empty response.";
     } catch (e) {
-        return "AI 处理错误: " + e;
+      return "AI error: " + e;
     }
   }
   
   async generateImage(prompt: string): Promise<string | null> {
-      if (!this.ai) return null;
-      try {
-          const result = await this.ai.models.generateImages({
-              model: 'imagen-4.0-generate-001',
-              prompt: prompt,
-              config: { numberOfImages: 1 }
-          });
-          return result.generatedImages?.[0]?.image?.imageBytes 
-            ? `data:image/png;base64,${result.generatedImages[0].image.imageBytes}`
-            : null;
-      } catch (e) {
-          console.error(e);
-          return null;
-      }
+    if (!this.ai) return null;
+    try {
+      const result = await this.ai.models.generateImages({
+        model: "imagen-4.0-generate-001",
+        prompt: prompt,
+        config: { numberOfImages: 1 }
+      });
+      return result.generatedImages?.[0]?.image?.imageBytes 
+        ? `data:image/png;base64,${result.generatedImages[0].image.imageBytes}`
+        : null;
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
   }
   
   async editImageWithPrompt(imageBase64: string, editInstruction: string): Promise<string | null> {
-      if (!this.ai) return null;
-      try {
-          const analysisResponse = await this.ai.models.generateContent({
-              model: 'gemini-2.5-flash',
-              contents: {
-                  parts: [
-                      { inlineData: { mimeType: 'image/png', data: imageBase64.split(',')[1] } },
-                      { text: `Generate a detailed image prompt that describes the new image resulting from applying this change: "${editInstruction}" to the provided image.` }
-                  ]
-              }
-          });
-          
-          const newPrompt = analysisResponse.text;
-          if (!newPrompt) return null;
+    if (!this.ai) return null;
+    try {
+      const analysisResponse = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: {
+          parts: [
+            { inlineData: { mimeType: "image/png", data: imageBase64.split(',')[1] } },
+            { text: `Generate a detailed image prompt that describes the new image resulting from applying this change: "${editInstruction}" to the provided image.` }
+          ]
+        }
+      });
+      
+      const newPrompt = analysisResponse.text;
+      if (!newPrompt) return null;
 
-          const imgResult = await this.ai.models.generateImages({
-              model: 'imagen-4.0-generate-001',
-              prompt: newPrompt,
-              config: { numberOfImages: 1 }
-          });
-          
-          return imgResult.generatedImages?.[0]?.image?.imageBytes
-             ? `data:image/png;base64,${imgResult.generatedImages[0].image.imageBytes}`
-             : null;
-      } catch (e) {
-          console.error("Edit Image Error", e);
-          return null;
-      }
+      const imgResult = await this.ai.models.generateImages({
+        model: "imagen-4.0-generate-001",
+        prompt: newPrompt,
+        config: { numberOfImages: 1 }
+      });
+      
+      return imgResult.generatedImages?.[0]?.image?.imageBytes
+        ? `data:image/png;base64,${imgResult.generatedImages[0].image.imageBytes}`
+        : null;
+    } catch (e) {
+      console.error("Edit Image Error", e);
+      return null;
+    }
   }
 }
+
+
+

@@ -1,5 +1,24 @@
+﻿
 
 <div class="flex h-full w-full bg-[#F9F8F6] overflow-hidden font-sans text-stone-600">
+  @if (!store.currentUserId()) {
+    <div class="fixed top-4 right-4 z-50 w-80">
+      <form (submit)="handleLogin($event)" class="bg-white/90 backdrop-blur-xl border border-stone-200 shadow-lg rounded-xl p-4 space-y-3 text-sm">
+        <div class="flex justify-between items-center">
+          <div class="font-semibold text-stone-700">Supabase 登录</div>
+          @if (isCheckingSession()) { <span class="text-[11px] text-stone-400">检查中...</span> }
+        </div>
+        <input type="email" placeholder="邮箱" [ngModel]="authEmail()" (ngModelChange)="authEmail.set($event)" [ngModelOptions]="{standalone: true}" name="authEmail" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300" autocomplete="email" required>
+        <input type="password" placeholder="密码" [ngModel]="authPassword()" (ngModelChange)="authPassword.set($event)" [ngModelOptions]="{standalone: true}" name="authPassword" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300" autocomplete="current-password" required>
+        @if (authError()) {
+          <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ authError() }}</div>
+        }
+        <button type="submit" class="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition disabled:opacity-60" [disabled]="isAuthLoading()">
+          @if (isAuthLoading()) { 正在登录... } @else { 登录 }
+        </button>
+      </form>
+    </div>
+  }
   
   <!-- Left Sidebar: Project List -->
   <aside class="bg-[#F9F8F6] border-r border-stone-200/50 flex flex-col shrink-0 transition-all duration-75 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 overflow-hidden"
@@ -92,11 +111,17 @@
   </div>
 
   <!-- Main Content -->
-  <main class="flex-1 flex h-full relative bg-[#F9F8F6] overflow-hidden">
+  <main class="flex-1 flex relative bg-[#F9F8F6] responsive-stack overflow-x-hidden"
+        [class.h-full]="!store.isMobile()"
+        [class.h-auto]="store.isMobile()"
+        [class.overflow-hidden]="!store.isMobile()"
+        [class.overflow-y-auto]="store.isMobile()">
     @if (store.activeProjectId()) {
       <!-- Text Column -->
       <div class="flex flex-col border-r border-stone-200/60 min-w-[300px] bg-[#F9F8F6]"
-           [style.width.%]="store.textColumnRatio()">
+           [class.hidden]="store.isMobile() && mobileActiveView() !== 'text'"
+           [class.w-full]="store.isMobile()"
+           [style.width.%]="store.isMobile() ? 100 : store.textColumnRatio()">
         <!-- Header for Text Column -->
         <div class="h-16 mx-6 mt-6 flex items-center justify-between shrink-0 z-10">
            <div class="flex items-center gap-3">
@@ -108,7 +133,14 @@
              <span class="font-bold text-stone-800 text-lg tracking-tight">文本视图</span>
            </div>
            <!-- Filter -->
-           <div class="relative">
+           <div class="relative flex items-center gap-2">
+             <!-- Mobile Switch Button -->
+             @if(store.isMobile()) {
+                <button (click)="switchToFlow()" class="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm whitespace-nowrap">
+                    切换流程图
+                </button>
+             }
+
              <button 
                 (click)="isFilterOpen.set(!isFilterOpen()); $event.stopPropagation()"
                 class="flex items-center gap-2 bg-transparent text-xs font-medium text-stone-500 hover:text-indigo-800 transition-colors py-1.5 px-3 rounded-lg hover:bg-indigo-50 border border-transparent active:bg-indigo-100">
@@ -143,19 +175,30 @@
              }
            </div>
         </div>
-        <app-text-view class="flex-1 overflow-hidden"></app-text-view>
+        <app-text-view class="flex-1"
+                       [class.overflow-hidden]="!store.isMobile()"
+                       [class.overflow-y-auto]="store.isMobile()"></app-text-view>
       </div>
 
       <!-- Content Resizer -->
-      <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize z-20 flex-shrink-0 relative group"
-           (mousedown)="startContentResize($event)">
-           <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
-      </div>
+      @if(!store.isMobile()) {
+        <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize z-20 flex-shrink-0 relative group"
+             (mousedown)="startContentResize($event)">
+             <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
+        </div>
+      }
 
       <!-- Flow Column -->
-      <div class="flex-1 flex flex-col min-w-[300px] relative bg-[#F9F8F6]">
-         <div class="h-16 mx-6 mt-6 flex items-center shrink-0 z-10">
+      <div class="flex-1 flex flex-col min-w-[300px] relative bg-[#F9F8F6]"
+           [class.hidden]="store.isMobile() && mobileActiveView() !== 'flow'"
+           [class.w-full]="store.isMobile()">
+         <div class="h-16 mx-6 mt-6 flex items-center justify-between shrink-0 z-10">
             <span class="font-bold text-stone-800 text-lg tracking-tight">流程视图</span>
+            @if(store.isMobile()) {
+                <button (click)="mobileActiveView.set('text')" class="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm whitespace-nowrap">
+                    切换文本
+                </button>
+            }
          </div>
          <app-flow-view class="flex-1 overflow-hidden"></app-flow-view>
       </div>
@@ -178,6 +221,57 @@
         <h2 class="text-xl font-bold mb-4 text-slate-800">设置</h2>
         
         <div class="space-y-4">
+          <div class="rounded-xl border border-stone-200 bg-stone-50/60 p-4 shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[11px] font-semibold text-stone-400 uppercase tracking-wide">账户</div>
+                <div class="text-sm font-semibold text-stone-800">Supabase 登录</div>
+              </div>
+              <span class="px-2.5 py-1 text-[11px] rounded-full border"
+                    [class.bg-emerald-50]="store.currentUserId()"
+                    [class.border-emerald-100]="store.currentUserId()"
+                    [class.text-emerald-700]="store.currentUserId()"
+                    [class.bg-amber-50]="!store.currentUserId()"
+                    [class.border-amber-100]="!store.currentUserId()"
+                    [class.text-amber-700]="!store.currentUserId()">
+                @if (store.currentUserId()) { 已登录 } @else { 未登录 }
+              </span>
+            </div>
+
+            <div class="text-xs text-stone-500">
+              @if (store.currentUserId()) {
+                当前账号：{{ sessionEmail() || "Supabase 用户" }}
+              } @else {
+                登录后可同步云端项目数据。
+              }
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              @if (store.currentUserId()) {
+                <button type="button" (click)="startRelogin()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 transition">重新登录</button>
+                <button type="button" (click)="signOut()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition">退出登录</button>
+              } @else {
+                <button type="button" (click)="isReloginMode.set(true)" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition">立即登录</button>
+              }
+            </div>
+
+            @if (authError()) {
+              <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ authError() }}</div>
+            }
+
+            @if (showSettingsAuthForm()) {
+              <form (submit)="handleLogin($event)" class="space-y-2 text-sm">
+                <div class="space-y-2">
+                  <input type="email" placeholder="邮箱" [ngModel]="authEmail()" (ngModelChange)="authEmail.set($event)" [ngModelOptions]="{standalone: true}" name="authEmailSettings" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300" autocomplete="email" required>
+                  <input type="password" placeholder="密码" [ngModel]="authPassword()" (ngModelChange)="authPassword.set($event)" [ngModelOptions]="{standalone: true}" name="authPasswordSettings" class="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm text-stone-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-300" autocomplete="current-password" required>
+                </div>
+                <button type="submit" class="w-full py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 transition disabled:opacity-60" [disabled]="isAuthLoading()">
+                  @if (isAuthLoading()) { 正在登录... } @else { 登录 }
+                </button>
+              </form>
+            }
+          </div>
+
           <div>
             <label class="block text-sm font-medium text-slate-600 mb-1">布局方向</label>
             <select 
@@ -217,7 +311,6 @@
       </div>
     </div>
   }
-  
   <!-- New Project Modal -->
   @if(showNewProjectModal()) {
       <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm" (click)="showNewProjectModal.set(false)">
@@ -273,7 +366,7 @@
       <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" (click)="showImageEditModal.set(false)">
            <div class="bg-white rounded-2xl shadow-2xl w-[600px] p-6 overflow-hidden flex flex-col max-h-[90vh]" (click)="$event.stopPropagation()">
                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-emerald-600">
-                   <span>✏️</span> AI 图像编辑
+                   <span>✨</span> AI 图像编辑
                </h2>
                
                <!-- Upload/Display Area -->
@@ -291,7 +384,7 @@
                
                <div class="mb-4">
                    <label class="block text-sm font-medium text-slate-700 mb-1">编辑指令</label>
-                   <input #editPrompt type="text" placeholder="例如：'将背景改为星空'，'增加复古滤镜'" class="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-emerald-500 outline-none">
+                   <input #editPrompt type="text" placeholder="例如：将背景改为星空，增加复古滤镜" class="w-full border border-slate-300 p-2 rounded focus:ring-2 focus:ring-emerald-500 outline-none">
                </div>
 
                <div class="flex justify-end gap-2">

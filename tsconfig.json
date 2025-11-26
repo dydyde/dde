@@ -25,7 +25,8 @@
     }
   },
   "files": [
-    "./index.tsx"
+    "./index.tsx",
+    "./src/typings.d.ts"
   ],
   "angularCompilerOptions": {
     "disableTypeScriptVersionCheck": true

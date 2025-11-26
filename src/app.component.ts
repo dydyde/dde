@@ -1,9 +1,12 @@
-import { Component, inject, signal, WritableSignal, HostListener, computed } from '@angular/core';
+import { Component, inject, signal, WritableSignal, HostListener, computed, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from './services/store.service';
+import { SupabaseClientService } from './services/supabase-client.service';
 import { TextViewComponent } from './components/text-view.component';
 import { FlowViewComponent } from './components/flow-view.component';
 import { FormsModule } from '@angular/forms';
+import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
+import { filter } from 'rxjs/operators';
 
 @Component({
   selector: 'app-root',
@@ -13,12 +16,35 @@ import { FormsModule } from '@angular/forms';
 })
 export class AppComponent {
   store = inject(StoreService);
+  supabase = inject(SupabaseClientService);
+  swUpdate = inject(SwUpdate);
   
+  @ViewChild(FlowViewComponent) flowView?: FlowViewComponent;
+
   isSidebarOpen = signal(true);
   isFilterOpen = signal(false); // Add this line
   expandedProjectId = signal<string | null>(null);
   isEditingDescription = signal(false);
   projectDrafts = signal<Record<string, { description: string; createdDate: string }>>({});
+  authEmail = signal('');
+  authPassword = signal('');
+  authError = signal<string | null>(null);
+  isAuthLoading = signal(false);
+  isCheckingSession = signal(true);
+  sessionEmail = signal<string | null>(null);
+  isReloginMode = signal(false);
+
+  // Mobile Support
+  mobileActiveView = signal<'text' | 'flow'>('text');
+
+  switchToFlow() {
+      this.mobileActiveView.set('flow');
+      setTimeout(() => {
+          this.flowView?.refreshLayout();
+      }, 100);
+  }
+
+  readonly showSettingsAuthForm = computed(() => !this.store.currentUserId() || this.isReloginMode());
   
   currentFilterLabel = computed(() => {
     const filterId = this.store.filterMode();
@@ -35,6 +61,24 @@ export class AppComponent {
   genAiImage: WritableSignal<string | null> = signal(null);
   editingImage: WritableSignal<string | null> = signal(null);
   isGenerating = signal(false);
+
+  constructor() {
+    void this.bootstrapSession();
+    this.checkMobile();
+    this.setupSwUpdateListener();
+  }
+
+  private setupSwUpdateListener() {
+    if (this.swUpdate.isEnabled) {
+      this.swUpdate.versionUpdates
+        .pipe(filter((evt): evt is VersionReadyEvent => evt.type === 'VERSION_READY'))
+        .subscribe(() => {
+          if (confirm('软件有更新，是否刷新以获取最新功能？')) {
+            window.location.reload();
+          }
+        });
+    }
+  }
 
   // Resizing State
   isResizingSidebar = false;
@@ -96,6 +140,73 @@ export class AppComponent {
           document.body.style.cursor = '';
           document.body.style.userSelect = '';
       }
+  }
+
+  private async bootstrapSession() {
+    if (!this.supabase.isConfigured) {
+      this.isCheckingSession.set(false);
+      return;
+    }
+    this.isCheckingSession.set(true);
+    try {
+      const { data, error } = await this.supabase.getSession();
+      if (error) throw error;
+      const session = data?.session;
+      if (session?.user) {
+        this.sessionEmail.set(session.user.email ?? null);
+        await this.store.setCurrentUser(session.user.id);
+      }
+    } catch (e: any) {
+      this.authError.set(e?.message ?? String(e));
+    } finally {
+      this.isCheckingSession.set(false);
+    }
+  }
+
+  async handleLogin(event?: Event, opts?: { closeSettings?: boolean }) {
+    event?.preventDefault();
+    if (!this.supabase.isConfigured) {
+      this.authError.set('Supabase keys missing. Set NG_APP_SUPABASE_URL/NG_APP_SUPABASE_ANON_KEY.');
+      return;
+    }
+    this.authError.set(null);
+    this.isAuthLoading.set(true);
+    try {
+      const { data, error } = await this.supabase.signInWithPassword(this.authEmail(), this.authPassword());
+      if (error || !data.session?.user) {
+        throw new Error(error?.message || 'Login failed');
+      }
+      this.sessionEmail.set(data.session.user.email ?? null);
+      await this.store.setCurrentUser(data.session.user.id);
+      this.isReloginMode.set(false);
+      if (opts?.closeSettings) {
+        this.showSettings.set(false);
+      }
+    } catch (e: any) {
+      this.authError.set(e?.message ?? String(e));
+    } finally {
+      this.isAuthLoading.set(false);
+      this.isCheckingSession.set(false);
+    }
+  }
+
+  async signOut() {
+    if (this.supabase.isConfigured) {
+      await this.supabase.signOut();
+    }
+    this.sessionEmail.set(null);
+    this.authPassword.set('');
+    this.isReloginMode.set(false);
+    await this.store.setCurrentUser(null);
+  }
+
+  startRelogin() {
+    this.isReloginMode.set(true);
+    this.authPassword.set('');
+    this.authError.set(null);
+    if (this.sessionEmail()) {
+      this.authEmail.set(this.sessionEmail()!);
+    }
   }
 
   selectProject(id: string) {
@@ -193,6 +304,7 @@ export class AppComponent {
 
   closeSettings() {
     this.showSettings.set(false);
+    this.isReloginMode.set(false);
   }
 
   updateLayoutDirection(e: Event) {
@@ -246,5 +358,13 @@ export class AppComponent {
           };
           reader.readAsDataURL(file);
       }
+  }
+
+  @HostListener('window:resize')
+  checkMobile() {
+    this.store.isMobile.set(window.innerWidth < 768); // Tailwind md breakpoint
+    if (this.store.isMobile()) {
+      this.isSidebarOpen.set(false); // Auto-close sidebar on mobile
+    }
   }
 }

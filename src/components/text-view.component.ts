@@ -1,4 +1,3 @@
-
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
@@ -74,9 +73,21 @@ import { StoreService, Task } from '../services/store.service';
       </div>
 
       <!-- 3. 阶段区域 (Stage Area) -->
-      <div class="flex-1 min-h-0 overflow-x-auto overflow-y-hidden px-4 pb-6">
-        <div class="h-full min-h-0 min-w-full w-fit rounded-3xl bg-panel/40 border border-retro-muted/20 backdrop-blur-md px-6 py-6 shadow-inner">
-          <div class="flex flex-col h-full min-h-0">
+      <div class="flex-1 min-h-0 px-4 pb-6"
+           [class.overflow-x-auto]="!store.isMobile()"
+           [class.overflow-y-hidden]="!store.isMobile()"
+           [class.overflow-y-auto]="store.isMobile()"
+           [class.overflow-x-hidden]="store.isMobile()">
+        <div class="rounded-3xl bg-panel/40 border border-retro-muted/20 backdrop-blur-md px-6 py-6 shadow-inner"
+             [class.h-full]="!store.isMobile()"
+             [class.min-h-0]="!store.isMobile()"
+             [class.min-w-full]="!store.isMobile()"
+             [class.w-fit]="!store.isMobile()"
+             [class.w-full]="store.isMobile()"
+             [class.h-fit]="store.isMobile()">
+          <div class="flex flex-col"
+               [class.h-full]="!store.isMobile()"
+               [class.min-h-0]="!store.isMobile()">
             <div class="flex items-center justify-between mb-4 text-xs text-stone-500">
               <div class="flex items-center gap-2 relative">
                 <span class="font-medium text-retro-muted">阶段筛选</span>
@@ -143,9 +154,21 @@ import { StoreService, Task } from '../services/store.service';
                 }
               </div>
             </div>
-            <div class="flex h-full min-h-0 gap-8">
+            <div class="gap-8"
+                 [class.flex]="true"
+                 [class.h-full]="!store.isMobile()"
+                 [class.min-h-0]="!store.isMobile()"
+                 [class.flex-row]="!store.isMobile()"
+                 [class.flex-col]="store.isMobile()">
               @for (stage of visibleStages(); track stage.stageNumber) {
-                <div class="w-80 max-w-[20rem] min-w-0 flex-shrink-0 flex flex-col h-full min-h-0 bg-retro-cream/70 backdrop-blur border border-retro-muted/20 rounded-2xl px-4 py-5 shadow-sm overflow-hidden">
+                <div class="flex-shrink-0 flex flex-col bg-retro-cream/70 backdrop-blur border border-retro-muted/20 rounded-2xl px-4 py-5 shadow-sm overflow-hidden"
+                     [class.w-80]="!store.isMobile()"
+                     [class.max-w-[20rem]]="!store.isMobile()"
+                     [class.min-w-0]="!store.isMobile()"
+                     [class.h-full]="!store.isMobile()"
+                     [class.min-h-0]="!store.isMobile()"
+                     [class.w-full]="store.isMobile()"
+                     [class.max-h-[75vh]]="store.isMobile()">
                   <!-- Stage Header -->
                   <div class="mb-4 flex justify-between items-center px-1">
                     <h3 class="font-bold text-retro-olive text-sm tracking-tight flex items-center gap-2">
@@ -156,17 +179,26 @@ import { StoreService, Task } from '../services/store.service';
                   </div>
 
                   <!-- Tasks List -->
-                  <div class="flex-1 min-h-0 overflow-y-auto space-y-3 custom-scrollbar pr-1 task-stack">
+                  <div class="flex-1 min-h-0 overflow-y-auto space-y-3 custom-scrollbar pr-1 task-stack touch-pan-y">
                   @for (task of stage.tasks; track task.id; let i = $index) {
                     @if (shouldShow(task, stage.stageNumber, i)) {
                       <div 
                         (click)="selectTask(task)"
-                        class="relative bg-canvas/80 backdrop-blur-sm border border-transparent rounded-lg p-4 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group stack-card max-w-full min-w-0 overflow-hidden"
+                        class="relative bg-canvas/80 backdrop-blur-sm border border-transparent rounded-lg p-4 cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 ease-out group stack-card max-w-full min-w-0 overflow-hidden"
                         [class.shadow-sm]="selectedTaskId() !== task.id"
                         [class.border-retro-muted/20]="selectedTaskId() !== task.id"
                         [class.ring-1]="selectedTaskId() === task.id"
                         [class.ring-retro-gold]="selectedTaskId() === task.id"
-                        [class.shadow-md]="selectedTaskId() === task.id">
+                        [class.shadow-md]="selectedTaskId() === task.id"
+                        [class.h-16]="getMobileViewMode(task.id, stage.tasks) === 'collapsed'"
+                        [class.h-28]="getMobileViewMode(task.id, stage.tasks) === 'partial'"
+                        [class.h-auto]="getMobileViewMode(task.id, stage.tasks) === 'full'"
+                        [class.opacity-80]="getMobileViewMode(task.id, stage.tasks) === 'collapsed'"
+                        [class.opacity-90]="getMobileViewMode(task.id, stage.tasks) === 'partial'"
+                        [class.opacity-100]="getMobileViewMode(task.id, stage.tasks) === 'full'"
+                        [class.scale-95]="getMobileViewMode(task.id, stage.tasks) === 'collapsed'"
+                        [class.scale-98]="getMobileViewMode(task.id, stage.tasks) === 'partial'"
+                        [class.scale-100]="getMobileViewMode(task.id, stage.tasks) === 'full'">
                         
                         <!-- Header -->
                         <div class="flex justify-between items-start mb-2">
@@ -179,7 +211,8 @@ import { StoreService, Task } from '../services/store.service';
                         <!-- Collapsed Content Preview -->
                         @if (selectedTaskId() !== task.id) {
                             <div class="text-xs text-stone-500 font-light leading-relaxed markdown-preview"
-                                 [class.line-clamp-2]="previewMode(stage.stageNumber, i, task.id) !== 'full'"
+                                 [class.hidden]="getMobileViewMode(task.id, stage.tasks) === 'collapsed'"
+                                 [class.line-clamp-2]="getMobileViewMode(task.id, stage.tasks) === 'partial'"
                                  [class.opacity-40]="previewMode(stage.stageNumber, i, task.id) === 'minimal'">
                                  {{task.content}}
                             </div>
@@ -217,7 +250,7 @@ import { StoreService, Task } from '../services/store.service';
               }
               
               <!-- Add Stage Placeholder -->
-              <div class="w-12 flex-shrink-0 flex items-start pt-10 justify-center opacity-0 hover:opacity-100 transition-opacity">
+              <div class="w-12 flex-shrink-0 flex items-start pt-10 justify-center opacity-0 hover:opacity-100 transition-opacity" [class.opacity-100]="store.isMobile()">
                  <button (click)="addNewStage()" class="w-8 h-8 rounded-full bg-transparent border border-dashed border-stone-300 text-stone-400 hover:border-stone-400 hover:text-stone-600 flex items-center justify-center">
                     <span class="text-xl font-light">+</span>
                  </button>
@@ -394,5 +427,21 @@ export class TextViewComponent {
       e.stopPropagation();
       const res = await this.store.think(`为任务 "${task.title}" 建议一个详细的检查清单。`);
       this.store.updateTaskContent(task.id, task.content + '\n\n**AI 建议:**\n' + res);
+  }
+
+  getMobileViewMode(taskId: string, stageTasks: Task[]): 'full' | 'partial' | 'collapsed' {
+    if (!this.store.isMobile()) return 'full';
+    
+    const selectedId = this.selectedTaskId();
+    if (selectedId === taskId) return 'full';
+    
+    if (!selectedId) return 'collapsed'; 
+
+    const selectedIndex = stageTasks.findIndex(t => t.id === selectedId);
+    const myIndex = stageTasks.findIndex(t => t.id === taskId);
+    
+    if (selectedIndex !== -1 && Math.abs(selectedIndex - myIndex) === 1) return 'partial';
+    
+    return 'collapsed';
   }
 }

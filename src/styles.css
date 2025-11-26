@@ -2,3 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile-friendly tweaks */
+.responsive-stack {
+  display: flex;
+  flex-direction: row;
+}
+
+@media (max-width: 768px) {
+  .responsive-stack {
+    flex-direction: column;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  .touch-target {
+    min-height: 44px;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+}
+
