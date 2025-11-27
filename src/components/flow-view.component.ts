@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, effect, NgZone, HostListener } from '@angular/core';
+import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService, Task } from '../services/store.service';
@@ -61,7 +61,8 @@ declare var go: any;
                                <div 
                                    draggable="true" 
                                    (dragstart)="onDragStart($event, task)"
-                                   class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-grab shadow-sm transition-all active:scale-95 text-stone-500">
+                                   (click)="onUnassignedTaskClick(task)"
+                                   class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500">
                                    {{task.title}}
                                </div>
                            }
@@ -87,6 +88,18 @@ declare var go: any;
        <div class="flex-1 relative overflow-hidden bg-[#F9F8F6] mt-0 mx-0 border-t border-stone-200/50">
            <!-- GoJS Diagram Div -->
            <div #diagramDiv class="absolute inset-0 w-full h-full z-0"></div>
+
+           <!-- 手机端返回文本视图按钮 -->
+           @if (store.isMobile()) {
+             <button 
+               (click)="goBackToText.emit()"
+               class="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600 p-1.5 flex items-center gap-1">
+               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+               </svg>
+               <span class="text-[10px] font-medium">文本</span>
+             </button>
+           }
 
            <!-- Zoom Controls -->
            <div class="absolute bottom-4 left-4 z-10 flex gap-2"
@@ -114,6 +127,19 @@ declare var go: any;
                         [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
                         [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                   </svg>
+               </button>
+               <!-- 自动布局按钮 -->
+               <button 
+                 (click)="applyAutoLayout()" 
+                 class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
+                 [class.p-2]="!store.isMobile()"
+                 [class.p-1.5]="store.isMobile()"
+                 title="自动整理布局">
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
+                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
                    </svg>
                </button>
                <!-- 连接模式按钮 -->
@@ -164,31 +190,24 @@ declare var go: any;
              </div>
            }
 
-           <!-- 4. 详情区域 (Floating Right) - 手机端优化 -->
-           <div class="absolute top-6 right-0 bottom-6 z-20 flex pointer-events-none"
-                [class.top-2]="store.isMobile()"
-                [class.bottom-2]="store.isMobile()"
-                [class.left-2]="store.isMobile() && store.isFlowDetailOpen()">
-                <!-- Container for positioning -->
+           <!-- 4. 详情区域 - 桌面端右侧面板 -->
+           @if (!store.isMobile()) {
+             <div class="absolute top-6 right-0 bottom-6 z-20 flex pointer-events-none">
                 <div class="relative flex h-full pointer-events-auto">
-                    <!-- Toggle Button (Triangle) -->
+                    <!-- Toggle Button -->
                     <button (click)="store.isFlowDetailOpen.set(!store.isFlowDetailOpen())" 
-                            class="absolute left-0 top-8 -translate-x-full bg-white/90 backdrop-blur border border-stone-200 border-r-0 rounded-l-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all z-30 flex items-center justify-center w-8 h-10 pl-2"
-                            [class.top-2]="store.isMobile()">
+                            class="absolute left-0 top-8 -translate-x-full bg-white/90 backdrop-blur border border-stone-200 border-r-0 rounded-l-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all z-30 flex items-center justify-center w-8 h-10 pl-2">
                         <span class="text-[10px] transition-transform duration-300" [class.rotate-180]="store.isFlowDetailOpen()">◀</span>
                     </button>
 
-                    <!-- Content Panel - 手机端优化 -->
+                    <!-- Content Panel - 桌面端 -->
                     <div class="h-full bg-white/95 backdrop-blur-xl border-l border-stone-200/50 shadow-xl transition-all duration-500 ease-out overflow-hidden flex flex-col"
                          [class.w-0]="!store.isFlowDetailOpen()"
-                         [class.w-80]="store.isFlowDetailOpen() && !store.isMobile()"
-                         [class.w-64]="store.isFlowDetailOpen() && store.isMobile()"
-                         [class.max-w-[70vw]]="store.isMobile()"
+                         [class.w-80]="store.isFlowDetailOpen()"
                          [class.opacity-0]="!store.isFlowDetailOpen()"
                          [class.opacity-100]="store.isFlowDetailOpen()">
                         
-                        <div class="p-4 border-b border-stone-100 flex justify-between items-center bg-transparent"
-                             [class.p-3]="store.isMobile()">
+                        <div class="p-4 border-b border-stone-100 flex justify-between items-center bg-transparent">
                             <h3 class="font-bold text-stone-700 tracking-tight text-sm">任务详情</h3>
                             <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
                               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -197,68 +216,51 @@ declare var go: any;
                             </button>
                         </div>
                         
-                        <div class="flex-1 overflow-y-auto p-4 space-y-4"
-                             [class.p-3]="store.isMobile()">
+                        <div class="flex-1 overflow-y-auto p-4 space-y-4">
                             @if (selectedTask(); as task) {
-                                <!-- 选中的任务详情 - 可编辑 -->
                                 <div class="space-y-3">
                                     <div class="flex items-center gap-2">
                                         <span class="font-bold text-retro-muted text-[9px] tracking-wider bg-stone-100 px-2 py-0.5 rounded">{{task.displayId}}</span>
-                                        <span class="text-[10px] text-stone-400">{{task.createdDate | date:'yyyy-MM-dd HH:mm'}}</span>
+                                        <span class="text-[10px] text-stone-400">{{task.createdDate | date:'MM-dd HH:mm'}}</span>
                                     </div>
                                     
-                                    <!-- 标题编辑 -->
                                     <div class="space-y-1">
                                         <label class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">标题</label>
-                                        <input 
-                                            type="text"
-                                            [ngModel]="task.title"
-                                            (ngModelChange)="updateTaskTitle(task.id, $event)"
+                                        <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
                                             class="w-full text-sm font-medium text-stone-800 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
                                             placeholder="任务标题">
                                     </div>
                                     
-                                    <!-- 内容编辑 -->
                                     <div class="space-y-1">
                                         <label class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">内容</label>
-                                        <textarea 
-                                            [ngModel]="task.content"
-                                            (ngModelChange)="updateTaskContent(task.id, $event)"
-                                            rows="6"
+                                        <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="6"
                                             class="w-full text-xs text-stone-600 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
-                                            placeholder="输入 Markdown 内容..."
-                                            [class.rows-4]="store.isMobile()"></textarea>
+                                            placeholder="输入 Markdown 内容..."></textarea>
                                     </div>
                                     
-                                    <!-- 阶段信息 -->
                                     <div class="flex items-center gap-4 text-xs text-stone-500">
                                         <span>阶段: <strong class="text-stone-700">{{task.stage || '未分配'}}</strong></span>
                                         <span>状态: <strong class="text-stone-700">{{task.status === 'completed' ? '已完成' : '进行中'}}</strong></span>
                                     </div>
 
-                                    <!-- 操作按钮 -->
                                     <div class="flex flex-col gap-2 pt-2 border-t border-stone-100">
                                         <div class="flex gap-2">
-                                            <button 
-                                                (click)="addChildTask(task)"
+                                            <button (click)="addChildTask(task)"
                                                 class="flex-1 px-3 py-1.5 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 text-xs font-medium rounded-md transition-all">
                                                 添加子任务
                                             </button>
-                                            <button 
-                                                (click)="toggleTaskStatus(task)"
-                                                class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all"
+                                            <button (click)="toggleTaskStatus(task)"
+                                                class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all border"
                                                 [class.bg-emerald-50]="task.status !== 'completed'"
                                                 [class.text-emerald-700]="task.status !== 'completed'"
                                                 [class.border-emerald-200]="task.status !== 'completed'"
                                                 [class.bg-stone-50]="task.status === 'completed'"
                                                 [class.text-stone-600]="task.status === 'completed'"
-                                                [class.border-stone-200]="task.status === 'completed'"
-                                                [class.border]="true">
+                                                [class.border-stone-200]="task.status === 'completed'">
                                                 {{task.status === 'completed' ? '标记未完成' : '标记完成'}}
                                             </button>
                                         </div>
-                                        <button 
-                                            (click)="deleteTask(task)"
+                                        <button (click)="deleteTask(task)"
                                             class="w-full px-3 py-1.5 bg-stone-50 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1">
                                             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                             删除任务
@@ -266,17 +268,13 @@ declare var go: any;
                                     </div>
                                 </div>
                             } @else if (store.activeProject(); as proj) {
-                                <!-- 项目信息 -->
                                 <div class="space-y-2">
                                     <div class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">项目信息</div>
-                                    <div class="bg-transparent p-0">
-                                        <div class="font-bold text-stone-800 mb-1 text-base">{{proj.name}}</div>
-                                        <div class="text-xs text-stone-400 mb-2 font-mono">{{proj.createdDate | date:'yyyy-MM-dd'}}</div>
-                                        <div class="text-sm text-stone-600 leading-relaxed font-light">{{proj.description}}</div>
-                                    </div>
+                                    <div class="font-bold text-stone-800 mb-1 text-base">{{proj.name}}</div>
+                                    <div class="text-xs text-stone-400 mb-2 font-mono">{{proj.createdDate | date:'yyyy-MM-dd'}}</div>
+                                    <div class="text-sm text-stone-600 leading-relaxed font-light">{{proj.description}}</div>
                                 </div>
                             } @else {
-                                <!-- 提示信息 -->
                                 <div class="p-4 border border-dashed border-stone-200 rounded-lg text-center text-stone-400 text-xs font-light">
                                     双击节点查看详情
                                 </div>
@@ -284,7 +282,114 @@ declare var go: any;
                         </div>
                     </div>
                 </div>
-           </div>
+             </div>
+           }
+
+           <!-- 4. 详情区域 - 手机端底部抽屉 -->
+           @if (store.isMobile()) {
+             <!-- 底部小型标签触发器 -->
+             @if (!store.isFlowDetailOpen()) {
+               <button 
+                 (click)="store.isFlowDetailOpen.set(true)"
+                 class="absolute bottom-2 right-2 z-20 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                 </svg>
+                 <span class="text-[10px] font-medium">详情</span>
+               </button>
+             }
+             
+             <!-- 底部抽屉面板 -->
+             @if (store.isFlowDetailOpen()) {
+               <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl transition-all duration-150 flex flex-col"
+                    [style.max-height.vh]="drawerHeight()">
+                 <!-- 拖动条 - 可拖动调整高度 -->
+                 <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none"
+                      (touchstart)="startDrawerResize($event)">
+                   <div class="w-12 h-1.5 bg-stone-300 rounded-full"></div>
+                 </div>
+                 
+                 <!-- 标题栏 -->
+                 <div class="px-3 pb-2 flex justify-between items-center">
+                   <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
+                   <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                     </svg>
+                   </button>
+                 </div>
+                 
+                 <!-- 内容区域 -->
+                 <div class="flex-1 overflow-y-auto px-3 pb-3">
+                   @if (selectedTask(); as task) {
+                     <!-- 紧凑的任务信息 -->
+                     <div class="flex items-center gap-2 mb-2">
+                       <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 px-1.5 rounded">{{task.displayId}}</span>
+                       <span class="text-[9px] text-stone-400">{{task.createdDate | date:'MM-dd HH:mm'}}</span>
+                       <span class="text-[9px] px-1.5 py-0.5 rounded"
+                             [class.bg-emerald-100]="task.status === 'completed'"
+                             [class.text-emerald-700]="task.status === 'completed'"
+                             [class.bg-amber-100]="task.status !== 'completed'"
+                             [class.text-amber-700]="task.status !== 'completed'">
+                         {{task.status === 'completed' ? '已完成' : '进行中'}}
+                       </span>
+                     </div>
+                     
+                     <!-- 标题输入 -->
+                     <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
+                       class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 mb-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+                       placeholder="任务标题">
+                     
+                     <!-- 内容输入 -->
+                     <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="2"
+                       class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 mb-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono"
+                       placeholder="任务内容..."></textarea>
+                     
+                     <!-- 快速待办输入 -->
+                     <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded overflow-hidden p-0.5 mb-2">
+                       <span class="text-retro-rust flex-shrink-0 text-[10px] pl-1.5">☐</span>
+                       <input
+                         #flowQuickTodoInput
+                         type="text"
+                         (keydown.enter)="addQuickTodo(task.id, flowQuickTodoInput)"
+                         class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[11px] py-1 px-1"
+                         placeholder="输入待办，回车添加...">
+                       <button
+                         (click)="addQuickTodo(task.id, flowQuickTodoInput)"
+                         class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded p-1 mr-0.5 transition-all"
+                         title="添加待办">
+                         <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                       </button>
+                     </div>
+                     
+                     <!-- 操作按钮 - 横向紧凑排列 -->
+                     <div class="flex gap-1.5">
+                       <button (click)="addChildTask(task)"
+                         class="flex-1 px-2 py-1 bg-retro-rust/10 text-retro-rust border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
+                         +子任务
+                       </button>
+                       <button (click)="toggleTaskStatus(task)"
+                         class="flex-1 px-2 py-1 text-[10px] font-medium rounded border transition-all"
+                         [class.bg-emerald-50]="task.status !== 'completed'"
+                         [class.text-emerald-700]="task.status !== 'completed'"
+                         [class.border-emerald-200]="task.status !== 'completed'"
+                         [class.bg-stone-50]="task.status === 'completed'"
+                         [class.text-stone-600]="task.status === 'completed'"
+                         [class.border-stone-200]="task.status === 'completed'">
+                         {{task.status === 'completed' ? '未完成' : '完成'}}
+                       </button>
+                       <button (click)="deleteTask(task)"
+                         class="px-2 py-1 bg-stone-50 text-stone-400 border border-stone-200 text-[10px] font-medium rounded transition-all">
+                         删除
+                       </button>
+                     </div>
+                   } @else {
+                     <div class="text-center text-stone-400 text-xs py-4">双击节点查看详情</div>
+                   }
+                 </div>
+               </div>
+             }
+           }
        </div>
        
        <!-- 删除确认弹窗 -->
@@ -329,12 +434,15 @@ declare var go: any;
     </div>
   `
 })
-export class FlowViewComponent implements AfterViewInit {
+export class FlowViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('diagramDiv') diagramDiv!: ElementRef;
+  @Output() goBackToText = new EventEmitter<void>();
+  
   store = inject(StoreService);
     private readonly zone = inject(NgZone);
   
   private diagram: any;
+  private resizeObserver: ResizeObserver | null = null;
   
   // 选中的任务ID
   selectedTaskId = signal<string | null>(null);
@@ -358,6 +466,15 @@ export class FlowViewComponent implements AfterViewInit {
   paletteHeight = signal(200); // Initial height for the top palette area
   private startY = 0;
   private startHeight = 0;
+  
+  // 底部抽屉拖动状态
+  drawerHeight = signal(35); // 以 vh 为单位的高度
+  private isResizingDrawer = false;
+  private drawerStartY = 0;
+  private drawerStartHeight = 0;
+  
+  // 性能优化：位置保存防抖定时器
+  private positionSaveTimer: any = null;
 
   // 连接模式方法
   toggleLinkMode() {
@@ -403,6 +520,41 @@ export class FlowViewComponent implements AfterViewInit {
           this.diagram.requestUpdate();
       }
   }
+  
+  // 应用自动布局（一次性整理）
+  applyAutoLayout() {
+      if (!this.diagram) return;
+      
+      const $ = go.GraphObject.make;
+      // 临时应用有序布局
+      this.diagram.startTransaction('auto-layout');
+      this.diagram.layout = $(go.LayeredDigraphLayout, {
+          direction: 0,
+          layerSpacing: 100,
+          columnSpacing: 40,
+          setsPortSpots: false
+      });
+      this.diagram.layoutDiagram(true);
+      
+      // 布局完成后保存所有位置并恢复为无操作布局
+      setTimeout(() => {
+          this.saveAllNodePositions();
+          this.diagram.layout = $(go.Layout); // 恢复无操作布局
+          this.diagram.commitTransaction('auto-layout');
+      }, 50);
+  }
+  
+  // 保存所有节点位置到 store
+  saveAllNodePositions() {
+      if (!this.diagram) return;
+      
+      this.diagram.nodes.each((node: any) => {
+          const loc = node.location;
+          if (node.data && node.data.key && loc.isReal()) {
+              this.store.updateTaskPosition(node.data.key, loc.x, loc.y);
+          }
+      });
+  }
 
   zoomIn() {
       if (this.diagram) {
@@ -424,6 +576,16 @@ export class FlowViewComponent implements AfterViewInit {
   // 更新任务内容
   updateTaskContent(taskId: string, content: string) {
       this.store.updateTaskContent(taskId, content);
+  }
+
+  // 快速添加待办
+  addQuickTodo(taskId: string, inputElement: HTMLInputElement) {
+      const text = inputElement.value.trim();
+      if (!text) return;
+      
+      this.store.addTodoItem(taskId, text);
+      inputElement.value = '';
+      inputElement.focus();
   }
 
   // 添加子任务
@@ -506,27 +668,137 @@ export class FlowViewComponent implements AfterViewInit {
       window.addEventListener('touchcancel', onEnd);
   }
 
+  // 底部抽屉拖动开始
+  startDrawerResize(event: TouchEvent) {
+      if (event.touches.length !== 1) return;
+      event.preventDefault();
+      this.isResizingDrawer = true;
+      this.drawerStartY = event.touches[0].clientY;
+      this.drawerStartHeight = this.drawerHeight();
+      
+      const onMove = (ev: TouchEvent) => {
+          if (!this.isResizingDrawer || ev.touches.length !== 1) return;
+          ev.preventDefault();
+          // 向上拖动增加高度，向下拖动减少高度
+          const deltaY = this.drawerStartY - ev.touches[0].clientY;
+          const deltaVh = (deltaY / window.innerHeight) * 100;
+          const newHeight = Math.max(15, Math.min(70, this.drawerStartHeight + deltaVh));
+          this.drawerHeight.set(newHeight);
+      };
+      
+      const onEnd = () => {
+          this.isResizingDrawer = false;
+          // 如果高度太小，关闭抽屉
+          if (this.drawerHeight() < 20) {
+              this.store.isFlowDetailOpen.set(false);
+              this.drawerHeight.set(35); // 重置高度
+          }
+          window.removeEventListener('touchmove', onMove);
+          window.removeEventListener('touchend', onEnd);
+          window.removeEventListener('touchcancel', onEnd);
+      };
+      
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('touchend', onEnd);
+      window.addEventListener('touchcancel', onEnd);
+  }
+
   ngAfterViewInit() {
       this.initDiagram();
+      // 初始化完成后立即加载图表数据
+      setTimeout(() => {
+          if (this.diagram) {
+              this.updateDiagram(this.store.tasks());
+          }
+      }, 100);
+      
+      // 监听容器大小变化（侧边栏拖动时触发）
+      this.setupResizeObserver();
   }
+  
+  ngOnDestroy() {
+      // 清理 ResizeObserver
+      if (this.resizeObserver) {
+          this.resizeObserver.disconnect();
+          this.resizeObserver = null;
+      }
+  }
+  
+  private setupResizeObserver() {
+      if (!this.diagramDiv?.nativeElement) return;
+      
+      this.resizeObserver = new ResizeObserver((entries) => {
+          // 防抖动处理
+          if (this.resizeDebounceTimer) {
+              clearTimeout(this.resizeDebounceTimer);
+          }
+          this.resizeDebounceTimer = setTimeout(() => {
+              if (this.diagram) {
+                  // 获取新的容器尺寸
+                  const div = this.diagramDiv.nativeElement;
+                  const width = div.clientWidth;
+                  const height = div.clientHeight;
+                  
+                  // 如果尺寸有效，重新设置 diagram 的 div 并请求更新
+                  if (width > 0 && height > 0) {
+                      // 强制 GoJS 重新计算画布大小
+                      this.diagram.div = null;
+                      this.diagram.div = div;
+                      this.diagram.requestUpdate();
+                  }
+              }
+          }, 100);
+      });
+      
+      this.resizeObserver.observe(this.diagramDiv.nativeElement);
+  }
+  
+  private resizeDebounceTimer: any = null;
 
   initDiagram() {
       if (typeof go === 'undefined') {
-          console.warn('GoJS not loaded');
+          console.warn('❌ GoJS not loaded');
           return;
       }
+      
       const $ = go.GraphObject.make;
 
       this.diagram = $(go.Diagram, this.diagramDiv.nativeElement, {
           "undoManager.isEnabled": true,
-          "animationManager.isEnabled": true,
-          "allowDrop": true, // accept drops from HTML
-          layout: $(go.LayeredDigraphLayout, { 
-              direction: 0, 
-              layerSpacing: 100, 
-              columnSpacing: 40,
-              setsPortSpots: false 
-          })
+          "animationManager.isEnabled": false, // 禁用动画提升性能
+          "allowDrop": true,
+          // 默认不使用自动布局，保持用户手动调整的位置
+          layout: $(go.Layout),
+          
+          // === 性能优化配置 ===
+          "autoScale": go.Diagram.None,
+          "initialAutoScale": go.Diagram.None,
+          "scrollMargin": 100,
+          "draggingTool.isGridSnapEnabled": false
+      });
+      
+      // 监听节点移动完成（拖动结束时才保存，而非实时保存）
+      this.diagram.addDiagramListener('SelectionMoved', (e: any) => {
+          // 使用防抖，避免多选拖动时频繁保存
+          if (this.positionSaveTimer) {
+              clearTimeout(this.positionSaveTimer);
+          }
+          this.positionSaveTimer = setTimeout(() => {
+              e.subject.each((part: any) => {
+                  if (part instanceof go.Node) {
+                      const loc = part.location;
+                      this.zone.run(() => {
+                          this.store.updateTaskPosition(part.data.key, loc.x, loc.y);
+                      });
+                  }
+              });
+          }, 300);
+      });
+      
+      // 监听节点拖拽结束
+      this.diagram.addDiagramListener('PartResized', (e: any) => {
+          // 保存所有节点位置
+          this.saveAllNodePositions();
       });
 
       // Helper to create ports
@@ -577,9 +849,9 @@ export class FlowViewComponent implements AfterViewInit {
             },
             new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
             
-            // Main Content
+            // Main Content - 待分配任务节点更小更紧凑，已分配任务节点正常大小
             $(go.Panel, "Auto",
-                { width: 200 }, // Fixed width
+                new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 140 : 200),
                 $(go.Shape, "RoundedRectangle", 
                   { 
                       fill: "white", 
@@ -593,13 +865,23 @@ export class FlowViewComponent implements AfterViewInit {
                       cursor: "move" 
                   },
                   new go.Binding("fill", "color"),
-                  new go.Binding("stroke", "isSelected", (s: boolean) => s ? "#a8a29e" : "#e7e5e4").ofObject()
+                  // 待分配任务使用深青色边框和背景，已分配任务使用默认边框
+                  new go.Binding("stroke", "", (data: any, obj: any) => {
+                      if (obj.part.isSelected) return "#0d9488"; // teal-600
+                      return data.isUnassigned ? "#14b8a6" : "#e7e5e4"; // teal-500 vs stone-200
+                  }).ofObject(),
+                  new go.Binding("strokeWidth", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 2 : 1)
                 ),
-                $(go.Panel, "Vertical", { margin: 16 },
+                $(go.Panel, "Vertical",
+                    new go.Binding("margin", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 10 : 16),
                     $(go.TextBlock, { font: "bold 9px sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
-                        new go.Binding("text", "displayId")),
-                    $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px sans-serif", stroke: "#57534e", maxSize: new go.Size(160, NaN) },
-                        new go.Binding("text", "title"))
+                        new go.Binding("text", "displayId"),
+                        new go.Binding("visible", "isUnassigned", (isUnassigned: boolean) => !isUnassigned)),
+                    $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px sans-serif", stroke: "#57534e" },
+                        new go.Binding("text", "title"),
+                        new go.Binding("font", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? "500 11px sans-serif" : "400 12px sans-serif"),
+                        new go.Binding("stroke", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? "#0f766e" : "#57534e"), // teal-700 vs stone-600
+                        new go.Binding("maxSize", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? new go.Size(120, NaN) : new go.Size(160, NaN)))
                 )
             ),
 
@@ -649,44 +931,151 @@ export class FlowViewComponent implements AfterViewInit {
           nodeKeyProperty: 'key'
       });
 
-      // Handle External Drops
+      // Handle External Drops - 支持拖放到两个节点之间插入
       this.diagram.div.addEventListener("dragover", (e: DragEvent) => {
           e.preventDefault();
-          // Highlight logic could go here
+          if (e.dataTransfer) {
+              e.dataTransfer.dropEffect = 'move';
+          }
       });
 
       this.diagram.div.addEventListener("drop", (e: DragEvent) => {
           e.preventDefault();
-          const data = e.dataTransfer?.getData("text");
-          if (data) {
-             const task = JSON.parse(data);
-             // Logic to add task to stage?
-             // Prompt says: "Dragging to a node (stage) renders them in flow".
-             // Here we drop onto canvas.
-             // Let's assign it a stage based on drop, or just make it active (Stage 1 default if dropped on blank?)
-             // We'll verify if dropped on existing node?
-             
-             const pt = this.diagram.lastInput.viewPoint;
-             const loc = this.diagram.transformViewToDoc(pt);
-             
-             // Update task in store
-             // We assume dropping on canvas assigns it to stage 1 for now to show it.
-             this.store.moveTaskToStage(task.id, 1);
+          // 尝试两种数据格式
+          let data = e.dataTransfer?.getData("application/json") || e.dataTransfer?.getData("text");
+          if (!data) return;
+          
+          try {
+              const task = JSON.parse(data);
+              const pt = this.diagram.lastInput.viewPoint;
+              const loc = this.diagram.transformViewToDoc(pt);
+              
+              // 查找拖放位置附近的节点，判断是否插入到两个节点之间
+              const insertInfo = this.findInsertPosition(loc);
+              
+              if (insertInfo.parentId) {
+                  // 插入为某个节点的子节点
+                  const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
+                  if (parentTask) {
+                      const newStage = (parentTask.stage || 1) + 1;
+                      this.store.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
+                      // 更新拖放位置
+                      setTimeout(() => {
+                          this.store.updateTaskPosition(task.id, loc.x, loc.y);
+                      }, 100);
+                  }
+              } else if (insertInfo.beforeTaskId) {
+                  // 插入到某个节点之前（同级）
+                  const beforeTask = this.store.tasks().find(t => t.id === insertInfo.beforeTaskId);
+                  if (beforeTask && beforeTask.stage) {
+                      this.store.moveTaskToStage(task.id, beforeTask.stage, insertInfo.beforeTaskId, beforeTask.parentId);
+                      // 更新拖放位置
+                      setTimeout(() => {
+                          this.store.updateTaskPosition(task.id, loc.x, loc.y);
+                      }, 100);
+                  }
+              } else if (insertInfo.afterTaskId) {
+                  // 插入到某个节点之后（同级）
+                  const afterTask = this.store.tasks().find(t => t.id === insertInfo.afterTaskId);
+                  if (afterTask && afterTask.stage) {
+                      // 找到 afterTask 的下一个同级节点
+                      const siblings = this.store.tasks()
+                          .filter(t => t.stage === afterTask.stage && t.parentId === afterTask.parentId)
+                          .sort((a, b) => a.rank - b.rank);
+                      const afterIndex = siblings.findIndex(t => t.id === afterTask.id);
+                      const nextSibling = siblings[afterIndex + 1];
+                      this.store.moveTaskToStage(task.id, afterTask.stage, nextSibling?.id || null, afterTask.parentId);
+                      // 更新拖放位置
+                      setTimeout(() => {
+                          this.store.updateTaskPosition(task.id, loc.x, loc.y);
+                      }, 100);
+                  }
+              } else {
+                  // 如果没有靠近任何节点，保持待分配状态，只更新位置让它显示在流程图中
+                  this.store.updateTaskPosition(task.id, loc.x, loc.y);
+              }
+          } catch (err) {
+              console.error('Drop error:', err);
           }
       });
 
       this.diagram.addDiagramListener('LinkDrawn', (e: any) => this.handleLinkGesture(e));
       this.diagram.addDiagramListener('LinkRelinked', (e: any) => this.handleLinkGesture(e));
   }
+  
+  // 根据拖放位置查找插入点
+  private findInsertPosition(loc: any): { parentId?: string; beforeTaskId?: string; afterTaskId?: string } {
+      if (!this.diagram) return {};
+      
+      const threshold = 120; // 检测范围（像素）- 增大以便更容易捕获
+      let closestNode: any = null;
+      let closestDistance = Infinity;
+      let insertPosition: string = 'after';
+      
+      // 遍历所有节点找最近的（只查找已分配的节点，跳过待分配节点）
+      this.diagram.nodes.each((node: any) => {
+          // 跳过待分配节点（isUnassigned 为 true 或 stage 为 null）
+          if (node.data?.isUnassigned || node.data?.stage === null) {
+              return;
+          }
+          
+          const nodeLoc = node.location;
+          const dx = loc.x - nodeLoc.x;
+          const dy = loc.y - nodeLoc.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance < threshold && distance < closestDistance) {
+              closestDistance = distance;
+              closestNode = node;
+              
+              // 根据相对位置判断插入方式
+              // 如果在节点右侧较远，可能是子节点
+              // 如果在节点上方，插入到前面
+              // 如果在节点下方，插入到后面
+              if (dx > 100) {
+                  insertPosition = 'child';
+              } else if (dy < -30) {
+                  insertPosition = 'before';
+              } else {
+                  insertPosition = 'after';
+              }
+          }
+      });
+      
+      if (!closestNode) return {};
+      
+      const nodeId = closestNode.data.key;
+      
+      if (insertPosition === 'child') {
+          return { parentId: nodeId };
+      } else if (insertPosition === 'before') {
+          return { beforeTaskId: nodeId };
+      } else {
+          return { afterTaskId: nodeId };
+      }
+  }
 
   updateDiagram(tasks: Task[]) {
-      if (!this.diagram) return;
+      if (!this.diagram) {
+          console.warn('❌ updateDiagram: diagram not initialized');
+          return;
+      }
       
       const model = this.diagram.model;
-      if (!model) return;
+      if (!model) {
+          console.warn('❌ updateDiagram: model not found');
+          return;
+      }
       
       const project = this.store.activeProject();
-      if (!project) return;
+      if (!project) {
+          console.warn('❌ updateDiagram: no active project');
+          return;
+      }
+      
+      // 获取所有任务（包括待分配的），只要任务有位置信息或 stage 就显示
+      // 待分配任务如果被拖入流程图（有位置信息）也会显示
+      const tasksToShow = tasks.filter(t => t.stage !== null || (t.x !== 0 || t.y !== 0));
       
       // Build a map of existing node locations to preserve user's manual positioning
       const existingLocations = new Map<string, string>();
@@ -701,20 +1090,45 @@ export class FlowViewComponent implements AfterViewInit {
       
       // 构建父子关系集合
       const parentChildPairs = new Set<string>();
-      tasks.filter(t => t.stage !== null && t.parentId).forEach(t => {
+      tasksToShow.filter(t => t.parentId).forEach(t => {
           parentChildPairs.add(`${t.parentId}->${t.id}`);
       });
+      
+      // 用于新节点的位置计算
+      let newNodeIndex = 0;
 
-      tasks.filter(t => t.stage !== null).forEach(t => {
-          // Preserve existing location if node was already rendered, otherwise use store coordinates
+      tasksToShow.forEach(t => {
+          // 优先使用内存中的位置，其次使用 store 中保存的位置
           const existingLoc = existingLocations.get(t.id);
+          let loc: string;
+          
+          if (existingLoc) {
+              // 使用当前内存中的位置
+              loc = existingLoc;
+          } else if (t.x !== 0 || t.y !== 0) {
+              // 使用 store 中保存的位置
+              loc = `${t.x} ${t.y}`;
+          } else {
+              // 新节点：根据阶段和顺序计算初始位置
+              const stageX = ((t.stage || 1) - 1) * 150;
+              const indexY = newNodeIndex * 100;
+              loc = `${stageX} ${indexY}`;
+              newNodeIndex++;
+          }
+          
+          // 待分配任务使用较深的青色背景，已分配任务使用白色/绿色背景
+          const nodeColor = t.stage === null ? '#ccfbf1' : (t.status === 'completed' ? '#f0fdf4' : 'white'); // teal-100 vs white
+          const borderColor = t.stage === null ? '#14b8a6' : '#e7e5e4'; // teal-500 vs stone-200
+          
           nodeDataArray.push({
               key: t.id,
               title: t.title || '未命名任务',
               displayId: t.displayId,
               stage: t.stage, // Add stage info for drag computation
-              loc: existingLoc || `${t.x} ${t.y}`,
-              color: t.status === 'completed' ? '#f0fdf4' : 'white',
+              loc: loc,
+              color: nodeColor,
+              borderColor: borderColor,
+              isUnassigned: t.stage === null,
               isSelected: false // handled by diagram selection
           });
           
@@ -735,8 +1149,8 @@ export class FlowViewComponent implements AfterViewInit {
           // 如果不是父子关系，则是跨树连接
           if (!parentChildPairs.has(pairKey)) {
               // 确保两个节点都在当前显示的任务中
-              const sourceExists = tasks.some(t => t.id === conn.source && t.stage !== null);
-              const targetExists = tasks.some(t => t.id === conn.target && t.stage !== null);
+              const sourceExists = tasksToShow.some(t => t.id === conn.source);
+              const targetExists = tasksToShow.some(t => t.id === conn.target);
               if (sourceExists && targetExists) {
                   linkDataArray.push({
                       key: `cross-${conn.source}-${conn.target}`,
@@ -784,47 +1198,113 @@ export class FlowViewComponent implements AfterViewInit {
       }
   }
 
-  centerOnNode(taskId: string) {
+  // 点击待分配任务块，在流程图中定位到该任务节点
+  onUnassignedTaskClick(task: Task) {
+      // 如果任务有位置信息（已被拖入过流程图），则定位到它
+      if (task.x !== 0 || task.y !== 0) {
+          this.centerOnNode(task.id);
+      } else {
+          // 没有位置信息，只选中任务显示详情
+          this.selectedTaskId.set(task.id);
+          this.store.isFlowDetailOpen.set(true);
+      }
+  }
+
+  centerOnNode(taskId: string, openDetail: boolean = true) {
       if (!this.diagram) return;
       const node = this.diagram.findNodeForKey(taskId);
       if (node) {
           this.diagram.centerRect(node.actualBounds);
           this.diagram.select(node);
-          // 选中任务并打开详情面板
+          // 选中任务
           this.selectedTaskId.set(taskId);
-          this.store.isFlowDetailOpen.set(true);
+          if (openDetail) {
+              this.store.isFlowDetailOpen.set(true);
+          }
       } else {
-          // 任务可能未分配阶段，仍然选中并打开详情
+          // 任务可能未分配阶段，仍然选中
           this.selectedTaskId.set(taskId);
-          this.store.isFlowDetailOpen.set(true);
+          if (openDetail) {
+              this.store.isFlowDetailOpen.set(true);
+          }
+      }
+  }
+
+  // 窗口大小变化时重新调整图表（ResizeObserver 会处理容器大小变化，这里主要处理全屏等场景）
+  @HostListener('window:resize')
+  onWindowResize() {
+      // ResizeObserver 已经在监听容器变化，这里不需要重复处理
+      // 但保留作为后备
+      if (this.diagram && !this.resizeObserver) {
+          setTimeout(() => {
+              this.diagram.requestUpdate();
+          }, 100);
       }
   }
 
   @HostListener('window:keydown', ['$event'])
   handleDiagramShortcut(event: KeyboardEvent) {
       if (!this.diagram) return;
-      if (!event.altKey || event.key.toLowerCase() !== 'z') return;
-
-      const targets: string[] = [];
-      const it = this.diagram.selection?.iterator;
-      if (it) {
-          while (it.next()) {
-              const part = it.value;
-              const key = part?.data?.key;
-              const isNode = typeof go !== 'undefined' ? part instanceof go.Node : !part?.category;
-              if (isNode && key) {
-                  targets.push(key);
+      if (!event.altKey) return;
+      
+      const key = event.key.toLowerCase();
+      
+      // Alt+Z: 解除父子关系
+      if (key === 'z') {
+          const targets: string[] = [];
+          const it = this.diagram.selection?.iterator;
+          if (it) {
+              while (it.next()) {
+                  const part = it.value;
+                  const nodeKey = part?.data?.key;
+                  const isNode = typeof go !== 'undefined' ? part instanceof go.Node : !part?.category;
+                  if (isNode && nodeKey) {
+                      targets.push(nodeKey);
+                  }
               }
           }
+
+          if (!targets.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+
+          this.zone.run(() => {
+              targets.forEach(id => this.store.detachTask(id));
+          });
+          return;
       }
-
-      if (!targets.length) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      this.zone.run(() => {
-          targets.forEach(id => this.store.detachTask(id));
-      });
+      
+      // Alt+X: 删除选中的连接线（跨树连接）
+      if (key === 'x') {
+          const linksToDelete: any[] = [];
+          const it = this.diagram.selection?.iterator;
+          if (it) {
+              while (it.next()) {
+                  const part = it.value;
+                  // 判断是否是连接线：有 fromNode 和 toNode 属性，或者是 go.Link 实例
+                  const isLink = part && (part.fromNode !== undefined || part instanceof go.Link);
+                  if (isLink && part?.data?.isCrossTree) {
+                      linksToDelete.push(part);
+                  }
+              }
+          }
+          
+          if (!linksToDelete.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+          
+          this.zone.run(() => {
+              linksToDelete.forEach(link => {
+                  const fromKey = link.data?.from;
+                  const toKey = link.data?.to;
+                  if (fromKey && toKey) {
+                      this.store.removeConnection(fromKey, toKey);
+                  }
+              });
+              setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
+          });
+          return;
+      }
   }
 
     private handleLinkGesture(e: any) {
@@ -835,6 +1315,18 @@ export class FlowViewComponent implements AfterViewInit {
             const parentId = fromNode?.data?.key;
             const childId = toNode?.data?.key;
             if (!parentId || !childId || parentId === childId) return;
+
+            // 检查目标节点是否已有父节点
+            const childTask = this.store.tasks().find(t => t.id === childId);
+            if (childTask?.parentId) {
+                // 如果已有父节点，创建跨树连接（虚线）而不是父子关系
+                this.diagram.remove(link);
+                this.zone.run(() => {
+                    this.store.addCrossTreeConnection(parentId, childId);
+                    setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
+                });
+                return;
+            }
 
             const parentStage = typeof fromNode.data?.stage === 'number' ? fromNode.data.stage : null;
             const childStage = typeof toNode.data?.stage === 'number' ? toNode.data.stage : null;

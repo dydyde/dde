@@ -118,6 +118,22 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* 展开收起动画 - 无抖动版本 */
+.animate-collapse-open {
+  animation: collapseOpen 0.15s ease-out;
+}
+
+@keyframes collapseOpen {
+  from { 
+    opacity: 0;
+    max-height: 0;
+  }
+  to { 
+    opacity: 1;
+    max-height: 100vh;
+  }
+}
+
 /* Mobile-friendly tweaks */
 .responsive-stack {
   display: flex;

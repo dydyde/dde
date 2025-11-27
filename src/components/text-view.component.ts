@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
 
@@ -7,7 +7,7 @@ import { StoreService, Task } from '../services/store.service';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="flex flex-col h-full bg-canvas"><!-- 1. 待完成区域 -->
+    <div class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden"><!-- 1. 待完成区域 -->
       <section 
         class="flex-none mt-2 px-2 pb-1 rounded-xl bg-retro-rust/10 border border-retro-rust/30 transition-all"
         [ngClass]="{'mx-4 mt-4': !isMobile(), 'mx-2': isMobile()}">
@@ -89,6 +89,26 @@ import { StoreService, Task } from '../services/store.service';
                         (blur)="onInputBlur()"
                         class="w-full text-xs text-stone-600 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-stone-50 resize-none font-mono h-16"
                         placeholder="任务描述..."></textarea>
+                      
+                      <!-- 快速待办输入 -->
+                      <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded-lg overflow-hidden p-1">
+                        <span class="text-retro-rust flex-shrink-0 text-xs pl-1.5">☐</span>
+                        <input
+                          #unassignedQuickTodoInput
+                          type="text"
+                          (keydown.enter)="addQuickTodo(task.id, unassignedQuickTodoInput.value, unassignedQuickTodoInput)"
+                          (focus)="onInputFocus()"
+                          (blur)="onInputBlur()"
+                          class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-xs py-1 px-1.5"
+                          placeholder="输入待办，按回车添加...">
+                        <button
+                          (click)="addQuickTodo(task.id, unassignedQuickTodoInput.value, unassignedQuickTodoInput)"
+                          class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded p-1 mr-0.5 transition-all"
+                          title="添加待办">
+                          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        </button>
+                      </div>
+                      
                       <div class="flex justify-end gap-2">
                         <button 
                           (click)="editingTaskId.set(null)"
@@ -108,9 +128,10 @@ import { StoreService, Task } from '../services/store.service';
                     (touchstart)="onTouchStart($event, task)"
                     (touchmove)="onTouchMove($event)"
                     (touchend)="onTouchEnd($event)"
-                    class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing touch-none transition-all"
+                    class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing transition-all"
                     [class.opacity-50]="draggingTaskId() === task.id"
-                    (click)="editingTaskId.set(task.id)">
+                    [class.touch-none]="draggingTaskId() === task.id"
+                    (click)="onUnassignedTaskClick(task)">
                     {{task.title || '点击编辑...'}}
                   </div>
                 }
@@ -218,12 +239,12 @@ import { StoreService, Task } from '../services/store.service';
           </div>
           
           <!-- 阶段列表 -->
-            <div class="w-full flex-1 min-h-0 overflow-auto"
-              [ngClass]="{'grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-4 content-start items-start': !isMobile(), 'flex flex-col gap-2 flex-1 min-h-0': isMobile()}">
+            <div class="w-full flex-1 min-h-0 overflow-auto flex flex-col gap-3"
+              [ngClass]="{'px-1': !isMobile(), 'gap-2': isMobile()}">
             @for (stage of visibleStages(); track stage.stageNumber) {
               <article 
                 [attr.data-stage-number]="stage.stageNumber"
-                class="flex flex-col bg-retro-cream/70 backdrop-blur border border-retro-muted/20 rounded-xl shadow-sm overflow-hidden transition-all"
+                class="flex flex-col bg-retro-cream/70 backdrop-blur border border-retro-muted/20 rounded-xl shadow-sm overflow-visible transition-all flex-shrink-0"
                 [ngClass]="{
                   'rounded-2xl': !isMobile(), 
                   'w-full': isMobile(),
@@ -273,13 +294,13 @@ import { StoreService, Task } from '../services/store.service';
                           (touchstart)="onTaskTouchStart($event, task)"
                           (touchmove)="onTouchMove($event)"
                           (touchend)="onTouchEnd($event)"
-                          class="relative bg-canvas/80 backdrop-blur-sm border rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group stack-card overflow-hidden select-none"
+                          class="relative bg-canvas/80 backdrop-blur-sm border rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group stack-card overflow-hidden"
                           [ngClass]="{
                             'p-3': !isMobile(), 
                             'p-2': isMobile(),
                             'shadow-sm border-retro-muted/20': selectedTaskId() !== task.id,
                             'ring-1 ring-retro-gold shadow-md': selectedTaskId() === task.id,
-                            'opacity-50': draggingTaskId() === task.id
+                            'opacity-50 touch-none': draggingTaskId() === task.id
                           }">
                           
                           <div class="flex justify-between items-start"
@@ -322,6 +343,29 @@ import { StoreService, Task } from '../services/store.service';
                                 class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-stone-50 resize-none touch-manipulation"
                                 [ngClass]="{'h-24 text-xs p-2': !isMobile(), 'h-28 text-[11px] p-2': isMobile()}"
                                 placeholder="输入 Markdown 内容..."></textarea>
+                              
+                              <!-- 快速待办输入 -->
+                              <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded-lg overflow-hidden"
+                                   [ngClass]="{'p-1': !isMobile(), 'p-0.5': isMobile()}">
+                                <span class="text-retro-rust flex-shrink-0"
+                                      [ngClass]="{'text-xs pl-2': !isMobile(), 'text-[10px] pl-1.5': isMobile()}">☐</span>
+                                <input
+                                  #quickTodoInput
+                                  type="text"
+                                  (keydown.enter)="addQuickTodo(task.id, quickTodoInput.value, quickTodoInput)"
+                                  (focus)="onInputFocus()"
+                                  (blur)="onInputBlur()"
+                                  class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
+                                  [ngClass]="{'text-xs py-1.5 px-2': !isMobile(), 'text-[11px] py-1 px-1.5': isMobile()}"
+                                  placeholder="输入待办内容，按回车添加...">
+                                <button
+                                  (click)="addQuickTodo(task.id, quickTodoInput.value, quickTodoInput)"
+                                  class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded transition-all flex items-center justify-center"
+                                  [ngClass]="{'p-1.5 mr-0.5': !isMobile(), 'p-1 mr-0.5': isMobile()}"
+                                  title="添加待办">
+                                  <svg [ngClass]="{'w-3.5 h-3.5': !isMobile(), 'w-3 h-3': isMobile()}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                </button>
+                              </div>
                               
                               <div class="flex flex-wrap border-t border-stone-100"
                                    [ngClass]="{'gap-2 pt-2': !isMobile(), 'gap-1.5 pt-1.5': isMobile()}">
@@ -426,6 +470,9 @@ import { StoreService, Task } from '../services/store.service';
 export class TextViewComponent {
   readonly store = inject(StoreService);
   
+  // 输出事件：通知父组件定位到流程图中的节点
+  @Output() focusFlowNode = new EventEmitter<string>();
+  
   // UI 状态
   readonly selectedTaskId = signal<string | null>(null);
   readonly collapsedStages = signal<Set<number>>(new Set());
@@ -472,9 +519,29 @@ export class TextViewComponent {
   });
 
   readonly visibleStages = computed(() => {
-    const filter = this.store.stageFilter();
-    const stages = this.store.stages();
-    return filter === 'all' ? stages : stages.filter(s => s.stageNumber === filter);
+    const stageFilter = this.store.stageFilter();
+    const rootFilter = this.store.stageViewRootFilter();
+    let stages = this.store.stages();
+    
+    // 应用阶段筛选
+    if (stageFilter !== 'all') {
+      stages = stages.filter(s => s.stageNumber === stageFilter);
+    }
+    
+    // 应用延伸筛选 - 过滤掉没有匹配任务的阶段
+    if (rootFilter !== 'all') {
+      const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
+      if (root) {
+        stages = stages.map(stage => ({
+          ...stage,
+          tasks: stage.tasks.filter(task => 
+            task.id === root.id || task.displayId.startsWith(root.displayId + ',')
+          )
+        })).filter(stage => stage.tasks.length > 0);
+      }
+    }
+    
+    return stages;
   });
 
   constructor() {
@@ -489,10 +556,8 @@ export class TextViewComponent {
   isStageExpanded = (stageNumber: number) => !this.collapsedStages().has(stageNumber);
 
   shouldShowTask(task: Task): boolean {
-    const rootFilter = this.store.stageViewRootFilter();
-    if (rootFilter === 'all') return true;
-    const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
-    return root ? (task.id === root.id || task.displayId.startsWith(root.displayId + ',')) : true;
+    // 筛选逻辑已经在 visibleStages 中处理，这里始终返回 true
+    return true;
   }
 
   // 筛选操作
@@ -537,6 +602,18 @@ export class TextViewComponent {
   // 任务选择
   selectTask(task: Task) {
     this.selectedTaskId.update(id => id === task.id ? null : task.id);
+    // 通知父组件，让流程图定位到该节点（仅当选中时）
+    if (this.selectedTaskId() === task.id) {
+      this.focusFlowNode.emit(task.id);
+    }
+  }
+
+  // 待分配任务点击
+  onUnassignedTaskClick(task: Task) {
+    // 尝试在流程图中定位（如果任务有对应节点）
+    this.focusFlowNode.emit(task.id);
+    // 进入编辑模式
+    this.editingTaskId.set(task.id);
   }
 
   // 待办项操作
@@ -576,6 +653,16 @@ export class TextViewComponent {
   
   onTitleInput(taskId: string, value: string) {
     this.store.updateTaskTitle(taskId, value);
+  }
+  
+  // 快速添加待办
+  addQuickTodo(taskId: string, text: string, inputElement: HTMLInputElement) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    
+    this.store.addTodoItem(taskId, trimmed);
+    inputElement.value = '';
+    inputElement.focus();
   }
   
   onContentInput(taskId: string, value: string) {

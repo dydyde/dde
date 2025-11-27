@@ -883,6 +883,28 @@ export class StoreService {
     return this.isEditing || this.hasPendingLocalChanges;
   }
 
+  // 添加待办项：自动生成 - [ ] 格式
+  addTodoItem(taskId: string, itemText: string) {
+    const task = this.tasks().find(t => t.id === taskId);
+    if (!task) return;
+    
+    const trimmedText = itemText.trim();
+    if (!trimmedText) return;
+    
+    // 在内容末尾添加待办项
+    const todoLine = `- [ ] ${trimmedText}`;
+    let newContent = task.content || '';
+    
+    // 如果内容不为空且不以换行结尾，先添加换行
+    if (newContent && !newContent.endsWith('\n')) {
+      newContent += '\n';
+    }
+    newContent += todoLine;
+    
+    this.markEditing();
+    this.updateTaskContent(taskId, newContent);
+  }
+  
   // 完成待办项：将 - [ ] 改为 - [x]
   completeUnfinishedItem(taskId: string, itemText: string) {
     const task = this.tasks().find(t => t.id === taskId);

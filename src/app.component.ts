@@ -58,6 +58,13 @@ export class AppComponent {
       this.mobileActiveView.set('text');
   }
   
+  // 文本栏点击任务时，流程图定位到对应节点（仅桌面端，不打开详情面板）
+  onFocusFlowNode(taskId: string) {
+    if (!this.store.isMobile() && this.flowView) {
+      this.flowView.centerOnNode(taskId, false);
+    }
+  }
+  
   // 侧边栏滑动手势处理
   onSidebarTouchStart(e: TouchEvent) {
     if (!this.store.isMobile()) return;
@@ -86,7 +93,7 @@ export class AppComponent {
     if (!this.isSidebarSwiping) return;
     
     const deltaX = e.changedTouches[0].clientX - this.sidebarTouchStartX;
-    const threshold = 60;
+    const threshold = 50; // 滑动阈值（从60减小到50）
     
     // 向左滑动关闭侧边栏
     if (deltaX < -threshold) {
@@ -124,7 +131,7 @@ export class AppComponent {
     if (!this.isSwiping) return;
     
     const deltaX = e.changedTouches[0].clientX - this.touchStartX;
-    const threshold = 80; // 滑动阈值
+    const threshold = 50; // 滑动阈值
     
     if (deltaX < -threshold) {
       // 向左滑动
@@ -132,15 +139,14 @@ export class AppComponent {
         // 文本视图 -> 流程图
         this.switchToFlow();
       }
+      // 流程图界面不响应滑动切换（防止拖动图表时误触发）
     } else if (deltaX > threshold) {
       // 向右滑动
-      if (this.mobileActiveView() === 'flow') {
-        // 流程图 -> 文本视图
-        this.switchToText();
-      } else if (this.mobileActiveView() === 'text') {
+      if (this.mobileActiveView() === 'text') {
         // 文本视图 -> 打开侧边栏
         this.isSidebarOpen.set(true);
       }
+      // 流程图界面不响应滑动切换（防止拖动图表时误触发）
     }
     
     this.isSwiping = false;
