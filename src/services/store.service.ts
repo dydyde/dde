@@ -111,6 +111,8 @@ export class StoreService {
   private rankMinGap = 50;
   private hasPendingLocalChanges = false; // 用于避免实时同步覆盖正在输入的内容
   private lastPersistAt = 0;
+  private isEditing = false; // 用户是否正在输入
+  private editingTimer: ReturnType<typeof setTimeout> | null = null;
 
   private resolveApiKey() {
     const candidate = (globalThis as any).__GENAI_API_KEY__;
@@ -670,9 +672,9 @@ export class StoreService {
   private async handleRemoteChange(payload: any) {
     // 先等本地输入/同步完成，避免覆盖正在输入的内容
     const processChange = async () => {
-      // 有本地未落盘或刚刚持久化完，延迟处理
-      if (this.hasPendingLocalChanges || this.isSyncing() || Date.now() - this.lastPersistAt < 600) {
-        this.remoteChangeTimer = setTimeout(processChange, 500);
+      // 有本地未落盘、正在编辑或刚刚持久化完，延迟处理
+      if (this.isEditing || this.hasPendingLocalChanges || this.isSyncing() || Date.now() - this.lastPersistAt < 800) {
+        this.remoteChangeTimer = setTimeout(processChange, 800);
         return;
       }
       try {
@@ -687,7 +689,7 @@ export class StoreService {
     if (this.remoteChangeTimer) {
       clearTimeout(this.remoteChangeTimer);
     }
-    this.remoteChangeTimer = setTimeout(processChange, 300);
+    this.remoteChangeTimer = setTimeout(processChange, 500);
   }
 
   async loadProjects() {
@@ -851,10 +853,34 @@ export class StoreService {
   }
 
   updateTaskContent(taskId: string, newContent: string) {
+    // 标记正在编辑状态，防止远程同步覆盖
+    this.markEditing();
     this.updateActiveProject(p => this.rebalance({
       ...p,
       tasks: p.tasks.map(t => t.id === taskId ? { ...t, content: newContent } : t)
     }));
+  }
+  
+  // 标记正在编辑状态
+  markEditing() {
+    this.isEditing = true;
+    this.hasPendingLocalChanges = true;
+    
+    // 清除之前的定时器
+    if (this.editingTimer) {
+      clearTimeout(this.editingTimer);
+    }
+    
+    // 1.5秒后清除编辑状态
+    this.editingTimer = setTimeout(() => {
+      this.isEditing = false;
+      this.editingTimer = null;
+    }, 1500);
+  }
+  
+  // 检查是否正在编辑
+  get isUserEditing(): boolean {
+    return this.isEditing || this.hasPendingLocalChanges;
   }
 
   // 完成待办项：将 - [ ] 改为 - [x]
@@ -873,6 +899,8 @@ export class StoreService {
   }
 
   updateTaskTitle(taskId: string, title: string) {
+    // 标记正在编辑状态，防止远程同步覆盖
+    this.markEditing();
     this.updateActiveProject(p => this.rebalance({
       ...p,
       tasks: p.tasks.map(t => t.id === taskId ? { ...t, title } : t)
@@ -920,9 +948,9 @@ export class StoreService {
     targetStage: number | null, 
     parentId: string | null, 
     isSibling: boolean
-  ) {
+  ): string | null {
     const activeP = this.activeProject();
-    if (!activeP) return;
+    if (!activeP) return null;
 
     const stageTasks = activeP.tasks.filter(t => t.stage === targetStage);
     const newOrder = stageTasks.length + 1;
@@ -932,8 +960,9 @@ export class StoreService {
       ? this.rankRootBase + activeP.tasks.filter(t => t.stage === null).length * this.rankStep
       : this.computeInsertRank(targetStage, stageTasks, null, parent?.rank ?? null);
 
+    const newTaskId = crypto.randomUUID();
     const newTask: Task = {
-      id: crypto.randomUUID(),
+      id: newTaskId,
       title,
       content,
       stage: targetStage,
@@ -949,7 +978,7 @@ export class StoreService {
     };
 
     const placed = this.applyRefusalStrategy(newTask, candidateRank, parent?.rank ?? null, Infinity);
-    if (!placed.ok) return;
+    if (!placed.ok) return null;
     newTask.rank = placed.rank;
 
     if (targetStage === null) {
@@ -964,6 +993,43 @@ export class StoreService {
         connections: parentId ? [...p.connections, { source: parentId, target: newTask.id }] : [...p.connections]
       }));
     }
+    
+    return newTaskId;
+  }
+
+  // 添加跨树连接（不改变父子关系，仅添加视觉连接线）
+  addCrossTreeConnection(sourceId: string, targetId: string) {
+    const activeP = this.activeProject();
+    if (!activeP) return;
+    
+    // 检查连接是否已存在
+    const exists = activeP.connections.some(
+      c => c.source === sourceId && c.target === targetId
+    );
+    if (exists) return;
+    
+    // 检查任务是否存在
+    const sourceTask = activeP.tasks.find(t => t.id === sourceId);
+    const targetTask = activeP.tasks.find(t => t.id === targetId);
+    if (!sourceTask || !targetTask) return;
+    
+    // 不允许连接到自己
+    if (sourceId === targetId) return;
+    
+    this.updateActiveProject(p => ({
+      ...p,
+      connections: [...p.connections, { source: sourceId, target: targetId }]
+    }));
+  }
+
+  // 删除连接
+  removeConnection(sourceId: string, targetId: string) {
+    this.updateActiveProject(p => ({
+      ...p,
+      connections: p.connections.filter(
+        c => !(c.source === sourceId && c.target === targetId)
+      )
+    }));
   }
 
   addFloatingTask(title: string, content: string, x: number, y: number) {

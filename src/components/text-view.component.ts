@@ -64,18 +64,56 @@ import { StoreService, Task } from '../services/store.service';
           <div class="pb-2 animate-collapse-open">
             <div class="flex flex-wrap" [ngClass]="{'gap-2': !isMobile(), 'gap-1.5': isMobile()}">
               @for (task of store.unassignedTasks(); track task.id) {
-                <div 
-                  draggable="true"
-                  (dragstart)="onDragStart($event, task)"
-                  (dragend)="onDragEnd()"
-                  (touchstart)="onTouchStart($event, task)"
-                  (touchmove)="onTouchMove($event)"
-                  (touchend)="onTouchEnd($event)"
-                  class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing touch-none transition-all"
-                  [class.opacity-50]="draggingTaskId() === task.id"
-                  (click)="selectTask(task)">
-                  {{task.title}}
-                </div>
+                @if (editingTaskId() === task.id) {
+                  <!-- 编辑模式 -->
+                  <div 
+                    [attr.data-unassigned-task]="task.id"
+                    class="w-full p-3 bg-white border-2 border-retro-teal rounded-lg shadow-md animate-collapse-open"
+                    (click)="$event.stopPropagation()">
+                    <div class="space-y-2">
+                      <input
+                        #unassignedTitleInput
+                        type="text"
+                        [value]="task.title"
+                        (input)="onTitleInput(task.id, unassignedTitleInput.value)"
+                        (focus)="onInputFocus()"
+                        (blur)="onInputBlur()"
+                        class="w-full text-sm font-medium text-stone-800 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-stone-50"
+                        placeholder="任务名称..."
+                        autofocus>
+                      <textarea
+                        #unassignedContentInput
+                        [value]="task.content"
+                        (input)="onContentInput(task.id, unassignedContentInput.value)"
+                        (focus)="onInputFocus()"
+                        (blur)="onInputBlur()"
+                        class="w-full text-xs text-stone-600 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-stone-50 resize-none font-mono h-16"
+                        placeholder="任务描述..."></textarea>
+                      <div class="flex justify-end gap-2">
+                        <button 
+                          (click)="editingTaskId.set(null)"
+                          class="px-3 py-1 text-xs text-retro-teal hover:bg-retro-teal/10 rounded transition-all">
+                          完成
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                } @else {
+                  <!-- 显示模式 -->
+                  <div 
+                    [attr.data-unassigned-task]="task.id"
+                    draggable="true"
+                    (dragstart)="onDragStart($event, task)"
+                    (dragend)="onDragEnd()"
+                    (touchstart)="onTouchStart($event, task)"
+                    (touchmove)="onTouchMove($event)"
+                    (touchend)="onTouchEnd($event)"
+                    class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing touch-none transition-all"
+                    [class.opacity-50]="draggingTaskId() === task.id"
+                    (click)="editingTaskId.set(task.id)">
+                    {{task.title || '点击编辑...'}}
+                  </div>
+                }
               } @empty {
                 <span class="text-xs text-stone-400 italic py-1 font-light">暂无</span>
               }
@@ -232,6 +270,9 @@ import { StoreService, Task } from '../services/store.service';
                           (dragstart)="onDragStart($event, task)"
                           (dragend)="onDragEnd()"
                           (dragover)="onTaskDragOver($event, task, stage.stageNumber)"
+                          (touchstart)="onTaskTouchStart($event, task)"
+                          (touchmove)="onTouchMove($event)"
+                          (touchend)="onTouchEnd($event)"
                           class="relative bg-canvas/80 backdrop-blur-sm border rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group stack-card overflow-hidden select-none"
                           [ngClass]="{
                             'p-3': !isMobile(), 
@@ -246,13 +287,12 @@ import { StoreService, Task } from '../services/store.service';
                             <span class="font-mono font-medium text-retro-muted"
                                   [ngClass]="{'text-[10px]': !isMobile(), 'text-[9px]': isMobile()}">{{task.displayId}}</span>
                             <span class="text-retro-muted/60 font-light"
-                                  [ngClass]="{'text-[10px]': !isMobile(), 'text-[9px]': isMobile()}">{{task.createdDate | date:'HH:mm'}}</span>
+                                  [ngClass]="{'text-[10px]': !isMobile(), 'text-[9px]': isMobile()}">{{task.createdDate | date:'yyyy/MM/dd HH:mm'}}</span>
                           </div>
                           
-                          <div class="font-medium text-retro-dark leading-snug line-clamp-2"
-                               [ngClass]="{'text-sm mb-1': !isMobile(), 'text-xs mb-0.5': isMobile()}">{{task.title}}</div>
-                          
                           @if (selectedTaskId() !== task.id) {
+                            <div class="font-medium text-retro-dark leading-snug line-clamp-2"
+                                 [ngClass]="{'text-sm mb-1': !isMobile(), 'text-xs mb-0.5': isMobile()}">{{task.title || '未命名任务'}}</div>
                             <div class="text-stone-500 font-light leading-relaxed line-clamp-1"
                                  [ngClass]="{'text-xs': !isMobile(), 'text-[10px]': isMobile()}">{{task.content}}</div>
                           } @else {
@@ -260,10 +300,25 @@ import { StoreService, Task } from '../services/store.service';
                                  (click)="$event.stopPropagation()"
                                  (touchstart)="$event.stopPropagation()"
                                  [ngClass]="{'mt-2 space-y-2': !isMobile(), 'mt-1.5 space-y-1.5': isMobile()}">
+                              <!-- 标题编辑 -->
+                              <input
+                                #titleInput
+                                data-title-input
+                                type="text"
+                                [value]="task.title"
+                                (input)="onTitleInput(task.id, titleInput.value)"
+                                (focus)="onInputFocus()"
+                                (blur)="onInputBlur()"
+                                class="w-full font-medium text-retro-dark border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none bg-stone-50 touch-manipulation"
+                                [ngClass]="{'text-sm p-2': !isMobile(), 'text-xs p-1.5': isMobile()}"
+                                placeholder="任务名称...">
+                              <!-- 内容编辑 -->
                               <textarea 
                                 #contentInput
                                 [value]="task.content"
-                                (input)="store.updateTaskContent(task.id, contentInput.value)"
+                                (input)="onContentInput(task.id, contentInput.value)"
+                                (focus)="onInputFocus()"
+                                (blur)="onInputBlur()"
                                 class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-stone-50 resize-none touch-manipulation"
                                 [ngClass]="{'h-24 text-xs p-2': !isMobile(), 'h-28 text-[11px] p-2': isMobile()}"
                                 placeholder="输入 Markdown 内容..."></textarea>
@@ -377,6 +432,9 @@ export class TextViewComponent {
   readonly isStageFilterOpen = signal(false);
   readonly isRootFilterOpen = signal(false);
   
+  // 待分配任务编辑状态
+  readonly editingTaskId = signal<string | null>(null);
+  
   // 删除确认状态
   readonly deleteConfirmTask = signal<Task | null>(null);
   
@@ -385,8 +443,19 @@ export class TextViewComponent {
   readonly dragOverStage = signal<number | null>(null);
   readonly dropTargetInfo = signal<{ stageNumber: number; beforeTaskId: string | null } | null>(null);
   
-  // 触摸拖拽状态
-  private touchState = { task: null as Task | null, startY: 0, targetStage: null as number | null };
+  // 触摸拖拽状态 - 增强版
+  private touchState = { 
+    task: null as Task | null, 
+    startX: 0,
+    startY: 0, 
+    currentX: 0,
+    currentY: 0,
+    targetStage: null as number | null,
+    targetBeforeId: null as string | null,
+    isDragging: false,
+    dragGhost: null as HTMLElement | null,
+    longPressTimer: null as ReturnType<typeof setTimeout> | null
+  };
 
   // 计算属性
   readonly isMobile = this.store.isMobile;
@@ -493,6 +562,26 @@ export class TextViewComponent {
     });
   }
 
+  // 输入状态管理 - 防止输入抖动
+  private isInputFocused = false;
+  
+  onInputFocus() {
+    this.isInputFocused = true;
+    this.store.markEditing();
+  }
+  
+  onInputBlur() {
+    this.isInputFocused = false;
+  }
+  
+  onTitleInput(taskId: string, value: string) {
+    this.store.updateTaskTitle(taskId, value);
+  }
+  
+  onContentInput(taskId: string, value: string) {
+    this.store.updateTaskContent(taskId, value);
+  }
+
   // 拖拽操作
   onDragStart(e: DragEvent, task: Task) {
     this.draggingTaskId.set(task.id);
@@ -545,57 +634,221 @@ export class TextViewComponent {
     this.onDragEnd();
   }
 
-  // 触摸拖拽
+  // 触摸拖拽 - 长按开始拖拽
   onTouchStart(e: TouchEvent, task: Task) {
     if (e.touches.length !== 1) return;
-    this.touchState = { task, startY: e.touches[0].clientY, targetStage: null };
-    this.draggingTaskId.set(task.id);
+    const touch = e.touches[0];
+    
+    // 清除之前的长按计时器
+    if (this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+    }
+    
+    this.touchState = {
+      task,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      targetStage: null,
+      targetBeforeId: null,
+      isDragging: false,
+      dragGhost: null,
+      longPressTimer: null
+    };
+    
+    // 长按 200ms 后开始拖拽
+    this.touchState.longPressTimer = setTimeout(() => {
+      if (this.touchState.task?.id === task.id) {
+        this.touchState.isDragging = true;
+        this.draggingTaskId.set(task.id);
+        this.createDragGhost(task, touch.clientX, touch.clientY);
+        // 触发震动反馈（如果支持）
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+      }
+    }, 200);
+  }
+  
+  // 创建拖拽幽灵元素
+  private createDragGhost(task: Task, x: number, y: number) {
+    // 移除旧的幽灵元素
+    this.removeDragGhost();
+    
+    const ghost = document.createElement('div');
+    ghost.className = 'fixed z-[9999] px-3 py-2 bg-retro-teal/90 text-white rounded-lg shadow-xl text-xs font-medium pointer-events-none whitespace-nowrap';
+    ghost.textContent = task.title;
+    ghost.style.left = `${x - 40}px`;
+    ghost.style.top = `${y - 20}px`;
+    ghost.style.transform = 'scale(1.05)';
+    ghost.style.opacity = '0.95';
+    document.body.appendChild(ghost);
+    this.touchState.dragGhost = ghost;
+  }
+  
+  // 移除拖拽幽灵元素
+  private removeDragGhost() {
+    if (this.touchState.dragGhost) {
+      this.touchState.dragGhost.remove();
+      this.touchState.dragGhost = null;
+    }
   }
 
   onTouchMove(e: TouchEvent) {
     if (!this.touchState.task || e.touches.length !== 1) return;
-    e.preventDefault();
     
     const touch = e.touches[0];
-    const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+    const deltaX = Math.abs(touch.clientX - this.touchState.startX);
+    const deltaY = Math.abs(touch.clientY - this.touchState.startY);
     
-    for (const el of elements) {
-      const stageEl = el.closest('[data-stage-number]');
-      if (stageEl) {
-        const stageNum = parseInt(stageEl.getAttribute('data-stage-number') || '0', 10);
-        if (stageNum > 0) {
-          this.touchState.targetStage = stageNum;
-          this.dragOverStage.set(stageNum);
-          this.expandStage(stageNum);
-          break;
+    // 如果移动超过阈值但还没开始拖拽，取消长按
+    if (!this.touchState.isDragging && (deltaX > 10 || deltaY > 10)) {
+      if (this.touchState.longPressTimer) {
+        clearTimeout(this.touchState.longPressTimer);
+        this.touchState.longPressTimer = null;
+      }
+      return;
+    }
+    
+    // 如果正在拖拽，阻止默认行为并更新位置
+    if (this.touchState.isDragging) {
+      e.preventDefault();
+      
+      this.touchState.currentX = touch.clientX;
+      this.touchState.currentY = touch.clientY;
+      
+      // 更新幽灵元素位置
+      if (this.touchState.dragGhost) {
+        this.touchState.dragGhost.style.left = `${touch.clientX - 40}px`;
+        this.touchState.dragGhost.style.top = `${touch.clientY - 20}px`;
+      }
+      
+      // 查找目标阶段和任务位置
+      const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+      let foundStage = false;
+      
+      for (const el of elements) {
+        // 检查是否在阶段块上
+        const stageEl = el.closest('[data-stage-number]');
+        if (stageEl) {
+          const stageNum = parseInt(stageEl.getAttribute('data-stage-number') || '0', 10);
+          if (stageNum > 0) {
+            this.touchState.targetStage = stageNum;
+            this.dragOverStage.set(stageNum);
+            this.expandStage(stageNum);
+            foundStage = true;
+            
+            // 检查是否在某个任务上方
+            const taskEl = el.closest('[data-task-id]');
+            if (taskEl) {
+              const taskId = taskEl.getAttribute('data-task-id');
+              const rect = taskEl.getBoundingClientRect();
+              const isAbove = touch.clientY < rect.top + rect.height / 2;
+              
+              if (isAbove) {
+                this.touchState.targetBeforeId = taskId;
+                this.dropTargetInfo.set({ stageNumber: stageNum, beforeTaskId: taskId });
+              } else {
+                // 找下一个任务
+                const stage = this.visibleStages().find(s => s.stageNumber === stageNum);
+                const idx = stage?.tasks.findIndex(t => t.id === taskId) ?? -1;
+                const nextTask = stage?.tasks[idx + 1];
+                this.touchState.targetBeforeId = nextTask?.id ?? null;
+                this.dropTargetInfo.set({ stageNumber: stageNum, beforeTaskId: nextTask?.id ?? null });
+              }
+            } else {
+              // 在阶段块上但不在任务上，插入到末尾
+              this.touchState.targetBeforeId = null;
+              this.dropTargetInfo.set({ stageNumber: stageNum, beforeTaskId: null });
+            }
+            break;
+          }
         }
+      }
+      
+      if (!foundStage) {
+        this.touchState.targetStage = null;
+        this.touchState.targetBeforeId = null;
+        this.dragOverStage.set(null);
+        this.dropTargetInfo.set(null);
       }
     }
   }
 
   onTouchEnd(e: TouchEvent) {
-    const { task, startY, targetStage } = this.touchState;
-    if (!task) return;
+    // 清除长按计时器
+    if (this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+      this.touchState.longPressTimer = null;
+    }
     
-    const dragDistance = Math.abs((e.changedTouches[0]?.clientY ?? startY) - startY);
-    if (dragDistance > 30 && targetStage) {
-      this.store.moveTaskToStage(task.id, targetStage);
+    const { task, isDragging, targetStage, targetBeforeId } = this.touchState;
+    
+    // 移除幽灵元素
+    this.removeDragGhost();
+    
+    if (!task) {
+      this.resetTouchState();
+      return;
+    }
+    
+    // 只有在真正拖拽状态下才执行移动
+    if (isDragging && targetStage) {
+      this.store.moveTaskToStage(task.id, targetStage, targetBeforeId);
       this.expandStage(targetStage);
     }
     
-    this.touchState = { task: null, startY: 0, targetStage: null };
+    this.resetTouchState();
     this.onDragEnd();
+  }
+  
+  // 重置触摸状态
+  private resetTouchState() {
+    if (this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+    }
+    this.touchState = {
+      task: null,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      targetStage: null,
+      targetBeforeId: null,
+      isDragging: false,
+      dragGhost: null,
+      longPressTimer: null
+    };
+  }
+
+  // 阶段内任务的触摸拖拽开始 - 用于重新排序
+  onTaskTouchStart(e: TouchEvent, task: Task) {
+    // 如果任务已选中且正在编辑，不启动拖拽
+    if (this.selectedTaskId() === task.id) {
+      return;
+    }
+    
+    // 复用待分配任务的触摸逻辑
+    this.onTouchStart(e, task);
   }
 
   // 任务创建
   addSibling(task: Task, e: Event) {
     e.stopPropagation();
-    this.store.addTask('新同级任务', '详情...', task.stage, task.parentId, true);
+    const newTaskId = this.store.addTask('', '', task.stage, task.parentId, true);
+    if (newTaskId) {
+      this.navigateToNewTask(newTaskId, task.stage);
+    }
   }
 
   addChild(task: Task, e: Event) {
     e.stopPropagation();
-    this.store.addTask('新子任务', '详情...', (task.stage || 0) + 1, task.id, false);
+    const newStage = (task.stage || 0) + 1;
+    const newTaskId = this.store.addTask('', '', newStage, task.id, false);
+    if (newTaskId) {
+      this.navigateToNewTask(newTaskId, newStage);
+    }
   }
 
   deleteTask(task: Task, e: Event) {
@@ -613,11 +866,67 @@ export class TextViewComponent {
   }
 
   createUnassigned() {
-    this.store.addTask('新未分配任务', '...', null, null, false);
+    const newTaskId = this.store.addTask('', '', null, null, false);
+    if (newTaskId) {
+      // 选中新任务并开启编辑模式
+      this.editingTaskId.set(newTaskId);
+      // 滚动到视图并聚焦到标题输入框
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const el = document.querySelector(`[data-unassigned-task="${newTaskId}"]`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 聚焦到标题输入框
+            setTimeout(() => {
+              const input = el.querySelector('input') as HTMLInputElement;
+              if (input) {
+                input.focus();
+              }
+            }, 100);
+          }
+        }, 50);
+      });
+    }
+  }
+  
+  // 导航到新建的任务
+  private navigateToNewTask(taskId: string, stage: number | null) {
+    // 展开目标阶段
+    if (stage) {
+      this.expandStage(stage);
+      // 如果当前筛选不是全部且不是目标阶段，切换到全部
+      if (this.store.stageFilter() !== 'all' && this.store.stageFilter() !== stage) {
+        this.store.setStageFilter('all');
+      }
+    }
+    
+    // 选中新任务
+    this.selectedTaskId.set(taskId);
+    
+    // 滚动到新任务位置
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-task-id="${taskId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 聚焦到标题输入框
+          setTimeout(() => {
+            const titleInput = el.querySelector('input[data-title-input]') as HTMLInputElement;
+            if (titleInput) {
+              titleInput.focus();
+              titleInput.select();
+            }
+          }, 100);
+        }
+      }, 100);
+    });
   }
 
   addNewStage() {
     const maxStage = Math.max(...this.store.stages().map(s => s.stageNumber), 0);
-    this.store.addTask('新阶段任务', '开始...', maxStage + 1, null, false);
+    const newTaskId = this.store.addTask('', '', maxStage + 1, null, false);
+    if (newTaskId) {
+      this.navigateToNewTask(newTaskId, maxStage + 1);
+    }
   }
 }

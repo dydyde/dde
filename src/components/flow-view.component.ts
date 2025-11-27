@@ -89,18 +89,80 @@ declare var go: any;
            <div #diagramDiv class="absolute inset-0 w-full h-full z-0"></div>
 
            <!-- Zoom Controls -->
-           <div class="absolute bottom-4 left-4 z-10 flex flex-col gap-2">
-               <button (click)="zoomIn()" class="bg-white/90 backdrop-blur p-2 rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600" title="放大">
-                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+           <div class="absolute bottom-4 left-4 z-10 flex gap-2"
+                [class.flex-col]="!store.isMobile()"
+                [class.flex-row]="store.isMobile()"
+                [class.bottom-2]="store.isMobile()"
+                [class.left-2]="store.isMobile()">
+               <button (click)="zoomIn()" 
+                       class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
+                       [class.p-2]="!store.isMobile()"
+                       [class.p-1.5]="store.isMobile()"
+                       title="放大">
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
+                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                    </svg>
                </button>
-               <button (click)="zoomOut()" class="bg-white/90 backdrop-blur p-2 rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600" title="缩小">
-                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <button (click)="zoomOut()" 
+                       class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
+                       [class.p-2]="!store.isMobile()"
+                       [class.p-1.5]="store.isMobile()"
+                       title="缩小">
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
+                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
                    </svg>
                </button>
+               <!-- 连接模式按钮 -->
+               <button 
+                 (click)="toggleLinkMode()" 
+                 class="backdrop-blur rounded-lg shadow-sm border transition-all"
+                 [class.p-2]="!store.isMobile()"
+                 [class.p-1.5]="store.isMobile()"
+                 [class.bg-indigo-500]="isLinkMode()"
+                 [class.text-white]="isLinkMode()"
+                 [class.border-indigo-500]="isLinkMode()"
+                 [class.bg-white/90]="!isLinkMode()"
+                 [class.text-stone-600]="!isLinkMode()"
+                 [class.border-stone-200]="!isLinkMode()"
+                 [class.hover:bg-stone-50]="!isLinkMode()"
+                 title="连接模式：点击两个节点创建跨树连接">
+                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
+                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                   </svg>
+               </button>
            </div>
+           
+           <!-- 连接模式提示 - 移动端优化 -->
+           @if (isLinkMode()) {
+             <div class="absolute z-10 bg-indigo-500 text-white font-medium rounded-lg shadow-lg animate-fade-in flex items-center"
+                  [class.top-4]="!store.isMobile()"
+                  [class.left-4]="!store.isMobile()"
+                  [class.px-3]="!store.isMobile()"
+                  [class.py-2]="!store.isMobile()"
+                  [class.text-xs]="!store.isMobile()"
+                  [class.top-2]="store.isMobile()"
+                  [class.left-1/2]="store.isMobile()"
+                  [class.-translate-x-1/2]="store.isMobile()"
+                  [class.px-2]="store.isMobile()"
+                  [class.py-1.5]="store.isMobile()"
+                  [class.text-[10px]]="store.isMobile()"
+                  [class.max-w-[90vw]]="store.isMobile()">
+               @if (linkSourceTask()) {
+                 <span class="truncate">已选: <span class="font-bold">{{ linkSourceTask()?.title }}</span></span>
+                 <span class="mx-1">→</span>
+                 <span>点击目标</span>
+               } @else {
+                 点击源节点
+               }
+               <button (click)="cancelLinkMode()" class="ml-2 px-1.5 py-0.5 bg-white/20 rounded hover:bg-white/30 transition-colors">取消</button>
+             </div>
+           }
 
            <!-- 4. 详情区域 (Floating Right) - 手机端优化 -->
            <div class="absolute top-6 right-0 bottom-6 z-20 flex pointer-events-none"
@@ -280,6 +342,10 @@ export class FlowViewComponent implements AfterViewInit {
   // 删除确认状态
   deleteConfirmTask = signal<Task | null>(null);
   
+  // 连接模式状态
+  isLinkMode = signal(false);
+  linkSourceTask = signal<Task | null>(null);
+  
   // 计算属性: 获取选中的任务对象
   selectedTask = computed(() => {
     const id = this.selectedTaskId();
@@ -292,6 +358,36 @@ export class FlowViewComponent implements AfterViewInit {
   paletteHeight = signal(200); // Initial height for the top palette area
   private startY = 0;
   private startHeight = 0;
+
+  // 连接模式方法
+  toggleLinkMode() {
+    this.isLinkMode.update(v => !v);
+    this.linkSourceTask.set(null);
+  }
+  
+  cancelLinkMode() {
+    this.isLinkMode.set(false);
+    this.linkSourceTask.set(null);
+  }
+  
+  // 处理连接模式下的节点点击
+  handleLinkModeClick(taskId: string) {
+    const task = this.store.tasks().find(t => t.id === taskId);
+    if (!task) return;
+    
+    const source = this.linkSourceTask();
+    if (!source) {
+      // 选择源节点
+      this.linkSourceTask.set(task);
+    } else if (source.id !== taskId) {
+      // 选择目标节点，创建连接
+      this.store.addCrossTreeConnection(source.id, taskId);
+      this.linkSourceTask.set(null);
+      this.isLinkMode.set(false);
+      // 刷新图表以显示新连接
+      setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
+    }
+  }
 
   constructor() {
       effect(() => {
@@ -461,9 +557,14 @@ export class FlowViewComponent implements AfterViewInit {
                 selectionAdorned: true,
                 click: (e: any, node: any) => {
                     if (e.diagram.lastInput.dragging) return;
-                    // 单击选中节点
                     this.zone.run(() => {
-                        this.selectedTaskId.set(node.data.key);
+                        // 检查是否在连接模式
+                        if (this.isLinkMode()) {
+                            this.handleLinkModeClick(node.data.key);
+                        } else {
+                            // 单击选中节点
+                            this.selectedTaskId.set(node.data.key);
+                        }
                     });
                 },
                 doubleClick: (e: any, node: any) => {
@@ -509,7 +610,7 @@ export class FlowViewComponent implements AfterViewInit {
             makePort("B", go.Spot.Bottom, true, true)
           );
 
-      // Link Template
+      // Link Template - 支持父子连接和跨树连接的不同样式
       this.diagram.linkTemplate =
           $(go.Link, 
             { 
@@ -520,14 +621,26 @@ export class FlowViewComponent implements AfterViewInit {
                 relinkableFrom: true,
                 relinkableTo: true,
                 reshapable: true,
-                resegmentable: true
+                resegmentable: true,
+                // 右键菜单删除连接
+                contextMenu: $(go.Adornment, "Vertical",
+                  $("ContextMenuButton",
+                    $(go.TextBlock, "删除连接", { margin: 5 }),
+                    { click: (e: any, obj: any) => this.deleteLinkFromContext(obj.part) }
+                  )
+                )
             },
             // Transparent fat line for easier selection
             $(go.Shape, { isPanelMain: true, strokeWidth: 8, stroke: "transparent" }),
-            // Visible line
-            $(go.Shape, { isPanelMain: true, strokeWidth: 2, stroke: "#94a3b8" }),
+            // Visible line - 根据连接类型显示不同样式
+            $(go.Shape, { isPanelMain: true, strokeWidth: 2 },
+              new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
+              new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)
+            ),
             // Arrowhead
-            $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#94a3b8", scale: 1.2 })
+            $(go.Shape, { toArrow: "Standard", stroke: null, scale: 1.2 },
+              new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")
+            )
           );
 
       // Initialize model with linkKeyProperty for proper merging
@@ -572,6 +685,9 @@ export class FlowViewComponent implements AfterViewInit {
       const model = this.diagram.model;
       if (!model) return;
       
+      const project = this.store.activeProject();
+      if (!project) return;
+      
       // Build a map of existing node locations to preserve user's manual positioning
       const existingLocations = new Map<string, string>();
       (model as any).nodeDataArray.forEach((n: any) => {
@@ -582,13 +698,19 @@ export class FlowViewComponent implements AfterViewInit {
       
       const nodeDataArray: any[] = [];
       const linkDataArray: any[] = [];
+      
+      // 构建父子关系集合
+      const parentChildPairs = new Set<string>();
+      tasks.filter(t => t.stage !== null && t.parentId).forEach(t => {
+          parentChildPairs.add(`${t.parentId}->${t.id}`);
+      });
 
       tasks.filter(t => t.stage !== null).forEach(t => {
           // Preserve existing location if node was already rendered, otherwise use store coordinates
           const existingLoc = existingLocations.get(t.id);
           nodeDataArray.push({
               key: t.id,
-              title: t.title,
+              title: t.title || '未命名任务',
               displayId: t.displayId,
               stage: t.stage, // Add stage info for drag computation
               loc: existingLoc || `${t.x} ${t.y}`,
@@ -596,12 +718,33 @@ export class FlowViewComponent implements AfterViewInit {
               isSelected: false // handled by diagram selection
           });
           
+          // 添加父子连接（实线）
           if (t.parentId) {
               linkDataArray.push({ 
                   key: `${t.parentId}-${t.id}`,
                   from: t.parentId, 
-                  to: t.id 
+                  to: t.id,
+                  isCrossTree: false
               });
+          }
+      });
+      
+      // 添加跨树连接（虚线）- 从 project.connections 中获取非父子关系的连接
+      project.connections.forEach(conn => {
+          const pairKey = `${conn.source}->${conn.target}`;
+          // 如果不是父子关系，则是跨树连接
+          if (!parentChildPairs.has(pairKey)) {
+              // 确保两个节点都在当前显示的任务中
+              const sourceExists = tasks.some(t => t.id === conn.source && t.stage !== null);
+              const targetExists = tasks.some(t => t.id === conn.target && t.stage !== null);
+              if (sourceExists && targetExists) {
+                  linkDataArray.push({
+                      key: `cross-${conn.source}-${conn.target}`,
+                      from: conn.source,
+                      to: conn.target,
+                      isCrossTree: true
+                  });
+              }
           }
       });
 
@@ -701,5 +844,27 @@ export class FlowViewComponent implements AfterViewInit {
             this.zone.run(() => {
                     this.store.moveTaskToStage(childId, nextStage, undefined, parentId);
             });
+    }
+    
+    // 从右键菜单删除连接
+    private deleteLinkFromContext(link: any) {
+        if (!link) return;
+        const fromKey = link.data?.from;
+        const toKey = link.data?.to;
+        const isCrossTree = link.data?.isCrossTree;
+        
+        if (fromKey && toKey) {
+            this.zone.run(() => {
+                if (isCrossTree) {
+                    // 删除跨树连接
+                    this.store.removeConnection(fromKey, toKey);
+                } else {
+                    // 删除父子连接 - 将子任务解除父子关系
+                    this.store.detachTask(toKey);
+                }
+                // 刷新图表
+                setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
+            });
+        }
     }
 }

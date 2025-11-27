@@ -36,12 +36,114 @@ export class AppComponent {
 
   // Mobile Support
   mobileActiveView = signal<'text' | 'flow'>('text');
+  
+  // 手机端滑动切换状态
+  private touchStartX = 0;
+  private touchStartY = 0;
+  private isSwiping = false;
+  
+  // 侧边栏滑动状态
+  private sidebarTouchStartX = 0;
+  private sidebarTouchStartY = 0;
+  private isSidebarSwiping = false;
 
   switchToFlow() {
       this.mobileActiveView.set('flow');
       setTimeout(() => {
           this.flowView?.refreshLayout();
       }, 100);
+  }
+  
+  switchToText() {
+      this.mobileActiveView.set('text');
+  }
+  
+  // 侧边栏滑动手势处理
+  onSidebarTouchStart(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    this.sidebarTouchStartX = e.touches[0].clientX;
+    this.sidebarTouchStartY = e.touches[0].clientY;
+    this.isSidebarSwiping = false;
+  }
+  
+  onSidebarTouchMove(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    const deltaX = e.touches[0].clientX - this.sidebarTouchStartX;
+    const deltaY = Math.abs(e.touches[0].clientY - this.sidebarTouchStartY);
+    
+    // 向左滑动且水平距离大于垂直距离
+    if (deltaX < -30 && Math.abs(deltaX) > deltaY * 1.5) {
+      this.isSidebarSwiping = true;
+    }
+  }
+  
+  onSidebarTouchEnd(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (!this.isSidebarSwiping) return;
+    
+    const deltaX = e.changedTouches[0].clientX - this.sidebarTouchStartX;
+    const threshold = 60;
+    
+    // 向左滑动关闭侧边栏
+    if (deltaX < -threshold) {
+      this.isSidebarOpen.set(false);
+    }
+    
+    this.isSidebarSwiping = false;
+  }
+  
+  // 手机端滑动手势处理
+  onMainTouchStart(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    this.touchStartX = e.touches[0].clientX;
+    this.touchStartY = e.touches[0].clientY;
+    this.isSwiping = false;
+  }
+  
+  onMainTouchMove(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    const deltaX = e.touches[0].clientX - this.touchStartX;
+    const deltaY = Math.abs(e.touches[0].clientY - this.touchStartY);
+    
+    // 只有水平滑动距离大于垂直滑动时才认为是切换手势
+    if (Math.abs(deltaX) > 30 && Math.abs(deltaX) > deltaY * 1.5) {
+      this.isSwiping = true;
+    }
+  }
+  
+  onMainTouchEnd(e: TouchEvent) {
+    if (!this.store.isMobile()) return;
+    if (!this.isSwiping) return;
+    
+    const deltaX = e.changedTouches[0].clientX - this.touchStartX;
+    const threshold = 80; // 滑动阈值
+    
+    if (deltaX < -threshold) {
+      // 向左滑动
+      if (this.mobileActiveView() === 'text') {
+        // 文本视图 -> 流程图
+        this.switchToFlow();
+      }
+    } else if (deltaX > threshold) {
+      // 向右滑动
+      if (this.mobileActiveView() === 'flow') {
+        // 流程图 -> 文本视图
+        this.switchToText();
+      } else if (this.mobileActiveView() === 'text') {
+        // 文本视图 -> 打开侧边栏
+        this.isSidebarOpen.set(true);
+      }
+    }
+    
+    this.isSwiping = false;
   }
 
   readonly showSettingsAuthForm = computed(() => !this.store.currentUserId() || this.isReloginMode());
