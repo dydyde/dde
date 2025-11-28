@@ -40,7 +40,9 @@
 
           @if (expandedProjectId() === proj.id) {
             @if (projectDraft(proj.id); as draft) {
-              <div class="mx-4 mt-1 mb-3 p-4 rounded-xl border border-stone-200 bg-white/90 text-xs text-stone-600 space-y-3 shadow-sm cursor-default animate-fade-in" (click)="$event.stopPropagation()">
+              <div class="mx-4 mt-1 mb-3 p-4 rounded-xl border border-stone-200 bg-white/90 text-xs text-stone-600 space-y-3 shadow-sm cursor-default animate-fade-in" 
+                   (click)="$event.stopPropagation()"
+                   (touchstart)="$event.stopPropagation()">
                 <div class="flex flex-col gap-1">
                   <label class="font-semibold text-[11px] text-stone-400 uppercase tracking-wide">创建时间</label>
                   <div class="w-full border border-transparent px-3 py-2 text-stone-500">
@@ -50,7 +52,7 @@
                 <div class="flex flex-col gap-1">
                   <label class="font-semibold text-[11px] text-stone-400 uppercase tracking-wide">简介</label>
                   @if (isEditingDescription()) {
-                    <div class="animate-fade-in">
+                    <div class="animate-fade-in" (click)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
                       <textarea
                         rows="3"
                         class="w-full border border-stone-200 rounded-lg px-3 py-2 text-stone-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none touch-manipulation"
@@ -58,6 +60,7 @@
                         (ngModelChange)="updateProjectDraft(proj.id, 'description', $event)"
                         (click)="$event.stopPropagation()"
                         (touchstart)="$event.stopPropagation()"
+                        (focus)="$event.stopPropagation()"
                         aria-label="项目简介"></textarea>
                       <div class="flex justify-end mt-1">
                         <button
@@ -72,7 +75,7 @@
                     <div 
                       class="w-full border border-transparent px-3 py-2 text-stone-600 whitespace-pre-wrap min-h-[3em] hover:bg-stone-50 rounded-lg transition-colors cursor-text"
                       (click)="isEditingDescription.set(true); $event.stopPropagation()"
-                      (dblclick)="handleProjectDoubleClick(proj.id, $event)"
+                      (touchend)="isEditingDescription.set(true); $event.stopPropagation()"
                       title="点击编辑"
                       role="button"
                       tabindex="0"

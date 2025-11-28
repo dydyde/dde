@@ -286,8 +286,8 @@ import { StoreService, Task } from '../services/store.service';
                         }
                         <div 
                           [attr.data-task-id]="task.id"
-                          (click)="selectTask(task)"
-                          draggable="true"
+                          (click)="onTaskClick($event, task)"
+                          [attr.draggable]="selectedTaskId() !== task.id"
                           (dragstart)="onDragStart($event, task)"
                           (dragend)="onDragEnd()"
                           (dragover)="onTaskDragOver($event, task, stage.stageNumber)"
@@ -599,11 +599,27 @@ export class TextViewComponent {
     });
   }
 
+  // 任务点击 - 区分编辑模式和选择模式
+  onTaskClick(event: Event, task: Task) {
+    // 如果点击的是输入框内部，不处理
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('input, textarea, button')) {
+      return;
+    }
+    
+    // 如果当前任务已选中（编辑模式），不切换
+    if (this.selectedTaskId() === task.id) {
+      return;
+    }
+    
+    this.selectTask(task);
+  }
+
   // 任务选择
   selectTask(task: Task) {
     this.selectedTaskId.update(id => id === task.id ? null : task.id);
-    // 通知父组件，让流程图定位到该节点（仅当选中时）
-    if (this.selectedTaskId() === task.id) {
+    // 通知父组件，让流程图定位到该节点（仅当选中时，且不在移动端）
+    if (this.selectedTaskId() === task.id && !this.isMobile()) {
       this.focusFlowNode.emit(task.id);
     }
   }
@@ -721,9 +737,15 @@ export class TextViewComponent {
     this.onDragEnd();
   }
 
-  // 触摸拖拽 - 长按开始拖拽
-  onTouchStart(e: TouchEvent, task: Task) {
+  // 阶段区域任务触摸拖拽 - 只有在收缩状态下长按才能拖拽
+  onTaskTouchStart(e: TouchEvent, task: Task) {
     if (e.touches.length !== 1) return;
+    
+    // 如果任务已选中（展开编辑状态），不允许拖拽
+    if (this.selectedTaskId() === task.id) {
+      return;
+    }
+    
     const touch = e.touches[0];
     
     // 清除之前的长按计时器
@@ -746,7 +768,7 @@ export class TextViewComponent {
     
     // 长按 200ms 后开始拖拽
     this.touchState.longPressTimer = setTimeout(() => {
-      if (this.touchState.task?.id === task.id) {
+      if (this.touchState.task?.id === task.id && this.selectedTaskId() !== task.id) {
         this.touchState.isDragging = true;
         this.draggingTaskId.set(task.id);
         this.createDragGhost(task, touch.clientX, touch.clientY);
@@ -907,17 +929,6 @@ export class TextViewComponent {
       dragGhost: null,
       longPressTimer: null
     };
-  }
-
-  // 阶段内任务的触摸拖拽开始 - 用于重新排序
-  onTaskTouchStart(e: TouchEvent, task: Task) {
-    // 如果任务已选中且正在编辑，不启动拖拽
-    if (this.selectedTaskId() === task.id) {
-      return;
-    }
-    
-    // 复用待分配任务的触摸逻辑
-    this.onTouchStart(e, task);
   }
 
   // 任务创建

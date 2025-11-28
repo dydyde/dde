@@ -61,8 +61,13 @@ declare var go: any;
                                <div 
                                    draggable="true" 
                                    (dragstart)="onDragStart($event, task)"
+                                   (touchstart)="onUnassignedTouchStart($event, task)"
+                                   (touchmove)="onUnassignedTouchMove($event)"
+                                   (touchend)="onUnassignedTouchEnd($event)"
                                    (click)="onUnassignedTaskClick(task)"
-                                   class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500">
+                                   class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500"
+                                   [class.bg-teal-100]="unassignedDraggingId() === task.id"
+                                   [class.border-teal-400]="unassignedDraggingId() === task.id">
                                    {{task.title}}
                                </div>
                            }
@@ -302,15 +307,18 @@ declare var go: any;
              <!-- 底部抽屉面板 -->
              @if (store.isFlowDetailOpen()) {
                <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl transition-all duration-150 flex flex-col"
-                    [style.max-height.vh]="drawerHeight()">
+                    [style.max-height.vh]="drawerHeight()"
+                    (touchstart)="onDrawerTouchStart($event)"
+                    (touchmove)="onDrawerTouchMove($event)"
+                    (touchend)="onDrawerTouchEnd($event)">
                  <!-- 拖动条 - 可拖动调整高度 -->
-                 <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none"
+                 <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
                       (touchstart)="startDrawerResize($event)">
                    <div class="w-12 h-1.5 bg-stone-300 rounded-full"></div>
                  </div>
                  
                  <!-- 标题栏 -->
-                 <div class="px-3 pb-2 flex justify-between items-center">
+                 <div class="px-3 pb-2 flex justify-between items-center flex-shrink-0">
                    <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
                    <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -319,8 +327,8 @@ declare var go: any;
                    </button>
                  </div>
                  
-                 <!-- 内容区域 -->
-                 <div class="flex-1 overflow-y-auto px-3 pb-3">
+                 <!-- 内容区域 - 优化滑动性能 -->
+                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain" style="-webkit-overflow-scrolling: touch;">
                    @if (selectedTask(); as task) {
                      <!-- 紧凑的任务信息 -->
                      <div class="flex items-center gap-2 mb-2">
@@ -431,6 +439,26 @@ declare var go: any;
            </div>
          </div>
        }
+       
+       <!-- 移动端连接线删除提示 -->
+       @if (store.isMobile() && linkDeleteHint(); as hint) {
+         <div class="fixed z-50 animate-scale-in"
+              [style.left.px]="hint.x - 60"
+              [style.top.px]="hint.y - 50">
+           <div class="bg-white rounded-lg shadow-xl border border-stone-200 p-2 flex gap-2">
+             <button 
+               (click)="confirmLinkDelete()"
+               class="px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-all">
+               删除连接
+             </button>
+             <button 
+               (click)="cancelLinkDelete()"
+               class="px-3 py-1.5 bg-stone-100 text-stone-600 text-xs font-medium rounded hover:bg-stone-200 transition-all">
+               取消
+             </button>
+           </div>
+         </div>
+       }
     </div>
   `
 })
@@ -454,6 +482,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   isLinkMode = signal(false);
   linkSourceTask = signal<Task | null>(null);
   
+  // 移动端连接线删除提示
+  linkDeleteHint = signal<{ link: any; x: number; y: number } | null>(null);
+  
   // 计算属性: 获取选中的任务对象
   selectedTask = computed(() => {
     const id = this.selectedTaskId();
@@ -470,6 +501,21 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // 底部抽屉拖动状态
   drawerHeight = signal(35); // 以 vh 为单位的高度
   private isResizingDrawer = false;
+  
+  // 抽屉内容滚动状态 - 用于区分滚动和拖动
+  private isDrawerScrolling = false;
+  private drawerScrollStartY = 0;
+  
+  // 移动端待分配块拖动状态
+  unassignedDraggingId = signal<string | null>(null);
+  private unassignedTouchState = {
+    task: null as Task | null,
+    startX: 0,
+    startY: 0,
+    isDragging: false,
+    longPressTimer: null as any,
+    ghost: null as HTMLElement | null
+  };
   private drawerStartY = 0;
   private drawerStartHeight = 0;
   
@@ -703,6 +749,151 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       window.addEventListener('touchcancel', onEnd);
   }
 
+  // 抽屉内容区域触摸事件 - 允许内容滚动
+  onDrawerTouchStart(e: TouchEvent) {
+    // 如果是在拖动条上开始的触摸，不处理
+    if ((e.target as HTMLElement).closest('.touch-none')) return;
+    this.drawerScrollStartY = e.touches[0].clientY;
+    this.isDrawerScrolling = false;
+  }
+  
+  onDrawerTouchMove(e: TouchEvent) {
+    // 如果正在调整高度，不处理
+    if (this.isResizingDrawer) return;
+    
+    const deltaY = e.touches[0].clientY - this.drawerScrollStartY;
+    // 检查内容区域是否可以滚动
+    const contentEl = (e.currentTarget as HTMLElement).querySelector('.overflow-y-auto');
+    if (contentEl) {
+      const canScrollUp = contentEl.scrollTop > 0;
+      const canScrollDown = contentEl.scrollTop < contentEl.scrollHeight - contentEl.clientHeight;
+      
+      // 如果内容可以滚动，让它正常滚动
+      if ((deltaY > 0 && canScrollUp) || (deltaY < 0 && canScrollDown)) {
+        this.isDrawerScrolling = true;
+        return; // 允许默认滚动行为
+      }
+    }
+  }
+  
+  onDrawerTouchEnd(e: TouchEvent) {
+    this.isDrawerScrolling = false;
+  }
+
+  // 移动端待分配块触摸拖动
+  onUnassignedTouchStart(e: TouchEvent, task: Task) {
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    this.unassignedTouchState = {
+      task,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      isDragging: false,
+      longPressTimer: null,
+      ghost: null
+    };
+    
+    // 长按 200ms 后开始拖拽
+    this.unassignedTouchState.longPressTimer = setTimeout(() => {
+      this.unassignedTouchState.isDragging = true;
+      this.unassignedDraggingId.set(task.id);
+      this.createUnassignedGhost(task, touch.clientX, touch.clientY);
+      if (navigator.vibrate) navigator.vibrate(50);
+    }, 200);
+  }
+  
+  onUnassignedTouchMove(e: TouchEvent) {
+    if (!this.unassignedTouchState.task || e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    const deltaX = Math.abs(touch.clientX - this.unassignedTouchState.startX);
+    const deltaY = Math.abs(touch.clientY - this.unassignedTouchState.startY);
+    
+    // 如果移动超过阈值但还没开始拖拽，取消长按
+    if (!this.unassignedTouchState.isDragging && (deltaX > 10 || deltaY > 10)) {
+      if (this.unassignedTouchState.longPressTimer) {
+        clearTimeout(this.unassignedTouchState.longPressTimer);
+        this.unassignedTouchState.longPressTimer = null;
+      }
+      return;
+    }
+    
+    if (this.unassignedTouchState.isDragging) {
+      e.preventDefault();
+      // 更新幽灵元素位置
+      if (this.unassignedTouchState.ghost) {
+        this.unassignedTouchState.ghost.style.left = `${touch.clientX - 40}px`;
+        this.unassignedTouchState.ghost.style.top = `${touch.clientY - 20}px`;
+      }
+    }
+  }
+  
+  onUnassignedTouchEnd(e: TouchEvent) {
+    if (this.unassignedTouchState.longPressTimer) {
+      clearTimeout(this.unassignedTouchState.longPressTimer);
+    }
+    
+    const { task, isDragging } = this.unassignedTouchState;
+    
+    // 移除幽灵元素
+    if (this.unassignedTouchState.ghost) {
+      this.unassignedTouchState.ghost.remove();
+    }
+    
+    if (task && isDragging && this.diagram) {
+      // 获取触摸结束位置
+      const touch = e.changedTouches[0];
+      const diagramRect = this.diagramDiv.nativeElement.getBoundingClientRect();
+      
+      // 检查是否在流程图区域内
+      if (touch.clientX >= diagramRect.left && touch.clientX <= diagramRect.right &&
+          touch.clientY >= diagramRect.top && touch.clientY <= diagramRect.bottom) {
+        // 转换为流程图坐标
+        const x = touch.clientX - diagramRect.left;
+        const y = touch.clientY - diagramRect.top;
+        const pt = new go.Point(x, y);
+        const loc = this.diagram.transformViewToDoc(pt);
+        
+        // 查找插入位置
+        const insertInfo = this.findInsertPosition(loc);
+        
+        if (insertInfo.parentId) {
+          const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
+          if (parentTask) {
+            const newStage = (parentTask.stage || 1) + 1;
+            this.store.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
+            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), 100);
+          }
+        } else if (insertInfo.beforeTaskId || insertInfo.afterTaskId) {
+          const refTask = this.store.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
+          if (refTask?.stage) {
+            this.store.moveTaskToStage(task.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
+            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), 100);
+          }
+        } else {
+          // 没有靠近任何节点，只更新位置
+          this.store.updateTaskPosition(task.id, loc.x, loc.y);
+        }
+      }
+    }
+    
+    this.unassignedDraggingId.set(null);
+    this.unassignedTouchState = {
+      task: null, startX: 0, startY: 0, isDragging: false, longPressTimer: null, ghost: null
+    };
+  }
+  
+  private createUnassignedGhost(task: Task, x: number, y: number) {
+    const ghost = document.createElement('div');
+    ghost.className = 'fixed z-[9999] px-3 py-2 bg-teal-500/90 text-white rounded-lg shadow-xl text-xs font-medium pointer-events-none whitespace-nowrap';
+    ghost.textContent = task.title || '未命名';
+    ghost.style.left = `${x - 40}px`;
+    ghost.style.top = `${y - 20}px`;
+    document.body.appendChild(ghost);
+    this.unassignedTouchState.ghost = ghost;
+  }
+
   ngAfterViewInit() {
       this.initDiagram();
       // 初始化完成后立即加载图表数据
@@ -904,6 +1095,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                 relinkableTo: true,
                 reshapable: true,
                 resegmentable: true,
+                // 点击连接线 - 移动端长按删除
+                click: (e: any, link: any) => {
+                    // 选中连接线
+                    e.diagram.select(link);
+                },
                 // 右键菜单删除连接
                 contextMenu: $(go.Adornment, "Vertical",
                   $("ContextMenuButton",
@@ -912,8 +1108,8 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                   )
                 )
             },
-            // Transparent fat line for easier selection
-            $(go.Shape, { isPanelMain: true, strokeWidth: 8, stroke: "transparent" }),
+            // Transparent fat line for easier selection - 移动端加粗方便点击
+            $(go.Shape, { isPanelMain: true, strokeWidth: this.store.isMobile() ? 16 : 8, stroke: "transparent" }),
             // Visible line - 根据连接类型显示不同样式
             $(go.Shape, { isPanelMain: true, strokeWidth: 2 },
               new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
@@ -924,6 +1120,22 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
               new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")
             )
           );
+      
+      // 移动端: 连接线长按删除
+      if (this.store.isMobile()) {
+        let linkLongPressTimer: any = null;
+        let longPressedLink: any = null;
+        
+        this.diagram.addDiagramListener('ObjectSingleClicked', (e: any) => {
+          const part = e.subject.part;
+          if (part instanceof go.Link) {
+            // 选中连接线时显示删除提示
+            this.zone.run(() => {
+              this.showLinkDeleteHint(part);
+            });
+          }
+        });
+      }
 
       // Initialize model with linkKeyProperty for proper merging
       this.diagram.model = new go.GraphLinksModel([], [], { 
@@ -1336,6 +1548,46 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
             this.zone.run(() => {
                     this.store.moveTaskToStage(childId, nextStage, undefined, parentId);
             });
+    }
+    
+    // 移动端显示连接线删除提示
+    showLinkDeleteHint(link: any) {
+        if (!link || !this.diagram) return;
+        
+        // 获取连接线中点位置
+        const midPoint = link.midPoint;
+        if (!midPoint) return;
+        
+        // 转换为视口坐标
+        const viewPt = this.diagram.transformDocToView(midPoint);
+        const diagramRect = this.diagramDiv.nativeElement.getBoundingClientRect();
+        
+        this.linkDeleteHint.set({
+            link,
+            x: diagramRect.left + viewPt.x,
+            y: diagramRect.top + viewPt.y
+        });
+        
+        // 3秒后自动隐藏
+        setTimeout(() => {
+            if (this.linkDeleteHint()?.link === link) {
+                this.linkDeleteHint.set(null);
+            }
+        }, 3000);
+    }
+    
+    // 确认删除连接线
+    confirmLinkDelete() {
+        const hint = this.linkDeleteHint();
+        if (!hint?.link) return;
+        
+        this.deleteLinkFromContext(hint.link);
+        this.linkDeleteHint.set(null);
+    }
+    
+    // 取消删除提示
+    cancelLinkDelete() {
+        this.linkDeleteHint.set(null);
     }
     
     // 从右键菜单删除连接

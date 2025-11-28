@@ -237,14 +237,17 @@ export class AppComponent {
   @HostListener('document:mousemove', ['$event'])
   onMouseMove(e: MouseEvent) {
       if (this.isResizingSidebar) {
+          e.preventDefault();
           const delta = e.clientX - this.startX;
           const newWidth = Math.max(200, Math.min(600, this.startWidth + delta));
           this.store.sidebarWidth.set(newWidth);
       } else if (this.isResizingContent) {
+          e.preventDefault();
           const delta = e.clientX - this.startX;
           // Convert delta pixels to percentage
           const deltaPercent = (delta / this.mainContentWidth) * 100;
-          const newRatio = Math.max(20, Math.min(80, this.startRatio + deltaPercent));
+          // 限制在 25-75% 之间，避免极端情况
+          const newRatio = Math.max(25, Math.min(75, this.startRatio + deltaPercent));
           this.store.textColumnRatio.set(newRatio);
       }
   }
