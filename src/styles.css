@@ -126,11 +126,11 @@
 @keyframes collapseOpen {
   from { 
     opacity: 0;
-    max-height: 0;
+    transform: translateY(-4px);
   }
   to { 
     opacity: 1;
-    max-height: 100vh;
+    transform: translateY(0);
   }
 }
 
@@ -189,3 +189,25 @@
   }
 }
 
+/* GoJS 试用版水印隐藏 */
+canvas + div[style*="pointer-events"],
+div[class*="diagram"] > div:last-child:not(:first-child) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* 移动端滚动优化 */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* 移动端抽屉滚动区域优化 */
+@media (max-width: 768px) {
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: auto;
+  }
+}

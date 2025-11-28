@@ -459,11 +459,11 @@ import { StoreService, Task } from '../services/store.service';
   `,
   styles: [`
     .animate-collapse-open { 
-      animation: collapseOpen 0.25s ease-out; 
+      animation: collapseOpen 0.15s ease-out; 
     }
     @keyframes collapseOpen { 
-      from { opacity: 0; transform: translateY(-8px); max-height: 0; } 
-      to { opacity: 1; transform: translateY(0); max-height: 1000px; } 
+      from { opacity: 0; transform: translateY(-4px); } 
+      to { opacity: 1; transform: translateY(0); } 
     }
   `]
 })

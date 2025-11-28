@@ -107,11 +107,13 @@ declare var go: any;
            }
 
            <!-- Zoom Controls -->
-           <div class="absolute bottom-4 left-4 z-10 flex gap-2"
+           <div class="absolute z-10 flex gap-2 transition-all duration-200"
                 [class.flex-col]="!store.isMobile()"
                 [class.flex-row]="store.isMobile()"
-                [class.bottom-2]="store.isMobile()"
-                [class.left-2]="store.isMobile()">
+                [class.bottom-4]="!store.isMobile()"
+                [class.left-4]="!store.isMobile()"
+                [class.left-2]="store.isMobile()"
+                [style.bottom.px]="store.isMobile() ? (store.isFlowDetailOpen() ? (drawerHeight() * window.innerHeight / 100 + 8) : 8) : 16">
                <button (click)="zoomIn()" 
                        class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
                        [class.p-2]="!store.isMobile()"
@@ -197,8 +199,8 @@ declare var go: any;
 
            <!-- 4. 详情区域 - 桌面端右侧面板 -->
            @if (!store.isMobile()) {
-             <div class="absolute top-6 right-0 bottom-6 z-20 flex pointer-events-none">
-                <div class="relative flex h-full pointer-events-auto">
+             <div class="absolute top-6 right-0 z-20 flex pointer-events-none">
+                <div class="relative flex pointer-events-auto">
                     <!-- Toggle Button -->
                     <button (click)="store.isFlowDetailOpen.set(!store.isFlowDetailOpen())" 
                             class="absolute left-0 top-8 -translate-x-full bg-white/90 backdrop-blur border border-stone-200 border-r-0 rounded-l-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all z-30 flex items-center justify-center w-8 h-10 pl-2">
@@ -206,14 +208,14 @@ declare var go: any;
                     </button>
 
                     <!-- Content Panel - 桌面端 -->
-                    <div class="h-full bg-white/95 backdrop-blur-xl border-l border-stone-200/50 shadow-xl transition-all duration-500 ease-out overflow-hidden flex flex-col"
+                    <div class="max-h-96 bg-white/95 backdrop-blur-xl border-l border-stone-200/50 shadow-xl transition-all duration-500 ease-out overflow-hidden flex flex-col rounded-bl-lg"
                          [class.w-0]="!store.isFlowDetailOpen()"
-                         [class.w-80]="store.isFlowDetailOpen()"
+                         [class.w-64]="store.isFlowDetailOpen()"
                          [class.opacity-0]="!store.isFlowDetailOpen()"
                          [class.opacity-100]="store.isFlowDetailOpen()">
                         
-                        <div class="p-4 border-b border-stone-100 flex justify-between items-center bg-transparent">
-                            <h3 class="font-bold text-stone-700 tracking-tight text-sm">任务详情</h3>
+                        <div class="px-3 py-2 border-b border-stone-100 flex justify-between items-center">
+                            <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
                             <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
                               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -221,66 +223,58 @@ declare var go: any;
                             </button>
                         </div>
                         
-                        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                        <div class="flex-1 overflow-y-auto px-3 py-2 space-y-2">
                             @if (selectedTask(); as task) {
-                                <div class="space-y-3">
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-bold text-retro-muted text-[9px] tracking-wider bg-stone-100 px-2 py-0.5 rounded">{{task.displayId}}</span>
-                                        <span class="text-[10px] text-stone-400">{{task.createdDate | date:'MM-dd HH:mm'}}</span>
+                                <div class="space-y-2">
+                                    <div class="flex items-center gap-2 text-[10px]">
+                                        <span class="font-bold text-retro-muted bg-stone-100 px-1.5 py-0.5 rounded">{{task.displayId}}</span>
+                                        <span class="text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
+                                        <span class="px-1.5 py-0.5 rounded"
+                                              [class.bg-emerald-100]="task.status === 'completed'"
+                                              [class.text-emerald-700]="task.status === 'completed'"
+                                              [class.bg-amber-100]="task.status !== 'completed'"
+                                              [class.text-amber-700]="task.status !== 'completed'">
+                                          {{task.status === 'completed' ? '完成' : '进行中'}}
+                                        </span>
                                     </div>
                                     
-                                    <div class="space-y-1">
-                                        <label class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">标题</label>
-                                        <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
-                                            class="w-full text-sm font-medium text-stone-800 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
-                                            placeholder="任务标题">
-                                    </div>
+                                    <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
+                                        class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+                                        placeholder="任务标题">
                                     
-                                    <div class="space-y-1">
-                                        <label class="text-[10px] font-semibold text-stone-400 uppercase tracking-wide">内容</label>
-                                        <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="6"
-                                            class="w-full text-xs text-stone-600 border border-stone-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
-                                            placeholder="输入 Markdown 内容..."></textarea>
-                                    </div>
-                                    
-                                    <div class="flex items-center gap-4 text-xs text-stone-500">
-                                        <span>阶段: <strong class="text-stone-700">{{task.stage || '未分配'}}</strong></span>
-                                        <span>状态: <strong class="text-stone-700">{{task.status === 'completed' ? '已完成' : '进行中'}}</strong></span>
-                                    </div>
+                                    <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="4"
+                                        class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
+                                        placeholder="输入内容..."></textarea>
 
-                                    <div class="flex flex-col gap-2 pt-2 border-t border-stone-100">
-                                        <div class="flex gap-2">
-                                            <button (click)="addChildTask(task)"
-                                                class="flex-1 px-3 py-1.5 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 text-xs font-medium rounded-md transition-all">
-                                                添加子任务
-                                            </button>
-                                            <button (click)="toggleTaskStatus(task)"
-                                                class="flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all border"
-                                                [class.bg-emerald-50]="task.status !== 'completed'"
-                                                [class.text-emerald-700]="task.status !== 'completed'"
-                                                [class.border-emerald-200]="task.status !== 'completed'"
-                                                [class.bg-stone-50]="task.status === 'completed'"
-                                                [class.text-stone-600]="task.status === 'completed'"
-                                                [class.border-stone-200]="task.status === 'completed'">
-                                                {{task.status === 'completed' ? '标记未完成' : '标记完成'}}
-                                            </button>
-                                        </div>
+                                    <div class="flex gap-1.5 pt-1">
+                                        <button (click)="addChildTask(task)"
+                                            class="flex-1 px-2 py-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
+                                            +子任务
+                                        </button>
+                                        <button (click)="toggleTaskStatus(task)"
+                                            class="flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all border"
+                                            [class.bg-emerald-50]="task.status !== 'completed'"
+                                            [class.text-emerald-700]="task.status !== 'completed'"
+                                            [class.border-emerald-200]="task.status !== 'completed'"
+                                            [class.bg-stone-50]="task.status === 'completed'"
+                                            [class.text-stone-600]="task.status === 'completed'"
+                                            [class.border-stone-200]="task.status === 'completed'">
+                                            {{task.status === 'completed' ? '撤销' : '完成'}}
+                                        </button>
                                         <button (click)="deleteTask(task)"
-                                            class="w-full px-3 py-1.5 bg-stone-50 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1">
-                                            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                            删除任务
+                                            class="px-2 py-1 bg-stone-50 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 text-[10px] font-medium rounded transition-all">
+                                            删除
                                         </button>
                                     </div>
                                 </div>
                             } @else if (store.activeProject(); as proj) {
-                                <div class="space-y-2">
-                                    <div class="text-[10px] font-bold text-stone-400 uppercase tracking-widest">项目信息</div>
-                                    <div class="font-bold text-stone-800 mb-1 text-base">{{proj.name}}</div>
-                                    <div class="text-xs text-stone-400 mb-2 font-mono">{{proj.createdDate | date:'yyyy-MM-dd'}}</div>
-                                    <div class="text-sm text-stone-600 leading-relaxed font-light">{{proj.description}}</div>
+                                <div class="text-[11px] space-y-1">
+                                    <div class="font-bold text-stone-800">{{proj.name}}</div>
+                                    <div class="text-stone-400 font-mono text-[10px]">{{proj.createdDate | date:'yyyy-MM-dd'}}</div>
+                                    <div class="text-stone-500 mt-1">{{proj.description}}</div>
                                 </div>
                             } @else {
-                                <div class="p-4 border border-dashed border-stone-200 rounded-lg text-center text-stone-400 text-xs font-light">
+                                <div class="py-4 text-center text-stone-400 text-[10px]">
                                     双击节点查看详情
                                 </div>
                             }
@@ -306,8 +300,9 @@ declare var go: any;
              
              <!-- 底部抽屉面板 -->
              @if (store.isFlowDetailOpen()) {
-               <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl transition-all duration-150 flex flex-col"
-                    [style.max-height.vh]="drawerHeight()">
+               <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl flex flex-col"
+                    [style.max-height.vh]="drawerHeight()"
+                    style="transform: translateZ(0); backface-visibility: hidden;">
                  <!-- 拖动条 - 可拖动调整高度 -->
                  <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
                       (touchstart)="startDrawerResize($event)">
@@ -324,9 +319,9 @@ declare var go: any;
                    </button>
                  </div>
                  
-                 <!-- 内容区域 - 简化触摸处理，让系统自然滚动 -->
-                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain touch-pan-y" 
-                      style="-webkit-overflow-scrolling: touch; will-change: scroll-position;">
+                 <!-- 内容区域 - 优化移动端滚动性能 -->
+                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain"
+                      style="-webkit-overflow-scrolling: touch; touch-action: pan-y; transform: translateZ(0);">
                    @if (selectedTask(); as task) {
                      <!-- 紧凑的任务信息 -->
                      <div class="flex items-center gap-2 mb-2">
@@ -466,6 +461,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   store = inject(StoreService);
     private readonly zone = inject(NgZone);
+  
+  // 暴露 window 给模板使用
+  readonly window = typeof window !== 'undefined' ? window : { innerHeight: 800 };
   
   private diagram: any;
   private resizeObserver: ResizeObserver | null = null;
@@ -1302,7 +1300,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       
       // 获取所有任务（包括待分配的），只要任务有位置信息或 stage 就显示
       // 待分配任务如果被拖入流程图（有位置信息）也会显示
-      const tasksToShow = tasks.filter(t => t.stage !== null || (t.x !== 0 || t.y !== 0));
+      // stage 可能是 null 或 undefined，都要处理
+      const tasksToShow = tasks.filter(t => t.stage != null || (t.x !== 0 || t.y !== 0));
+      
+      console.log('📊 updateDiagram:', { 
+          totalTasks: tasks.length, 
+          tasksToShow: tasksToShow.length,
+          firstFewTasks: tasks.slice(0, 3).map(t => ({ id: t.id, title: t.title, stage: t.stage, x: t.x, y: t.y }))
+      });
       
       // Build a map of existing node locations to preserve user's manual positioning
       const existingLocations = new Map<string, string>();
@@ -1402,13 +1407,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       const nodeKeys = new Set(nodeDataArray.map(n => n.key));
       const linkKeys = new Set(linkDataArray.map(l => l.key));
       
-      (model as any).nodeDataArray
-        .filter((n: any) => !nodeKeys.has(n.key))
-        .forEach((n: any) => (model as any).removeNodeData(n));
+      // 先收集要删除的节点，再统一删除（避免遍历时修改数组）
+      const nodesToRemove = (model as any).nodeDataArray
+        .filter((n: any) => !nodeKeys.has(n.key));
+      nodesToRemove.forEach((n: any) => (model as any).removeNodeData(n));
       
-      (model as any).linkDataArray
-        .filter((l: any) => !linkKeys.has(l.key))
-        .forEach((l: any) => (model as any).removeLinkData(l));
+      const linksToRemove = (model as any).linkDataArray
+        .filter((l: any) => !linkKeys.has(l.key));
+      linksToRemove.forEach((l: any) => (model as any).removeLinkData(l));
       
       this.diagram.skipsUndoManager = false;
       this.diagram.commitTransaction('update');
