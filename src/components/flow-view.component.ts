@@ -307,10 +307,7 @@ declare var go: any;
              <!-- 底部抽屉面板 -->
              @if (store.isFlowDetailOpen()) {
                <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl transition-all duration-150 flex flex-col"
-                    [style.max-height.vh]="drawerHeight()"
-                    (touchstart)="onDrawerTouchStart($event)"
-                    (touchmove)="onDrawerTouchMove($event)"
-                    (touchend)="onDrawerTouchEnd($event)">
+                    [style.max-height.vh]="drawerHeight()">
                  <!-- 拖动条 - 可拖动调整高度 -->
                  <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
                       (touchstart)="startDrawerResize($event)">
@@ -327,8 +324,9 @@ declare var go: any;
                    </button>
                  </div>
                  
-                 <!-- 内容区域 - 优化滑动性能 -->
-                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain" style="-webkit-overflow-scrolling: touch;">
+                 <!-- 内容区域 - 简化触摸处理，让系统自然滚动 -->
+                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain touch-pan-y" 
+                      style="-webkit-overflow-scrolling: touch; will-change: scroll-position;">
                    @if (selectedTask(); as task) {
                      <!-- 紧凑的任务信息 -->
                      <div class="flex items-center gap-2 mb-2">
@@ -520,7 +518,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   private drawerStartHeight = 0;
   
   // 性能优化：位置保存防抖定时器
-  private positionSaveTimer: any = null;
+  private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   // 连接模式方法
   toggleLinkMode() {
@@ -913,6 +911,23 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           this.resizeObserver.disconnect();
           this.resizeObserver = null;
       }
+      // 清理定时器
+      if (this.positionSaveTimer) {
+          clearTimeout(this.positionSaveTimer);
+          this.positionSaveTimer = null;
+      }
+      if (this.resizeDebounceTimer) {
+          clearTimeout(this.resizeDebounceTimer);
+          this.resizeDebounceTimer = null;
+      }
+      // 清理待分配块长按定时器
+      if (this.unassignedTouchState.longPressTimer) {
+          clearTimeout(this.unassignedTouchState.longPressTimer);
+      }
+      // 清理幽灵元素
+      if (this.unassignedTouchState.ghost) {
+          this.unassignedTouchState.ghost.remove();
+      }
   }
   
   private setupResizeObserver() {
@@ -944,7 +959,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       this.resizeObserver.observe(this.diagramDiv.nativeElement);
   }
   
-  private resizeDebounceTimer: any = null;
+  private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   initDiagram() {
       if (typeof go === 'undefined') {

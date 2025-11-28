@@ -1,6 +1,6 @@
-﻿import { Injectable, signal, computed, inject } from '@angular/core';
+﻿import { Injectable, signal, computed, inject, DestroyRef } from '@angular/core';
 import { GoogleGenAI } from '@google/genai';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { SupabaseClientService } from './supabase-client.service';
 
 export interface Task {
@@ -52,6 +52,7 @@ interface ProjectRow {
 })
 export class StoreService {
   supabase = inject(SupabaseClientService);
+  private destroyRef = inject(DestroyRef);
   
   // UI State
   isMobile = signal(false);
@@ -329,7 +330,12 @@ export class StoreService {
       }
     });
 
-    const cascade = (node: Task) => {
+    const cascade = (node: Task, depth = 0) => {
+      // 防止循环引用导致无限递归
+      if (depth > 100) {
+        console.warn('Task tree depth exceeded limit, possible circular reference', { nodeId: node.id });
+        return;
+      }
       const kids = (childrenMap.get(node.id) || []).sort((a, b) => a.rank - b.rank);
       let floor = node.rank;
       kids.forEach(child => {
@@ -337,7 +343,7 @@ export class StoreService {
           child.rank = floor + this.rankStep;
         }
         floor = child.rank;
-        cascade(child);
+        cascade(child, depth + 1);
       });
     };
 
@@ -455,8 +461,20 @@ export class StoreService {
     
     // Monitor network status
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => this.isOnline.set(true));
-      window.addEventListener('offline', () => this.isOnline.set(false));
+      const onlineHandler = () => this.isOnline.set(true);
+      const offlineHandler = () => this.isOnline.set(false);
+      window.addEventListener('online', onlineHandler);
+      window.addEventListener('offline', offlineHandler);
+      
+      // 清理事件监听器和定时器
+      this.destroyRef.onDestroy(() => {
+        window.removeEventListener('online', onlineHandler);
+        window.removeEventListener('offline', offlineHandler);
+        if (this.persistTimer) clearTimeout(this.persistTimer);
+        if (this.editingTimer) clearTimeout(this.editingTimer);
+        if (this.remoteChangeTimer) clearTimeout(this.remoteChangeTimer);
+        this.teardownRealtimeSubscription();
+      });
     }
   }
 
@@ -669,7 +687,7 @@ export class StoreService {
   // 防抖：避免短时间内多次触发同步
   private remoteChangeTimer: ReturnType<typeof setTimeout> | null = null;
   
-  private async handleRemoteChange(payload: any) {
+  private async handleRemoteChange(payload: RealtimePostgresChangesPayload<Record<string, unknown>>) {
     // 先等本地输入/同步完成，避免覆盖正在输入的内容
     const processChange = async () => {
       // 有本地未落盘、正在编辑或刚刚持久化完，延迟处理

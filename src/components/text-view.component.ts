@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, Output, EventEmitter } from '@angular/core';
+import { Component, inject, signal, computed, Output, EventEmitter, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService, Task } from '../services/store.service';
 
@@ -125,7 +125,7 @@ import { StoreService, Task } from '../services/store.service';
                     draggable="true"
                     (dragstart)="onDragStart($event, task)"
                     (dragend)="onDragEnd()"
-                    (touchstart)="onTouchStart($event, task)"
+                    (touchstart)="onUnassignedTouchStart($event, task)"
                     (touchmove)="onTouchMove($event)"
                     (touchend)="onTouchEnd($event)"
                     class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing transition-all"
@@ -467,7 +467,7 @@ import { StoreService, Task } from '../services/store.service';
     }
   `]
 })
-export class TextViewComponent {
+export class TextViewComponent implements OnDestroy {
   readonly store = inject(StoreService);
   
   // 输出事件：通知父组件定位到流程图中的节点
@@ -551,6 +551,12 @@ export class TextViewComponent {
     });
   }
 
+  // 组件销毁时清理资源
+  ngOnDestroy() {
+    this.resetTouchState();
+    this.removeDragGhost();
+  }
+
   // 工具方法
   trackUnfinished = (item: { taskId: string; text: string }) => `${item.taskId}-${item.text}`;
   isStageExpanded = (stageNumber: number) => !this.collapsedStages().has(stageNumber);
@@ -607,11 +613,7 @@ export class TextViewComponent {
       return;
     }
     
-    // 如果当前任务已选中（编辑模式），不切换
-    if (this.selectedTaskId() === task.id) {
-      return;
-    }
-    
+    // 允许点击已选中的任务来折叠它
     this.selectTask(task);
   }
 
@@ -630,6 +632,44 @@ export class TextViewComponent {
     this.focusFlowNode.emit(task.id);
     // 进入编辑模式
     this.editingTaskId.set(task.id);
+  }
+
+  // 待分配块触摸拖拽
+  onUnassignedTouchStart(e: TouchEvent, task: Task) {
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    
+    // 清除之前的长按计时器
+    if (this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+    }
+    
+    this.touchState = {
+      task,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      targetStage: null,
+      targetBeforeId: null,
+      isDragging: false,
+      dragGhost: null,
+      longPressTimer: null
+    };
+    
+    // 长按 200ms 后开始拖拽
+    this.touchState.longPressTimer = setTimeout(() => {
+      if (this.touchState.task?.id === task.id) {
+        this.touchState.isDragging = true;
+        this.draggingTaskId.set(task.id);
+        this.createDragGhost(task, touch.clientX, touch.clientY);
+        // 触发震动反馈（如果支持）
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+      }
+    }, 200);
   }
 
   // 待办项操作
