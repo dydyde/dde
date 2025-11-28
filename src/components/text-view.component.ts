@@ -501,7 +501,9 @@ export class TextViewComponent implements OnDestroy {
     targetBeforeId: null as string | null,
     isDragging: false,
     dragGhost: null as HTMLElement | null,
-    longPressTimer: null as ReturnType<typeof setTimeout> | null
+    longPressTimer: null as ReturnType<typeof setTimeout> | null,
+    previousHoverStage: null as number | null, // 追踪上一个悬停的阶段
+    expandedDuringDrag: new Set<number>() // 追踪拖拽过程中展开的阶段
   };
 
   // 计算属性
@@ -605,6 +607,14 @@ export class TextViewComponent implements OnDestroy {
     });
   }
 
+  collapseStage(stageNumber: number) {
+    this.collapsedStages.update(set => {
+      const newSet = new Set(set);
+      newSet.add(stageNumber);
+      return newSet;
+    });
+  }
+
   // 任务点击 - 区分编辑模式和选择模式
   onTaskClick(event: Event, task: Task) {
     // 如果点击的是输入框内部，不处理
@@ -655,7 +665,9 @@ export class TextViewComponent implements OnDestroy {
       targetBeforeId: null,
       isDragging: false,
       dragGhost: null,
-      longPressTimer: null
+      longPressTimer: null,
+      previousHoverStage: null,
+      expandedDuringDrag: new Set<number>()
     };
     
     // 长按 200ms 后开始拖拽
@@ -803,7 +815,9 @@ export class TextViewComponent implements OnDestroy {
       targetBeforeId: null,
       isDragging: false,
       dragGhost: null,
-      longPressTimer: null
+      longPressTimer: null,
+      previousHoverStage: null,
+      expandedDuringDrag: new Set<number>()
     };
     
     // 长按 200ms 后开始拖拽
@@ -883,9 +897,17 @@ export class TextViewComponent implements OnDestroy {
         if (stageEl) {
           const stageNum = parseInt(stageEl.getAttribute('data-stage-number') || '0', 10);
           if (stageNum > 0) {
+            // 如果切换到新阶段，闭合之前悬停的阶段
+            const prevStage = this.touchState.previousHoverStage;
+            if (prevStage !== null && prevStage !== stageNum) {
+              this.collapseStage(prevStage);
+            }
+            
             this.touchState.targetStage = stageNum;
+            this.touchState.previousHoverStage = stageNum;
             this.dragOverStage.set(stageNum);
             this.expandStage(stageNum);
+            this.touchState.expandedDuringDrag.add(stageNum);
             foundStage = true;
             
             // 检查是否在某个任务上方
@@ -917,6 +939,12 @@ export class TextViewComponent implements OnDestroy {
       }
       
       if (!foundStage) {
+        // 离开所有阶段时，闭合之前悬停的阶段
+        const prevStage = this.touchState.previousHoverStage;
+        if (prevStage !== null) {
+          this.collapseStage(prevStage);
+          this.touchState.previousHoverStage = null;
+        }
         this.touchState.targetStage = null;
         this.touchState.targetBeforeId = null;
         this.dragOverStage.set(null);
@@ -967,7 +995,9 @@ export class TextViewComponent implements OnDestroy {
       targetBeforeId: null,
       isDragging: false,
       dragGhost: null,
-      longPressTimer: null
+      longPressTimer: null,
+      previousHoverStage: null,
+      expandedDuringDrag: new Set<number>()
     };
   }
 
