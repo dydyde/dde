@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # NanoFlow Project Tracker
 
 一个复杂的项目追踪应用，具有双视图（文本/流程图）、Markdown 支持、任务云端同步和 Gemini AI 集成。
