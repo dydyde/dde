@@ -106,7 +106,9 @@ import * as go from 'gojs';
            }
 
            <!-- Zoom Controls -->
-           <div class="absolute z-10 flex gap-2 transition-all duration-200"
+           <div class="absolute z-10 flex gap-2"
+                [class.transition-all]="!isResizingDrawerSignal()"
+                [class.duration-200]="!isResizingDrawerSignal()"
                 [class.flex-col]="!store.isMobile()"
                 [class.flex-row]="store.isMobile()"
                 [class.bottom-4]="!store.isMobile()"
@@ -246,9 +248,13 @@ import * as go from 'gojs';
                                         placeholder="输入内容..."></textarea>
 
                                     <div class="flex gap-1.5 pt-1">
+                                        <button (click)="addSiblingTask(task)"
+                                            class="flex-1 px-2 py-1 bg-retro-teal/10 hover:bg-retro-teal text-retro-teal hover:text-white border border-retro-teal/30 text-[10px] font-medium rounded transition-all">
+                                            +同级
+                                        </button>
                                         <button (click)="addChildTask(task)"
                                             class="flex-1 px-2 py-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
-                                            +子任务
+                                            +下级
                                         </button>
                                         <button (click)="toggleTaskStatus(task)"
                                             class="flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all border"
@@ -364,9 +370,13 @@ import * as go from 'gojs';
                      
                      <!-- 操作按钮 - 横向紧凑排列 -->
                      <div class="flex gap-1.5">
+                       <button (click)="addSiblingTask(task)"
+                         class="flex-1 px-2 py-1 bg-retro-teal/10 text-retro-teal border border-retro-teal/30 text-[10px] font-medium rounded transition-all">
+                         +同级
+                       </button>
                        <button (click)="addChildTask(task)"
                          class="flex-1 px-2 py-1 bg-retro-rust/10 text-retro-rust border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
-                         +子任务
+                         +下级
                        </button>
                        <button (click)="toggleTaskStatus(task)"
                          class="flex-1 px-2 py-1 text-[10px] font-medium rounded border transition-all"
@@ -496,6 +506,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // 底部抽屉拖动状态
   drawerHeight = signal(35); // 以 vh 为单位的高度
   private isResizingDrawer = false;
+  isResizingDrawerSignal = signal(false); // 用于模板绑定，拖动时禁用按钮过渡动画
   
   // 抽屉内容滚动状态 - 用于区分滚动和拖动
   private isDrawerScrolling = false;
@@ -629,10 +640,21 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       inputElement.focus();
   }
 
+  // 添加同级任务
+  addSiblingTask(task: Task) {
+      const newTaskId = this.store.addTask('新同级任务', '', task.stage, task.parentId, true);
+      if (newTaskId) {
+          this.selectedTaskId.set(newTaskId);
+      }
+  }
+
   // 添加子任务
   addChildTask(task: Task) {
       const nextStage = (task.stage || 0) + 1;
-      this.store.addTask("新子任务", "详情...", nextStage, task.id, false);
+      const newTaskId = this.store.addTask('新子任务', '', nextStage, task.id, false);
+      if (newTaskId) {
+          this.selectedTaskId.set(newTaskId);
+      }
   }
 
   // 切换任务状态
@@ -714,6 +736,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (event.touches.length !== 1) return;
       event.preventDefault();
       this.isResizingDrawer = true;
+      this.isResizingDrawerSignal.set(true); // 开始拖动，禁用按钮过渡
       this.drawerStartY = event.touches[0].clientY;
       this.drawerStartHeight = this.drawerHeight();
       
@@ -729,6 +752,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       
       const onEnd = () => {
           this.isResizingDrawer = false;
+          this.isResizingDrawerSignal.set(false); // 结束拖动，恢复按钮过渡
           // 如果高度太小，关闭抽屉
           if (this.drawerHeight() < 20) {
               this.store.isFlowDetailOpen.set(false);

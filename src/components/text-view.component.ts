@@ -7,7 +7,7 @@ import { StoreService, Task } from '../services/store.service';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden"><!-- 1. 待完成区域 -->
+    <div class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden text-view-scroll-container"><!-- 1. 待完成区域 -->
       <section 
         class="flex-none mt-2 px-2 pb-1 rounded-xl bg-retro-rust/10 border border-retro-rust/30 transition-all"
         [ngClass]="{'mx-4 mt-4': !isMobile(), 'mx-2': isMobile()}">
@@ -251,7 +251,7 @@ import { StoreService, Task } from '../services/store.service';
                   'border-retro-teal border-2 bg-retro-teal/5': dragOverStage() === stage.stageNumber
                 }"
                 (dragover)="onStageDragOver($event, stage.stageNumber)"
-                (dragleave)="dragOverStage.set(null)"
+                (dragleave)="onStageDragLeave($event, stage.stageNumber)"
                 (drop)="onStageDrop($event, stage.stageNumber)">
                 
                 <!-- 阶段标题 -->
@@ -489,6 +489,19 @@ export class TextViewComponent implements OnDestroy {
   readonly draggingTaskId = signal<string | null>(null);
   readonly dragOverStage = signal<number | null>(null);
   readonly dropTargetInfo = signal<{ stageNumber: number; beforeTaskId: string | null } | null>(null);
+  
+  // 鼠标拖拽时追踪展开状态（用于拖离时自动闭合）
+  private dragExpandState = {
+    previousHoverStage: null as number | null,
+    expandedDuringDrag: new Set<number>()
+  };
+  
+  // 拖拽时自动滚动状态
+  private autoScrollState = {
+    animationId: null as number | null,
+    scrollContainer: null as HTMLElement | null,
+    lastClientY: 0
+  };
   
   // 触摸拖拽状态 - 增强版
   private touchState = { 
@@ -742,12 +755,22 @@ export class TextViewComponent implements OnDestroy {
     this.draggingTaskId.set(task.id);
     e.dataTransfer?.setData('application/json', JSON.stringify(task));
     e.dataTransfer!.effectAllowed = 'move';
+    
+    // 启动自动滚动
+    this.startAutoScroll(e.clientY);
   }
 
   onDragEnd() {
     this.draggingTaskId.set(null);
     this.dragOverStage.set(null);
     this.dropTargetInfo.set(null);
+    
+    // 清理鼠标拖拽展开状态
+    this.dragExpandState.previousHoverStage = null;
+    this.dragExpandState.expandedDuringDrag.clear();
+    
+    // 停止自动滚动
+    this.stopAutoScroll();
   }
 
   onTaskDragOver(e: DragEvent, targetTask: Task, stageNumber: number) {
@@ -769,12 +792,45 @@ export class TextViewComponent implements OnDestroy {
 
   onStageDragOver(e: DragEvent, stageNumber: number) {
     e.preventDefault();
+    
+    // 如果切换到新阶段，闭合之前因拖拽而展开的阶段
+    const prevStage = this.dragExpandState.previousHoverStage;
+    if (prevStage !== null && prevStage !== stageNumber && this.dragExpandState.expandedDuringDrag.has(prevStage)) {
+      this.collapseStage(prevStage);
+      this.dragExpandState.expandedDuringDrag.delete(prevStage);
+    }
+    
     this.dragOverStage.set(stageNumber);
-    this.expandStage(stageNumber);
+    
+    // 只有当阶段是折叠状态时才展开并记录
+    if (this.collapsedStages().has(stageNumber)) {
+      this.expandStage(stageNumber);
+      this.dragExpandState.expandedDuringDrag.add(stageNumber);
+    }
+    
+    this.dragExpandState.previousHoverStage = stageNumber;
     
     const dropInfo = this.dropTargetInfo();
     if (!dropInfo || dropInfo.stageNumber !== stageNumber) {
       this.dropTargetInfo.set({ stageNumber, beforeTaskId: null });
+    }
+  }
+
+  onStageDragLeave(e: DragEvent, stageNumber: number) {
+    // 检查是否真的离开了阶段区域（而不是进入子元素）
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    const currentTarget = e.currentTarget as HTMLElement;
+    
+    if (!currentTarget.contains(relatedTarget)) {
+      this.dragOverStage.set(null);
+      
+      // 如果这个阶段是因为拖拽而临时展开的，闭合它
+      if (this.dragExpandState.expandedDuringDrag.has(stageNumber)) {
+        this.collapseStage(stageNumber);
+        this.dragExpandState.expandedDuringDrag.delete(stageNumber);
+      }
+      
+      this.dragExpandState.previousHoverStage = null;
     }
   }
 
@@ -787,6 +843,95 @@ export class TextViewComponent implements OnDestroy {
       this.expandStage(stageNumber);
     }
     this.onDragEnd();
+  }
+
+  // ========== 自动滚动功能 ==========
+  
+  private startAutoScroll(clientY: number) {
+    // 找到滚动容器
+    const container = document.querySelector('.text-view-scroll-container') as HTMLElement 
+      || document.querySelector('[class*="overflow-y-auto"]') as HTMLElement;
+    
+    if (!container) return;
+    
+    this.autoScrollState.scrollContainer = container;
+    this.autoScrollState.lastClientY = clientY;
+    
+    // 监听拖拽过程中的鼠标移动
+    document.addEventListener('dragover', this.handleDragAutoScroll);
+  }
+  
+  private handleDragAutoScroll = (e: DragEvent) => {
+    this.autoScrollState.lastClientY = e.clientY;
+    this.performAutoScroll();
+  };
+  
+  private performAutoScroll() {
+    const container = this.autoScrollState.scrollContainer;
+    if (!container) return;
+    
+    const clientY = this.autoScrollState.lastClientY;
+    const rect = container.getBoundingClientRect();
+    const edgeSize = 60; // 触发滚动的边缘区域大小
+    const maxScrollSpeed = 15; // 最大滚动速度
+    
+    let scrollAmount = 0;
+    
+    // 检查是否在顶部边缘
+    if (clientY < rect.top + edgeSize && clientY > rect.top) {
+      const distance = rect.top + edgeSize - clientY;
+      scrollAmount = -Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
+    }
+    // 检查是否在底部边缘
+    else if (clientY > rect.bottom - edgeSize && clientY < rect.bottom) {
+      const distance = clientY - (rect.bottom - edgeSize);
+      scrollAmount = Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
+    }
+    
+    if (scrollAmount !== 0) {
+      container.scrollTop += scrollAmount;
+    }
+  }
+  
+  // 触摸拖拽时的自动滚动
+  private performTouchAutoScroll(clientY: number) {
+    // 找到滚动容器（整个文本视图）
+    const container = document.querySelector('.text-view-scroll-container') as HTMLElement 
+      || document.querySelector('[class*="bg-canvas"][class*="overflow-y-auto"]') as HTMLElement;
+    
+    if (!container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const edgeSize = 80; // 触发滚动的边缘区域大小（触摸时稍大些）
+    const maxScrollSpeed = 12; // 最大滚动速度
+    
+    let scrollAmount = 0;
+    
+    // 检查是否在顶部边缘
+    if (clientY < rect.top + edgeSize && clientY > rect.top - 20) {
+      const distance = rect.top + edgeSize - clientY;
+      scrollAmount = -Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
+    }
+    // 检查是否在底部边缘
+    else if (clientY > rect.bottom - edgeSize && clientY < rect.bottom + 20) {
+      const distance = clientY - (rect.bottom - edgeSize);
+      scrollAmount = Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
+    }
+    
+    if (scrollAmount !== 0) {
+      container.scrollTop += scrollAmount;
+    }
+  }
+  
+  private stopAutoScroll() {
+    document.removeEventListener('dragover', this.handleDragAutoScroll);
+    
+    if (this.autoScrollState.animationId) {
+      cancelAnimationFrame(this.autoScrollState.animationId);
+    }
+    
+    this.autoScrollState.scrollContainer = null;
+    this.autoScrollState.animationId = null;
   }
 
   // 阶段区域任务触摸拖拽 - 只有在收缩状态下长按才能拖拽
@@ -886,6 +1031,9 @@ export class TextViewComponent implements OnDestroy {
         this.touchState.dragGhost.style.left = `${touch.clientX - 40}px`;
         this.touchState.dragGhost.style.top = `${touch.clientY - 20}px`;
       }
+      
+      // 触摸拖拽时自动滚动
+      this.performTouchAutoScroll(touch.clientY);
       
       // 查找目标阶段和任务位置
       const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
