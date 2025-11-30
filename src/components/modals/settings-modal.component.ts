@@ -1,4 +1,4 @@
-import { Component, inject, signal, Output, EventEmitter, Input } from '@angular/core';
+import { Component, inject, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { ThemeType } from '../../models';
@@ -122,7 +122,8 @@ import { ThemeType } from '../../models';
 export class SettingsModalComponent {
   store = inject(StoreService);
   
-  @Input() sessionEmail = signal<string | null>(null);
+  /** 当前登录用户邮箱 */
+  sessionEmail = input<string | null>(null);
   @Output() close = new EventEmitter<void>();
   @Output() signOut = new EventEmitter<void>();
   @Output() themeChange = new EventEmitter<ThemeType>();

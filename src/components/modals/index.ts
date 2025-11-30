@@ -6,3 +6,4 @@ export { NewProjectModalComponent } from './new-project-modal.component';
 export { DeleteConfirmModalComponent } from './delete-confirm-modal.component';
 export { ConfigHelpModalComponent } from './config-help-modal.component';
 export { TrashModalComponent } from './trash-modal.component';
+export { MigrationModalComponent } from './migration-modal.component';

@@ -1,6 +1,7 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, OnDestroy } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Attachment, AttachmentType } from '../models';
+import { ATTACHMENT_CONFIG as GLOBAL_ATTACHMENT_CONFIG } from '../config/constants';
 
 /**
  * 附件上传配置
@@ -17,7 +18,9 @@ const ATTACHMENT_CONFIG = {
   /** 文档类型 */
   DOCUMENT_TYPES: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown'],
   /** 缩略图最大尺寸 */
-  THUMBNAIL_MAX_SIZE: 200
+  THUMBNAIL_MAX_SIZE: 200,
+  /** 签名 URL 有效期（秒）- 7天 */
+  SIGNED_URL_EXPIRY: 60 * 60 * 24 * 7
 } as const;
 
 /**
@@ -33,11 +36,12 @@ export interface UploadProgress {
 /**
  * 附件上传服务
  * 负责与 Supabase Storage 的文件上传、下载、删除操作
+ * 包含自动 URL 刷新机制
  */
 @Injectable({
   providedIn: 'root'
 })
-export class AttachmentService {
+export class AttachmentService implements OnDestroy {
   private supabase = inject(SupabaseClientService);
 
   /** 当前上传进度 */
@@ -45,6 +49,112 @@ export class AttachmentService {
 
   /** 是否正在上传 */
   readonly isUploading = signal(false);
+
+  /** URL 刷新定时器 */
+  private urlRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  
+  /** URL 刷新回调（由使用者注册） */
+  private urlRefreshCallback: ((refreshedUrls: Map<string, { url: string; thumbnailUrl?: string }>) => void) | null = null;
+  
+  /** 需要监控刷新的附件列表 */
+  private monitoredAttachments: Map<string, { userId: string; projectId: string; taskId: string; attachment: Attachment }> = new Map();
+
+  constructor() {
+    this.startUrlRefreshMonitor();
+  }
+
+  ngOnDestroy() {
+    this.stopUrlRefreshMonitor();
+  }
+
+  /**
+   * 启动 URL 刷新监控
+   */
+  private startUrlRefreshMonitor() {
+    if (this.urlRefreshTimer) return;
+    
+    this.urlRefreshTimer = setInterval(async () => {
+      await this.checkAndRefreshExpiredUrls();
+    }, GLOBAL_ATTACHMENT_CONFIG.URL_REFRESH_CHECK_INTERVAL);
+  }
+
+  /**
+   * 停止 URL 刷新监控
+   */
+  private stopUrlRefreshMonitor() {
+    if (this.urlRefreshTimer) {
+      clearInterval(this.urlRefreshTimer);
+      this.urlRefreshTimer = null;
+    }
+  }
+
+  /**
+   * 注册 URL 刷新回调
+   */
+  setUrlRefreshCallback(callback: (refreshedUrls: Map<string, { url: string; thumbnailUrl?: string }>) => void) {
+    this.urlRefreshCallback = callback;
+  }
+
+  /**
+   * 添加附件到监控列表
+   */
+  monitorAttachment(userId: string, projectId: string, taskId: string, attachment: Attachment) {
+    this.monitoredAttachments.set(attachment.id, { userId, projectId, taskId, attachment });
+  }
+
+  /**
+   * 从监控列表移除附件
+   */
+  unmonitorAttachment(attachmentId: string) {
+    this.monitoredAttachments.delete(attachmentId);
+  }
+
+  /**
+   * 清空监控列表
+   */
+  clearMonitoredAttachments() {
+    this.monitoredAttachments.clear();
+  }
+
+  /**
+   * 检查并刷新过期的 URL
+   */
+  private async checkAndRefreshExpiredUrls() {
+    if (this.monitoredAttachments.size === 0 || !this.supabase.isConfigured) return;
+
+    const refreshedUrls = new Map<string, { url: string; thumbnailUrl?: string }>();
+    const now = Date.now();
+    const expiryBuffer = GLOBAL_ATTACHMENT_CONFIG.URL_EXPIRY_BUFFER;
+
+    for (const [id, { userId, projectId, taskId, attachment }] of this.monitoredAttachments) {
+      // 检查 URL 是否即将过期（通过 createdAt 估算）
+      const createdAt = new Date(attachment.createdAt).getTime();
+      const urlAge = now - createdAt;
+      
+      // 如果 URL 年龄超过缓冲时间，刷新它
+      if (urlAge > expiryBuffer) {
+        try {
+          const newUrls = await this.refreshUrl(userId, projectId, taskId, attachment);
+          if (newUrls) {
+            refreshedUrls.set(id, newUrls);
+            // 更新监控列表中的附件
+            this.monitoredAttachments.set(id, {
+              userId, projectId, taskId,
+              attachment: { ...attachment, url: newUrls.url, thumbnailUrl: newUrls.thumbnailUrl }
+            });
+          }
+        } catch (e) {
+          // URL 刷新失败，静默处理，下次检查会重试
+          console.warn(`刷新附件 URL 失败: ${id}`, e);
+        }
+      }
+    }
+
+    // 通知回调
+    if (refreshedUrls.size > 0 && this.urlRefreshCallback) {
+      this.urlRefreshCallback(refreshedUrls);
+    }
+  }
 
   /**
    * 上传文件

@@ -3,103 +3,56 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
-import { Task } from '../models';
+import { LoggerService } from '../services/logger.service';
+import { Task, Attachment } from '../models';
 import { getErrorMessage, isFailure } from '../utils/result';
 import { environment } from '../environments/environment';
+import { 
+  FlowToolbarComponent, 
+  FlowPaletteComponent, 
+  FlowTaskDetailComponent,
+  FlowDeleteConfirmComponent,
+  FlowLinkTypeDialogComponent,
+  FlowConnectionEditorComponent,
+  FlowLinkDeleteHintComponent,
+  type LinkTypeDialogData,
+  type ConnectionEditorData,
+  type ConnectionTasks
+} from './flow';
+import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
 import * as go from 'gojs';
 
 @Component({
   selector: 'app-flow-view',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [
+    CommonModule, 
+    FormsModule, 
+    FlowToolbarComponent, 
+    FlowPaletteComponent, 
+    FlowTaskDetailComponent,
+    FlowDeleteConfirmComponent,
+    FlowLinkTypeDialogComponent,
+    FlowConnectionEditorComponent,
+    FlowLinkDeleteHintComponent
+  ],
   template: `
     <div class="flex flex-col h-full bg-[#F9F8F6] relative">
        
-       <!-- Top Palette Area (Resizable) -->
-       <div class="flex-none flex flex-col overflow-hidden transition-none" [style.height.px]="paletteHeight()">
-           <!-- 1. 待完成区域 (To-Do) -->
-           <div class="flex-none mx-4 mt-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
-               <div (click)="store.isFlowUnfinishedOpen.set(!store.isFlowUnfinishedOpen())" 
-                    class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                   <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
-                       <span class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.4)]"></span>
-                       待办事项
-                   </span>
-                   <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!store.isFlowUnfinishedOpen()">▼</span>
-               </div>
-               
-               @if (store.isFlowUnfinishedOpen()) {
-                   <div class="pb-4 animate-slide-down max-h-32 overflow-y-auto">
-                       <ul class="space-y-2">
-                           @for (item of store.unfinishedItems(); track item.taskId + item.text) {
-                               <li class="text-xs text-stone-600 flex items-center gap-3 bg-white/80 backdrop-blur-sm border border-stone-100/50 p-2 rounded-lg hover:border-orange-200 cursor-pointer group shadow-sm transition-all" (click)="centerOnNode(item.taskId)">
-                                   <span class="w-1 h-1 rounded-full bg-stone-200 group-hover:bg-orange-400 transition-colors ml-1"></span>
-                                   <span class="font-bold text-retro-muted text-[9px] tracking-wider">{{store.compressDisplayId(item.taskDisplayId)}}</span>
-                                   <span class="truncate flex-1 group-hover:text-stone-900 transition-colors">{{item.text}}</span>
-                               </li>
-                           }
-                           @if (store.unfinishedItems().length === 0) {
-                               <li class="text-xs text-stone-400 italic px-2 font-light">暂无待办</li>
-                           }
-                       </ul>
-                   </div>
-               }
-           </div>
-
-           <!-- 2. 待分配区域 (To-Assign) - 可拖动到流程图 -->
-           <div class="flex-none mx-4 mt-2 mb-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-teal-50/60 border border-teal-100/50 backdrop-blur-sm z-10 relative">
-               <div (click)="store.isFlowUnassignedOpen.set(!store.isFlowUnassignedOpen())" 
-                    class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                   <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
-                       <span class="w-1.5 h-1.5 rounded-full bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]"></span>
-                       待分配
-                   </span>
-                   <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!store.isFlowUnassignedOpen()">▼</span>
-               </div>
-
-               @if (store.isFlowUnassignedOpen()) {
-                   <div class="pb-4 animate-slide-down max-h-32 overflow-y-auto">
-                       <div class="flex flex-wrap gap-2 unassigned-drag-area" 
-                            id="unassignedPalette"
-                            (dragover)="onUnassignedDragOver($event)"
-                            (drop)="onUnassignedDrop($event)">
-                           @for (task of store.unassignedTasks(); track task.id) {
-                               <div 
-                                   draggable="true" 
-                                   (dragstart)="onDragStart($event, task)"
-                                   (touchstart)="onUnassignedTouchStart($event, task)"
-                                   (touchmove)="onUnassignedTouchMove($event)"
-                                   (touchend)="onUnassignedTouchEnd($event)"
-                                   (click)="onUnassignedTaskClick(task)"
-                                   class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500"
-                                   [class.bg-teal-100]="unassignedDraggingId() === task.id"
-                                   [class.border-teal-400]="unassignedDraggingId() === task.id">
-                                   {{task.title}}
-                               </div>
-                           }
-                           <button (click)="createUnassigned()" class="px-3 py-1.5 bg-white/50 hover:bg-teal-50 text-stone-400 hover:text-teal-600 rounded-md text-xs font-medium border border-transparent transition-all">+ 新建</button>
-                       </div>
-                       <!-- 拖回待分配区域的提示 -->
-                       @if (isDropTargetActive()) {
-                         <div class="mt-2 p-2 border-2 border-dashed border-teal-300 rounded-lg bg-teal-50/50 text-center text-xs text-teal-600 animate-pulse">
-                           拖放到此处解除分配
-                         </div>
-                       }
-                   </div>
-               }
-           </div>
-       </div>
-
-       <!-- Resizer Handle -->
-       <div class="h-3 bg-transparent hover:bg-stone-200 cursor-row-resize z-20 flex-shrink-0 relative group transition-all flex items-center justify-center touch-none"
-            [class.h-4]="store.isMobile()"
-            [class.bg-stone-100]="store.isMobile()"
-            (mousedown)="startPaletteResize($event)"
-            (touchstart)="startPaletteResizeTouch($event)">
-            <div class="w-12 h-1 rounded-full bg-stone-300 group-hover:bg-stone-400 transition-colors"
-                 [class.w-16]="store.isMobile()"
-                 [class.h-1.5]="store.isMobile()"></div>
-       </div>
+       <!-- 顶部调色板区域 -->
+       <app-flow-palette
+         [height]="paletteHeight()"
+         [isDropTargetActive]="isDropTargetActive()"
+         (heightChange)="paletteHeight.set($event)"
+         (centerOnNode)="centerOnNode($event)"
+         (createUnassigned)="createUnassigned()"
+         (taskClick)="onUnassignedTaskClick($event)"
+         (taskDragStart)="onDragStart($event.event, $event.task)"
+         (taskDrop)="onUnassignedDrop($event.event)"
+         (taskTouchStart)="onUnassignedTouchStart($event.event, $event.task)"
+         (taskTouchMove)="onUnassignedTouchMove($event.event)"
+         (taskTouchEnd)="onUnassignedTouchEnd($event.event)">
+       </app-flow-palette>
 
        <!-- 3. 流程图区域 -->
        <div class="flex-1 relative overflow-hidden bg-[#F9F8F6] mt-0 mx-0 border-t border-stone-200/50">
@@ -118,507 +71,83 @@ import * as go from 'gojs';
              </button>
            }
 
-           <!-- Zoom Controls -->
-           <div class="absolute z-10 flex gap-2"
-                [class.transition-all]="!isResizingDrawerSignal()"
-                [class.duration-200]="!isResizingDrawerSignal()"
-                [class.flex-col]="!store.isMobile()"
-                [class.flex-row]="store.isMobile()"
-                [class.bottom-4]="!store.isMobile()"
-                [class.left-4]="!store.isMobile()"
-                [class.left-2]="store.isMobile()"
-                [style.bottom.px]="store.isMobile() ? (store.isFlowDetailOpen() ? (drawerHeight() * window.innerHeight / 100 + 8) : 8) : 16">
-               <button (click)="zoomIn()" 
-                       class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-                       [class.p-2]="!store.isMobile()"
-                       [class.p-1.5]="store.isMobile()"
-                       title="放大">
-                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                   </svg>
-               </button>
-               <button (click)="zoomOut()" 
-                       class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-                       [class.p-2]="!store.isMobile()"
-                       [class.p-1.5]="store.isMobile()"
-                       title="缩小">
-                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-                   </svg>
-               </button>
-               <!-- 自动布局按钮 -->
-               <button 
-                 (click)="applyAutoLayout()" 
-                 class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-                 [class.p-2]="!store.isMobile()"
-                 [class.p-1.5]="store.isMobile()"
-                 title="自动整理布局">
-                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                        [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                   </svg>
-               </button>
-               <!-- 连接模式按钮 -->
-               <button (click)="toggleLinkMode()" class="backdrop-blur rounded-lg shadow-sm border transition-all hover:bg-stone-50" [class.p-2]="!store.isMobile()" [class.p-1.5]="store.isMobile()" [class.bg-indigo-500]="isLinkMode()" [class.text-white]="isLinkMode()" [class.border-indigo-500]="isLinkMode()" [class.bg-white]="!isLinkMode()" [class.text-stone-600]="!isLinkMode()" [class.border-stone-200]="!isLinkMode()" title="连接模式">
-                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()" [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                   </svg>
-               </button>
-           </div>
-           
-           <!-- 连接模式提示 -->
-           @if (isLinkMode()) {
-             <div class="absolute z-10 bg-indigo-500 text-white font-medium rounded-lg shadow-lg animate-fade-in flex items-center px-3 py-2 text-xs top-4 left-4" [ngClass]="{'top-2 left-1/2 -translate-x-1/2 px-2 py-1.5 max-w-[90vw]': store.isMobile(), 'text-[10px]': store.isMobile()}">
-               @if (linkSourceTask()) {
-                 <span class="truncate">已选: <span class="font-bold">{{ linkSourceTask()?.title }}</span></span>
-                 <span class="mx-1">&rarr;</span>
-                 <span>点击目标</span>
-               } @else {
-                 点击源节点
-               }
-               <button (click)="cancelLinkMode()" class="ml-2 px-1.5 py-0.5 bg-white/20 rounded hover:bg-white/30 transition-colors">取消</button>
-             </div>
-           }
+           <!-- 工具栏 -->
+           <app-flow-toolbar
+             [isLinkMode]="isLinkMode()"
+             [linkSourceTask]="linkSourceTask()"
+             [isResizingDrawer]="isResizingDrawerSignal()"
+             [drawerHeightVh]="drawerHeight()"
+             (zoomIn)="zoomIn()"
+             (zoomOut)="zoomOut()"
+             (autoLayout)="applyAutoLayout()"
+             (toggleLinkMode)="toggleLinkMode()"
+             (cancelLinkMode)="cancelLinkMode()">
+           </app-flow-toolbar>
 
-           <!-- 4. 详情区域 - 桌面端可拖动浮动面板 -->
-           @if (!store.isMobile() && store.isFlowDetailOpen()) {
-             <div class="absolute z-20 pointer-events-auto"
-                  [style.right.px]="taskDetailPos().x < 0 ? 0 : null"
-                  [style.top.px]="taskDetailPos().y < 0 ? 24 : taskDetailPos().y"
-                  [style.left.px]="taskDetailPos().x >= 0 ? taskDetailPos().x : null">
-                <!-- Content Panel - 桌面端可拖动 -->
-                <div class="w-64 max-h-96 bg-white/95 backdrop-blur-xl border border-stone-200/50 shadow-xl overflow-hidden flex flex-col rounded-xl">
-                    
-                    <!-- 可拖动标题栏 -->
-                    <div class="px-3 py-2 border-b border-stone-100 flex justify-between items-center cursor-move select-none bg-gradient-to-r from-stone-50 to-white"
-                         (mousedown)="startDragTaskDetail($event)"
-                         (touchstart)="startDragTaskDetail($event)">
-                        <div class="flex items-center gap-1.5">
-                            <span class="text-[8px] text-stone-400">☰</span>
-                            <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
-                        </div>
-                        <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                    </div>
-                        
-                    <div class="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-                        @if (selectedTask(); as task) {
-                            <div class="space-y-2">
-                                <div class="flex items-center gap-2 text-[10px]">
-                                    <span class="font-bold text-retro-muted bg-stone-100 px-1.5 py-0.5 rounded">{{store.compressDisplayId(task.displayId)}}</span>
-                                    <span class="text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
-                                    <span class="px-1.5 py-0.5 rounded"
-                                          [class.bg-emerald-100]="task.status === 'completed'"
-                                          [class.text-emerald-700]="task.status === 'completed'"
-                                          [class.bg-amber-100]="task.status !== 'completed'"
-                                          [class.text-amber-700]="task.status !== 'completed'">
-                                      {{task.status === 'completed' ? '完成' : '进行中'}}
-                                    </span>
-                                </div>
-                                
-                                <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
-                                    class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
-                                    placeholder="任务标题">
-                                
-                                <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="4"
-                                    class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
-                                    placeholder="输入内容..."></textarea>
-
-                                <div class="flex gap-1.5 pt-1">
-                                    <button (click)="addSiblingTask(task)"
-                                        class="flex-1 px-2 py-1 bg-retro-teal/10 hover:bg-retro-teal text-retro-teal hover:text-white border border-retro-teal/30 text-[10px] font-medium rounded transition-all">
-                                        +同级
-                                    </button>
-                                    <button (click)="addChildTask(task)"
-                                        class="flex-1 px-2 py-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
-                                        +下级
-                                    </button>
-                                    <button (click)="toggleTaskStatus(task)"
-                                        class="flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all border"
-                                        [class.bg-emerald-50]="task.status !== 'completed'"
-                                        [class.text-emerald-700]="task.status !== 'completed'"
-                                        [class.border-emerald-200]="task.status !== 'completed'"
-                                        [class.bg-stone-50]="task.status === 'completed'"
-                                        [class.text-stone-600]="task.status === 'completed'"
-                                        [class.border-stone-200]="task.status === 'completed'">
-                                        {{task.status === 'completed' ? '撤销' : '完成'}}
-                                    </button>
-                                    <button (click)="deleteTask(task)"
-                                        class="px-2 py-1 bg-stone-50 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 text-[10px] font-medium rounded transition-all">
-                                        删除
-                                    </button>
-                                </div>
-                            </div>
-                        } @else if (store.activeProject()) {
-                            <div class="text-[11px] space-y-1">
-                                <div class="font-bold text-stone-800">{{store.activeProject()?.name}}</div>
-                                <div class="text-stone-400 font-mono text-[10px]">{{store.activeProject()?.createdDate | date:'yyyy-MM-dd'}}</div>
-                                <div class="text-stone-500 mt-1">{{store.activeProject()?.description}}</div>
-                            </div>
-                        } @else {
-                            <div class="py-4 text-center text-stone-400 text-[10px]">
-                                双击节点查看详情
-                            </div>
-                        }
-                    </div>
-                </div>
-             </div>
-           }
-           <!-- 桌面端详情开启按钮 -->
-             @if (!store.isMobile() && !store.isFlowDetailOpen()) {
-               <button (click)="store.isFlowDetailOpen.set(true)" 
-                       class="absolute top-6 right-2 z-20 bg-white/90 backdrop-blur border border-stone-200 rounded-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all flex items-center gap-1">
-                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                   </svg>
-                   <span class="text-[10px] font-medium">详情</span>
-               </button>
-             }
-
-           <!-- 4. 详情区域 - 手机端底部抽屉 -->
-           @if (store.isMobile()) {
-             <!-- 底部小型标签触发器 -->
-             @if (!store.isFlowDetailOpen()) {
-               <button 
-                 (click)="store.isFlowDetailOpen.set(true)"
-                 class="absolute bottom-2 right-2 z-20 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
-                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                 </svg>
-                 <span class="text-[10px] font-medium">详情</span>
-               </button>
-             }
-             
-             <!-- 底部抽屉面板 -->
-             @if (store.isFlowDetailOpen()) {
-               <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl flex flex-col"
-                    [style.max-height.vh]="drawerHeight()"
-                    style="transform: translateZ(0); backface-visibility: hidden;">
-                 <!-- 拖动条 - 可拖动调整高度 -->
-                 <div class="flex justify-center py-2 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
-                      (touchstart)="startDrawerResize($event)">
-                   <div class="w-12 h-1.5 bg-stone-300 rounded-full"></div>
-                 </div>
-                 
-                 <!-- 标题栏 -->
-                 <div class="px-3 pb-2 flex justify-between items-center flex-shrink-0">
-                   <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
-                   <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
-                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                     </svg>
-                   </button>
-                 </div>
-                 
-                 <!-- 内容区域 - 优化移动端滚动性能 -->
-                 <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain"
-                      style="-webkit-overflow-scrolling: touch; touch-action: pan-y; transform: translateZ(0);">
-                   @if (selectedTask(); as task) {
-                     <!-- 紧凑的任务信息 -->
-                     <div class="flex items-center gap-2 mb-2">
-                       <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 px-1.5 rounded">{{store.compressDisplayId(task.displayId)}}</span>
-                       <span class="text-[9px] text-stone-400">{{task.createdDate | date:'MM-dd HH:mm'}}</span>
-                       <span class="text-[9px] px-1.5 py-0.5 rounded"
-                             [class.bg-emerald-100]="task.status === 'completed'"
-                             [class.text-emerald-700]="task.status === 'completed'"
-                             [class.bg-amber-100]="task.status !== 'completed'"
-                             [class.text-amber-700]="task.status !== 'completed'">
-                         {{task.status === 'completed' ? '已完成' : '进行中'}}
-                       </span>
-                     </div>
-                     
-                     <!-- 标题输入 -->
-                     <input type="text" [ngModel]="task.title" (ngModelChange)="updateTaskTitle(task.id, $event)"
-                       class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 mb-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
-                       placeholder="任务标题">
-                     
-                     <!-- 内容输入 -->
-                     <textarea [ngModel]="task.content" (ngModelChange)="updateTaskContent(task.id, $event)" rows="2"
-                       class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 mb-2 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono"
-                       placeholder="任务内容..."></textarea>
-                     
-                     <!-- 快速待办输入 -->
-                     <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded overflow-hidden p-0.5 mb-2">
-                       <span class="text-retro-rust flex-shrink-0 text-[10px] pl-1.5">☐</span>
-                       <input
-                         #flowQuickTodoInput
-                         type="text"
-                         (keydown.enter)="addQuickTodo(task.id, flowQuickTodoInput)"
-                         class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[11px] py-1 px-1"
-                         placeholder="输入待办，回车添加...">
-                       <button
-                         (click)="addQuickTodo(task.id, flowQuickTodoInput)"
-                         class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded p-1 mr-0.5 transition-all"
-                         title="添加待办">
-                         <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                       </button>
-                     </div>
-                     
-                     <!-- 操作按钮 - 横向紧凑排列 -->
-                     <div class="flex gap-1.5">
-                       <button (click)="addSiblingTask(task)"
-                         class="flex-1 px-2 py-1 bg-retro-teal/10 text-retro-teal border border-retro-teal/30 text-[10px] font-medium rounded transition-all">
-                         +同级
-                       </button>
-                       <button (click)="addChildTask(task)"
-                         class="flex-1 px-2 py-1 bg-retro-rust/10 text-retro-rust border border-retro-rust/30 text-[10px] font-medium rounded transition-all">
-                         +下级
-                       </button>
-                       <button (click)="toggleTaskStatus(task)"
-                         class="flex-1 px-2 py-1 text-[10px] font-medium rounded border transition-all"
-                         [class.bg-emerald-50]="task.status !== 'completed'"
-                         [class.text-emerald-700]="task.status !== 'completed'"
-                         [class.border-emerald-200]="task.status !== 'completed'"
-                         [class.bg-stone-50]="task.status === 'completed'"
-                         [class.text-stone-600]="task.status === 'completed'"
-                         [class.border-stone-200]="task.status === 'completed'">
-                         {{task.status === 'completed' ? '未完成' : '完成'}}
-                       </button>
-                       <button (click)="deleteTask(task)"
-                         class="px-2 py-1 bg-stone-50 text-stone-400 border border-stone-200 text-[10px] font-medium rounded transition-all">
-                         删除
-                       </button>
-                     </div>
-                   } @else {
-                     <div class="text-center text-stone-400 text-xs py-4">双击节点查看详情</div>
-                   }
-                 </div>
-               </div>
-             }
-           }
+           <!-- 任务详情面板 -->
+           <app-flow-task-detail
+             [task]="selectedTask()"
+             [position]="taskDetailPos()"
+             [drawerHeight]="drawerHeight()"
+             (positionChange)="taskDetailPos.set($event)"
+             (drawerHeightChange)="drawerHeight.set($event)"
+             (isResizingChange)="isResizingDrawerSignal.set($event)"
+             (titleChange)="updateTaskTitle($event.taskId, $event.title)"
+             (contentChange)="updateTaskContent($event.taskId, $event.content)"
+             (priorityChange)="updateTaskPriority($event.taskId, $event.priority)"
+             (dueDateChange)="updateTaskDueDate($event.taskId, $event.dueDate)"
+             (tagAdd)="addTaskTag($event.taskId, $event.tag)"
+             (tagRemove)="removeTaskTag($event.taskId, $event.tag)"
+             (addSibling)="addSiblingTask($event)"
+             (addChild)="addChildTask($event)"
+             (toggleStatus)="toggleTaskStatus($event)"
+             (archiveTask)="archiveTask($event)"
+             (deleteTask)="deleteTask($event)"
+             (quickTodoAdd)="addQuickTodo($event.taskId, $event.text)"
+             (attachmentAdd)="onAttachmentAdd($event.taskId, $event.attachment)"
+             (attachmentRemove)="onAttachmentRemove($event.taskId, $event.attachmentId)"
+             (attachmentsChange)="onAttachmentsChange($event.taskId, $event.attachments)"
+             (attachmentError)="onAttachmentError($event)">
+           </app-flow-task-detail>
        </div>
        
        <!-- 删除确认弹窗 -->
-       @if (deleteConfirmTask()) {
-         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in"
-              (click)="deleteConfirmTask.set(null); deleteKeepChildren.set(false)">
-           <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 overflow-hidden animate-scale-in mx-4"
-                [ngClass]="{'w-80': store.isMobile(), 'w-96': !store.isMobile()}"
-                (click)="$event.stopPropagation()">
-             <div class="px-5 pt-5 pb-4">
-               <div class="flex items-center gap-3 mb-3">
-                 <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                   <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                   </svg>
-                 </div>
-                 <div>
-                   <h3 class="text-lg font-bold text-stone-800">删除任务</h3>
-                   <p class="text-xs text-stone-500">此操作不可撤销</p>
-                 </div>
-               </div>
-               <p class="text-sm text-stone-600 leading-relaxed">
-                 确定删除任务 <span class="font-semibold text-stone-800">"{{ deleteConfirmTask()?.title }}"</span> 吗？
-               </p>
-               
-               <!-- 保留子任务选项 -->
-               @if (hasChildren(deleteConfirmTask()!)) {
-                 <div class="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
-                   <label class="flex items-start gap-2 cursor-pointer">
-                     <input 
-                       type="checkbox" 
-                       [checked]="deleteKeepChildren()"
-                       (change)="deleteKeepChildren.set(!deleteKeepChildren())"
-                       class="mt-0.5 w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500">
-                     <div>
-                       <span class="text-xs font-medium text-amber-800">保留子任务</span>
-                       <p class="text-[10px] text-amber-600 mt-0.5">子任务将提升到当前任务的父级</p>
-                     </div>
-                   </label>
-                 </div>
-               } @else {
-                 <p class="text-xs text-stone-400 mt-1">这将同时删除其所有子任务。</p>
-               }
-             </div>
-             <div class="flex border-t border-stone-100">
-               <button 
-                 (click)="deleteConfirmTask.set(null); deleteKeepChildren.set(false)"
-                 class="flex-1 px-4 py-3 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
-                 取消
-               </button>
-               <button 
-                 (click)="confirmDelete()"
-                 class="flex-1 px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors">
-                 删除
-               </button>
-             </div>
-           </div>
-         </div>
-       }
+       <app-flow-delete-confirm
+         [task]="deleteConfirmTask()"
+         [keepChildren]="deleteKeepChildren()"
+         [hasChildren]="deleteConfirmTask() ? hasChildren(deleteConfirmTask()!) : false"
+         [isMobile]="store.isMobile()"
+         (cancel)="deleteConfirmTask.set(null); deleteKeepChildren.set(false)"
+         (confirm)="confirmDelete()"
+         (keepChildrenChange)="deleteKeepChildren.set($event)">
+       </app-flow-delete-confirm>
        
        <!-- 移动端连接线删除提示 -->
-       @if (store.isMobile() && linkDeleteHint(); as hint) {
-         <div class="fixed z-50 animate-scale-in"
-              [style.left.px]="hint.x - 60"
-              [style.top.px]="hint.y - 50">
-           <div class="bg-white rounded-lg shadow-xl border border-stone-200 p-2 flex gap-2">
-             <button 
-               (click)="confirmLinkDelete()"
-               class="px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-all">
-               删除连接
-             </button>
-             <button 
-               (click)="cancelLinkDelete()"
-               class="px-3 py-1.5 bg-stone-100 text-stone-600 text-xs font-medium rounded hover:bg-stone-200 transition-all">
-               取消
-             </button>
-           </div>
-         </div>
+       @if (store.isMobile()) {
+         <app-flow-link-delete-hint
+           [hint]="linkDeleteHint()"
+           (confirm)="confirmLinkDelete()"
+           (cancel)="cancelLinkDelete()">
+         </app-flow-link-delete-hint>
        }
        
        <!-- 联系块内联编辑器 - 浮动在连接线附近，可拖动 -->
-       @if (connectionEditorData(); as connData) {
-         <div class="absolute z-30 animate-scale-in"
-              [style.left.px]="connectionEditorPos().x"
-              [style.top.px]="connectionEditorPos().y">
-           <div class="bg-white rounded-xl shadow-xl border border-violet-200 overflow-hidden w-52"
-                (click)="$event.stopPropagation()">
-             <!-- 可拖动标题栏 -->
-             <div class="px-3 py-2 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-violet-100 flex items-center justify-between cursor-move select-none"
-                  (mousedown)="startDragConnEditor($event)"
-                  (touchstart)="startDragConnEditor($event)">
-               <div class="flex items-center gap-1.5">
-                 <span class="text-sm">🔗</span>
-                 <span class="text-xs font-medium text-violet-700">编辑关联</span>
-                 <span class="text-[8px] text-violet-400 ml-1">☰ 拖动</span>
-               </div>
-               <button (click)="closeConnectionEditor(); $event.stopPropagation()" class="text-stone-400 hover:text-stone-600 p-0.5">
-                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                 </svg>
-               </button>
-             </div>
-             
-             <!-- 连接的两个任务 - 紧凑显示 -->
-             <div class="px-3 py-2 bg-stone-50/50 border-b border-stone-100">
-               <div class="flex items-center gap-1 text-[10px]">
-                 @if (getConnectionTasks().source; as source) {
-                   <span class="font-bold text-violet-500 truncate max-w-[70px]">{{store.compressDisplayId(source.displayId)}}</span>
-                 }
-                 <svg class="w-3 h-3 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                 </svg>
-                 @if (getConnectionTasks().target; as target) {
-                   <span class="font-bold text-indigo-500 truncate max-w-[70px]">{{store.compressDisplayId(target.displayId)}}</span>
-                 }
-               </div>
-             </div>
-             
-             <!-- 描述输入 - 自动调整高度 -->
-             <div class="px-3 py-2">
-               <textarea 
-                 #descInput
-                 id="connectionDescTextarea"
-                 (keydown.escape)="closeConnectionEditor()"
-                 (input)="autoResizeTextarea($event)"
-                 class="w-full text-xs text-stone-700 border border-stone-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-300 focus:border-violet-400 bg-white resize-none"
-                 placeholder="输入关联描述..."
-                 [style.min-height.px]="28"
-                 [style.max-height.px]="120"
-                 autofocus>{{connData.description}}</textarea>
-             </div>
-             
-             <!-- 操作按钮 - 紧凑 -->
-             <div class="flex border-t border-stone-100">
-               <button 
-                 (click)="closeConnectionEditor()"
-                 class="flex-1 px-2 py-1.5 text-[10px] font-medium text-stone-500 hover:bg-stone-50 transition-colors">
-                 取消
-               </button>
-               <button 
-                 (click)="saveConnectionDescription(descInput.value)"
-                 class="flex-1 px-2 py-1.5 text-[10px] font-medium text-white bg-violet-500 hover:bg-violet-600 transition-colors">
-                 保存
-               </button>
-             </div>
-           </div>
-         </div>
-       }
+       <app-flow-connection-editor
+         [data]="connectionEditorData()"
+         [position]="connectionEditorPos()"
+         [connectionTasks]="getConnectionTasks()"
+         (close)="closeConnectionEditor()"
+         (save)="saveConnectionDescription($event)"
+         (dragStart)="startDragConnEditor($event)">
+       </app-flow-connection-editor>
        
        <!-- 连接类型选择对话框 -->
-       @if (linkTypeDialog(); as dialog) {
-         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm animate-fade-in"
-              (click)="cancelLinkCreate()">
-           <div class="bg-white rounded-2xl shadow-2xl border border-stone-200 overflow-hidden w-80 mx-4 animate-scale-in"
-                (click)="$event.stopPropagation()">
-             <div class="px-5 pt-5 pb-4">
-               <div class="flex items-center gap-3 mb-4">
-                 <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                   <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                     <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                   </svg>
-                 </div>
-                 <div>
-                   <h3 class="text-base font-bold text-stone-800">选择连接类型</h3>
-                   <p class="text-xs text-stone-500">请选择要创建的连接方式</p>
-                 </div>
-               </div>
-               
-               <!-- 任务信息 -->
-               <div class="mb-4 p-3 bg-stone-50 rounded-lg">
-                 <div class="flex items-center gap-2 text-xs">
-                   <span class="font-medium text-stone-600 truncate max-w-[100px]">{{ dialog.sourceTask?.title || '源任务' }}</span>
-                   <svg class="w-4 h-4 text-stone-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                   </svg>
-                   <span class="font-medium text-stone-600 truncate max-w-[100px]">{{ dialog.targetTask?.title || '目标任务' }}</span>
-                 </div>
-               </div>
-               
-               <!-- 连接类型选项 -->
-               <div class="space-y-2">
-                 <button 
-                   (click)="confirmParentChildLink()"
-                   class="w-full p-3 border-2 border-teal-200 bg-teal-50/50 rounded-xl hover:border-teal-400 hover:bg-teal-50 transition-all text-left group">
-                   <div class="flex items-center gap-3">
-                     <div class="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center group-hover:bg-teal-200 transition-colors">
-                       <svg class="w-4 h-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                       </svg>
-                     </div>
-                     <div>
-                       <div class="font-semibold text-sm text-teal-800">父子关系</div>
-                       <div class="text-[10px] text-teal-600">目标任务成为子任务，移动到下一阶段</div>
-                     </div>
-                   </div>
-                 </button>
-                 
-                 <button 
-                   (click)="confirmCrossTreeLink()"
-                   class="w-full p-3 border-2 border-indigo-200 bg-indigo-50/50 rounded-xl hover:border-indigo-400 hover:bg-indigo-50 transition-all text-left group">
-                   <div class="flex items-center gap-3">
-                     <div class="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-                       <svg class="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                         <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                       </svg>
-                     </div>
-                     <div>
-                       <div class="font-semibold text-sm text-indigo-800">关联引用</div>
-                       <div class="text-[10px] text-indigo-600">创建虚线连接，表示任务间的关联关系</div>
-                     </div>
-                   </div>
-                 </button>
-               </div>
-             </div>
-             
-             <div class="flex border-t border-stone-100">
-               <button 
-                 (click)="cancelLinkCreate()"
-                 class="flex-1 px-4 py-3 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
-                 取消
-               </button>
-             </div>
-           </div>
-         </div>
-       }
+       <app-flow-link-type-dialog
+         [data]="linkTypeDialog()"
+         (cancel)="cancelLinkCreate()"
+         (parentChildLink)="confirmParentChildLink()"
+         (crossTreeLink)="confirmCrossTreeLink()">
+       </app-flow-link-type-dialog>
     </div>
   `
 })
@@ -628,10 +157,12 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   store = inject(StoreService);
   private toast = inject(ToastService);
+  private readonly logger = inject(LoggerService).category('FlowView');
   private readonly zone = inject(NgZone);
+  private readonly elementRef = inject(ElementRef);
   
   // 暴露 window 给模板使用
-  readonly window = typeof window !== 'undefined' ? window : { innerHeight: 800 };
+  readonly window = typeof window !== 'undefined' ? window : { innerHeight: GOJS_CONFIG.SSR_DEFAULT_HEIGHT };
   
   private diagram: any;
   private resizeObserver: ResizeObserver | null = null;
@@ -758,7 +289,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         textarea.style.height = 'auto';
         textarea.style.height = Math.min(120, Math.max(28, textarea.scrollHeight)) + 'px';
       }
-    }, 10);
+    }, UI_CONFIG.SHORT_DELAY);
   }
   
   // 开始拖动联系块编辑器
@@ -823,7 +354,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     let currentY = pos.y;
     if (pos.x < 0 && diagramDiv) {
       const rect = diagramDiv.getBoundingClientRect();
-      currentX = rect.width - 256 - 8; // w-64 = 256px, 右边距8px
+      currentX = rect.width - GOJS_CONFIG.DETAIL_PANEL_WIDTH - GOJS_CONFIG.DETAIL_PANEL_RIGHT_MARGIN;
       currentY = 24;
     }
     
@@ -952,8 +483,8 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       this.diagram.startTransaction('auto-layout');
       this.diagram.layout = $(go.LayeredDigraphLayout, {
           direction: 0,
-          layerSpacing: 100,
-          columnSpacing: 40,
+          layerSpacing: GOJS_CONFIG.LAYER_SPACING,
+          columnSpacing: GOJS_CONFIG.COLUMN_SPACING,
           setsPortSpots: false
       });
       this.diagram.layoutDiagram(true);
@@ -963,7 +494,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           this.saveAllNodePositions();
           this.diagram.layout = $(go.Layout); // 恢复无操作布局
           this.diagram.commitTransaction('auto-layout');
-      }, 50);
+      }, UI_CONFIG.SHORT_DELAY);
   }
   
   // 保存所有节点位置到 store
@@ -1001,33 +532,49 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
 
   // 快速添加待办
-  addQuickTodo(taskId: string, inputElement: HTMLInputElement) {
-      const text = inputElement.value.trim();
-      if (!text) return;
-      
-      this.store.addTodoItem(taskId, text);
-      inputElement.value = '';
-      inputElement.focus();
+  addQuickTodo(taskId: string, text: string) {
+      if (!text?.trim()) return;
+      this.store.addTodoItem(taskId, text.trim());
   }
 
   // 添加同级任务
   addSiblingTask(task: Task) {
-      const result = this.store.addTask('新同级任务', '', task.stage, task.parentId, true);
+      const result = this.store.addTask('', '', task.stage, task.parentId, true);
       if (isFailure(result)) {
           this.toast.error('添加任务失败', getErrorMessage(result.error));
       } else {
           this.selectedTaskId.set(result.value);
+          // 延迟聚焦到标题输入框
+          setTimeout(() => {
+              this.focusTitleInput();
+          }, UI_CONFIG.INPUT_FOCUS_DELAY);
       }
   }
 
   // 添加子任务
   addChildTask(task: Task) {
       const nextStage = (task.stage || 0) + 1;
-      const result = this.store.addTask('新子任务', '', nextStage, task.id, false);
+      const result = this.store.addTask('', '', nextStage, task.id, false);
       if (isFailure(result)) {
           this.toast.error('添加任务失败', getErrorMessage(result.error));
       } else {
           this.selectedTaskId.set(result.value);
+          // 延迟聚焦到标题输入框
+          setTimeout(() => {
+              this.focusTitleInput();
+          }, UI_CONFIG.INPUT_FOCUS_DELAY);
+      }
+  }
+  
+  // 聚焦到当前选中任务的标题输入框
+  private focusTitleInput() {
+      const panel = this.elementRef.nativeElement.querySelector('.detail-panel-content, .mobile-drawer-content');
+      if (panel) {
+          const input = panel.querySelector('input[type="text"]') as HTMLInputElement;
+          if (input) {
+              input.focus();
+              input.select();
+          }
       }
   }
 
@@ -1035,6 +582,16 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   toggleTaskStatus(task: Task) {
       const newStatus = task.status === 'completed' ? 'active' : 'completed';
       this.store.updateTaskStatus(task.id, newStatus);
+  }
+
+  // 归档/取消归档任务
+  archiveTask(task: Task) {
+      const newStatus = task.status === 'archived' ? 'active' : 'archived';
+      this.store.updateTaskStatus(task.id, newStatus);
+      // 归档后从视图中隐藏，取消选中
+      if (newStatus === 'archived') {
+          this.selectedTaskId.set(null);
+      }
   }
 
   // 删除任务
@@ -1207,7 +764,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       this.unassignedDraggingId.set(task.id);
       this.createUnassignedGhost(task, touch.clientX, touch.clientY);
       if (navigator.vibrate) navigator.vibrate(50);
-    }, 250);
+    }, UI_CONFIG.MOBILE_LONG_PRESS_DELAY);
   }
   
   onUnassignedTouchMove(e: TouchEvent) {
@@ -1274,13 +831,13 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           if (parentTask) {
             const newStage = (parentTask.stage || 1) + 1;
             this.store.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
-            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), 100);
+            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), UI_CONFIG.MEDIUM_DELAY);
           }
         } else if (insertInfo.beforeTaskId || insertInfo.afterTaskId) {
           const refTask = this.store.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
           if (refTask?.stage) {
             this.store.moveTaskToStage(task.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
-            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), 100);
+            setTimeout(() => this.store.updateTaskPosition(task.id, loc.x, loc.y), UI_CONFIG.MEDIUM_DELAY);
           }
         } else {
           // 没有靠近任何节点，只更新位置
@@ -1312,13 +869,19 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           if (this.diagram) {
               this.updateDiagram(this.store.tasks());
           }
-      }, 100);
+      }, UI_CONFIG.MEDIUM_DELAY);
       
       // 监听容器大小变化（侧边栏拖动时触发）
       this.setupResizeObserver();
   }
   
   ngOnDestroy() {
+      // 清理 GoJS diagram 实例
+      if (this.diagram) {
+          this.diagram.div = null;
+          this.diagram.clear();
+      }
+      
       // 清理 ResizeObserver
       if (this.resizeObserver) {
           this.resizeObserver.disconnect();
@@ -1345,6 +908,19 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (this.unassignedTouchState.ghost) {
           this.unassignedTouchState.ghost.remove();
       }
+      
+      // 清理全局事件监听器 - 修复内存泄漏
+      // 清理联系块编辑器拖拽事件
+      document.removeEventListener('mousemove', this.onDragConnEditor);
+      document.removeEventListener('mouseup', this.stopDragConnEditor);
+      document.removeEventListener('touchmove', this.onDragConnEditor);
+      document.removeEventListener('touchend', this.stopDragConnEditor);
+      
+      // 清理任务详情面板拖拽事件
+      document.removeEventListener('mousemove', this.onDragTaskDetail);
+      document.removeEventListener('mouseup', this.stopDragTaskDetail);
+      document.removeEventListener('touchmove', this.onDragTaskDetail);
+      document.removeEventListener('touchend', this.stopDragTaskDetail);
   }
   
   private setupResizeObserver() {
@@ -1370,7 +946,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                       this.diagram.requestUpdate();
                   }
               }
-          }, 100);
+          }, UI_CONFIG.RESIZE_DEBOUNCE_DELAY);
       });
       
       this.resizeObserver.observe(this.diagramDiv.nativeElement);
@@ -1378,20 +954,24 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // 流程图初始化错误状态
+  readonly diagramError = signal<string | null>(null);
+  
   initDiagram() {
       if (typeof go === 'undefined') {
-          console.warn('❌ GoJS not loaded');
+          this.handleDiagramError('GoJS 库未加载', 'GoJS library not loaded');
           return;
       }
       
-      // 注入 GoJS License Key（如果配置了）
-      if (environment.gojsLicenseKey) {
-          (go.Diagram as any).licenseKey = environment.gojsLicenseKey;
-      }
-      
-      const $ = go.GraphObject.make;
+      try {
+          // 注入 GoJS License Key（如果配置了）
+          if (environment.gojsLicenseKey) {
+              (go.Diagram as any).licenseKey = environment.gojsLicenseKey;
+          }
+          
+          const $ = go.GraphObject.make;
 
-      this.diagram = $(go.Diagram, this.diagramDiv.nativeElement, {
+          this.diagram = $(go.Diagram, this.diagramDiv.nativeElement, {
           // 禁用 GoJS 内置的 UndoManager，避免与 Store 状态分裂
           // 撤销/重做应通过全局状态管理实现
           "undoManager.isEnabled": false,
@@ -1403,7 +983,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           // === 性能优化配置 ===
           "autoScale": go.Diagram.None,
           "initialAutoScale": go.Diagram.None,
-          "scrollMargin": 100,
+          "scrollMargin": GOJS_CONFIG.SCROLL_MARGIN,
           "draggingTool.isGridSnapEnabled": false
       });
       
@@ -1423,7 +1003,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                       });
                   }
               });
-          }, 300);
+          }, GOJS_CONFIG.POSITION_SAVE_DEBOUNCE);
       });
       
       // 监听节点拖拽结束
@@ -1482,7 +1062,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
             
             // Main Content - 待分配任务节点更小更紧凑，已分配任务节点正常大小
             $(go.Panel, "Auto",
-                new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 140 : 200),
+                new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH),
                 $(go.Shape, "RoundedRectangle", 
                   { 
                       fill: "white", 
@@ -1615,9 +1195,6 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       
       // 移动端: 连接线长按删除
       if (this.store.isMobile()) {
-        let linkLongPressTimer: any = null;
-        let longPressedLink: any = null;
-        
         this.diagram.addDiagramListener('ObjectSingleClicked', (e: any) => {
           const part = e.subject.part;
           if (part instanceof go.Link) {
@@ -1699,7 +1276,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                   this.store.updateTaskPosition(task.id, loc.x, loc.y);
               }
           } catch (err) {
-              console.error('Drop error:', err);
+              this.logger.error('Drop error:', err);
           }
       });
 
@@ -1720,6 +1297,23 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       
       // 恢复之前保存的视图状态
       this.restoreViewState();
+          
+          // 清除错误状态
+          this.diagramError.set(null);
+      } catch (error) {
+          this.handleDiagramError('流程图初始化失败', error);
+      }
+  }
+  
+  /**
+   * 处理流程图错误
+   * 提供降级方案和用户提示
+   */
+  private handleDiagramError(userMessage: string, error: unknown): void {
+      const errorStr = error instanceof Error ? error.message : String(error);
+      this.logger.error(`❌ Flow diagram error: ${userMessage}`, error);
+      this.diagramError.set(userMessage);
+      this.toast.error('流程图错误', `${userMessage}。请刷新页面重试。`);
   }
   
   /**
@@ -1774,7 +1368,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   private findInsertPosition(loc: any): { parentId?: string; beforeTaskId?: string; afterTaskId?: string } {
       if (!this.diagram) return {};
       
-      const threshold = 120; // 检测范围（像素）- 增大以便更容易捕获
+      const threshold = GOJS_CONFIG.LINK_CAPTURE_THRESHOLD; // 检测范围（像素）
       let closestNode: any = null;
       let closestDistance = Infinity;
       let insertPosition: string = 'after';
@@ -1823,22 +1417,27 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
 
   updateDiagram(tasks: Task[]) {
+      // 如果有错误状态，不执行更新
+      if (this.diagramError()) {
+          return;
+      }
+      
       if (!this.diagram) {
-          console.warn('❌ updateDiagram: diagram not initialized');
+          // 不是错误，可能是初始化中
           return;
       }
       
       const model = this.diagram.model;
       if (!model) {
-          console.warn('❌ updateDiagram: model not found');
           return;
       }
       
       const project = this.store.activeProject();
       if (!project) {
-          console.warn('❌ updateDiagram: no active project');
           return;
       }
+      
+      try {
       
       // 检查更新类型：如果是仅位置更新，跳过重建
       const lastUpdateType = this.store.getLastUpdateType();
@@ -1850,7 +1449,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       // 获取所有任务（包括待分配的），只要任务有位置信息或 stage 就显示
       // 待分配任务如果被拖入流程图（有位置信息）也会显示
       // stage 可能是 null 或 undefined，都要处理
-      const tasksToShow = tasks.filter(t => t.stage != null || (t.x !== 0 || t.y !== 0));
+      // 排除已归档的任务（archived 状态的任务不显示在主视图中）
+      const tasksToShow = tasks.filter(t => 
+        t.status !== 'archived' && (t.stage != null || (t.x !== 0 || t.y !== 0))
+      );
       
       // 保存当前选中状态
       const selectedKeys = new Set<string>();
@@ -1903,7 +1505,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           const isSearchMatch = searchQuery && (
             t.title.toLowerCase().includes(searchQuery) ||
             t.content.toLowerCase().includes(searchQuery) ||
-            t.displayId.toLowerCase().includes(searchQuery)
+            t.displayId.toLowerCase().includes(searchQuery) ||
+            // 搜索附件名称
+            (t.attachments?.some(a => a.name.toLowerCase().includes(searchQuery)) ?? false) ||
+            // 搜索标签
+            (t.tags?.some(tag => tag.toLowerCase().includes(searchQuery)) ?? false)
           );
           
           // 待分配任务使用较深的青色背景，已分配任务使用白色/绿色背景
@@ -2003,6 +1609,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
               }
           });
       }
+      } catch (error) {
+          this.handleDiagramError('更新流程图失败', error);
+      }
   }
 
   createUnassigned() {
@@ -2057,7 +1666,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
               setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
           }
       } catch (err) {
-          console.error('Drop to unassigned error:', err);
+          this.logger.error('Drop to unassigned error:', err);
       }
   }
   
@@ -2318,6 +1927,69 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
                 // 刷新图表
                 setTimeout(() => this.updateDiagram(this.store.tasks()), 50);
             });
+        }
+    }
+    
+    // ========== 附件管理 ==========
+    
+    /**
+     * 附件变更处理（全量替换，向后兼容）
+     */
+    onAttachmentsChange(taskId: string, attachments: Attachment[]) {
+        this.store.updateTaskAttachments(taskId, attachments);
+    }
+    
+    /**
+     * 添加单个附件（原子操作）
+     */
+    onAttachmentAdd(taskId: string, attachment: Attachment) {
+        this.store.addTaskAttachment(taskId, attachment);
+    }
+    
+    /**
+     * 移除单个附件（原子操作）
+     */
+    onAttachmentRemove(taskId: string, attachmentId: string) {
+        this.store.removeTaskAttachment(taskId, attachmentId);
+    }
+    
+    /**
+     * 附件错误处理
+     */
+    onAttachmentError(error: string) {
+        this.toast.error('附件操作失败', error);
+    }
+    
+    // ========== 任务属性管理 ==========
+    
+    /**
+     * 更新任务优先级
+     */
+    updateTaskPriority(taskId: string, priority: string | undefined) {
+        const validPriority = priority as 'low' | 'medium' | 'high' | 'urgent' | undefined;
+        this.store.updateTaskPriority(taskId, validPriority);
+    }
+    
+    /**
+     * 更新任务截止日期
+     */
+    updateTaskDueDate(taskId: string, dueDate: string | null) {
+        this.store.updateTaskDueDate(taskId, dueDate);
+    }
+    
+    /**
+     * 移除任务标签
+     */
+    removeTaskTag(taskId: string, tag: string) {
+        this.store.removeTaskTag(taskId, tag);
+    }
+    
+    /**
+     * 添加标签
+     */
+    addTaskTag(taskId: string, tag: string) {
+        if (tag?.trim()) {
+            this.store.addTaskTag(taskId, tag.trim());
         }
     }
 }

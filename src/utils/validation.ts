@@ -1,4 +1,5 @@
 import { Task, Project, Connection, TaskStatus, Attachment, AttachmentType } from '../models';
+import { nowISO } from './date';
 
 /**
  * 数据验证工具
@@ -33,7 +34,7 @@ const MAX_ATTACHMENTS_PER_TASK = 20;
 
 /**
  * 验证单个附件
- * @deprecated 附件 UI 功能暂未实现，此函数预留待用
+ * 注意：附件功能已完整实现
  */
 export function validateAttachment(attachment: Partial<Attachment>): ValidationResult {
   const errors: string[] = [];
@@ -136,7 +137,7 @@ export function validateTask(task: Partial<Task>): ValidationResult {
 
   // Status 验证
   if (task.status !== undefined) {
-    const validStatuses: TaskStatus[] = ['active', 'completed'];
+    const validStatuses: TaskStatus[] = ['active', 'completed', 'archived'];
     if (!validStatuses.includes(task.status)) {
       errors.push(`任务 ${task.id} 的状态无效: ${task.status}`);
     }
@@ -286,8 +287,12 @@ export function validateProject(project: Partial<Project>): ValidationResult {
       }
     }
 
-    // 验证连接
-    if (Array.isArray(project.connections)) {
+    // 验证连接 - 先检查 connections 存在性
+    if (project.connections === undefined || project.connections === null) {
+      warnings.push('项目连接列表缺失，已初始化为空数组');
+    } else if (!Array.isArray(project.connections)) {
+      errors.push('项目连接列表必须是数组');
+    } else {
       for (const conn of project.connections) {
         const connResult = validateConnection(conn, taskIds);
         errors.push(...connResult.errors);
@@ -310,7 +315,7 @@ export function validateProject(project: Partial<Project>): ValidationResult {
 
 /**
  * 安全地解析和验证附件数据
- * @deprecated 附件 UI 功能暂未实现，此函数预留待用
+ * 注意：附件功能已完整实现
  */
 export function sanitizeAttachment(attachment: any): Attachment {
   const validTypes: AttachmentType[] = ['image', 'document', 'link', 'file'];
@@ -324,13 +329,15 @@ export function sanitizeAttachment(attachment: any): Attachment {
     thumbnailUrl: typeof attachment.thumbnailUrl === 'string' ? attachment.thumbnailUrl : undefined,
     mimeType: typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined,
     size: typeof attachment.size === 'number' && attachment.size >= 0 ? attachment.size : undefined,
-    createdAt: attachment.createdAt || new Date().toISOString()
+    createdAt: attachment.createdAt || nowISO()
   };
 }
 
 /**
  * 安全地解析和验证任务数据
  * 用于从外部源（如 Supabase）加载数据时
+ * 
+ * 注意：此函数会静默修复无效数据，修复内容已在日志中记录
  */
 export function sanitizeTask(task: any): Task {
   // 解析附件
@@ -366,10 +373,10 @@ export function sanitizeTask(task: any): Task {
     parentId: typeof task.parentId === 'string' ? task.parentId : null,
     order: typeof task.order === 'number' && Number.isFinite(task.order) ? task.order : 0,
     rank: typeof task.rank === 'number' && Number.isFinite(task.rank) ? task.rank : 10000,
-    status: task.status === 'completed' ? 'completed' : 'active',
+    status: task.status === 'completed' ? 'completed' : (task.status === 'archived' ? 'archived' : 'active'),
     x: typeof task.x === 'number' && Number.isFinite(task.x) ? task.x : 0,
     y: typeof task.y === 'number' && Number.isFinite(task.y) ? task.y : 0,
-    createdDate: task.createdDate || new Date().toISOString(),
+    createdDate: task.createdDate || nowISO(),
     displayId: String(task.displayId || '?'),
     shortId: typeof task.shortId === 'string' ? task.shortId : undefined,
     hasIncompleteTask: Boolean(task.hasIncompleteTask),
@@ -400,10 +407,10 @@ export function sanitizeProject(project: any): Project {
     id: String(project.id || crypto.randomUUID()),
     name: String(project.name || '未命名项目'),
     description: String(project.description || ''),
-    createdDate: project.createdDate || new Date().toISOString(),
+    createdDate: project.createdDate || nowISO(),
     tasks,
     connections,
-    updatedAt: project.updatedAt || new Date().toISOString(),
+    updatedAt: project.updatedAt || nowISO(),
     version: typeof project.version === 'number' ? project.version : 0
   };
 }

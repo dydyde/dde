@@ -4,6 +4,9 @@
 
 /**
  * 任务状态枚举
+ * - active: 活动状态，正在进行中
+ * - completed: 已完成
+ * - archived: 已归档，不显示在主视图中但仍可搜索和恢复
  */
 export type TaskStatus = 'active' | 'completed' | 'archived';
 
@@ -41,6 +44,7 @@ export interface Task {
   x: number; // 流程图 X 坐标
   y: number; // 流程图 Y 坐标
   createdDate: string;
+  updatedAt?: string; // 最后更新时间戳，用于冲突解决时的版本比较
   displayId: string; // 显示 ID，如 "1", "1,a", "2,b" (动态计算，会随位置变化)
   shortId?: string; // 永久短 ID，如 "NF-A1B2" (创建时生成，永不改变)
   hasIncompleteTask?: boolean; // 是否包含未完成的待办项
@@ -166,6 +170,7 @@ export type UndoActionType =
   | 'task-move'
   | 'connection-create'
   | 'connection-delete'
+  | 'connection-update'
   | 'project-update';
 
 /**

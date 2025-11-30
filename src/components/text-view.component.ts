@@ -3,14 +3,16 @@ import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
-import { Task } from '../models';
+import { AttachmentService } from '../services/attachment.service';
+import { Task, Attachment } from '../models';
 import { renderMarkdownSafe, extractPlainText } from '../utils/markdown';
 import { getErrorMessage, isFailure } from '../utils/result';
+import { AttachmentManagerComponent } from './attachment-manager.component';
 
 @Component({
   selector: 'app-text-view',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AttachmentManagerComponent],
   template: `
     <div #scrollContainer class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden text-view-scroll-container"><!-- 1. 待完成区域 -->
       <section 
@@ -401,6 +403,19 @@ import { getErrorMessage, isFailure } from '../utils/result';
                                   <svg [ngClass]="{'w-3.5 h-3.5': !isMobile(), 'w-3 h-3': isMobile()}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                                 </button>
                               </div>
+                              
+                              <!-- 附件管理 -->
+                              @if (store.currentUserId()) {
+                                <app-attachment-manager
+                                  [userId]="store.currentUserId()!"
+                                  [projectId]="store.activeProjectId()!"
+                                  [taskId]="task.id"
+                                  [currentAttachments]="task.attachments"
+                                  [compact]="isMobile()"
+                                  (attachmentsChange)="onAttachmentsChange(task.id, $event)"
+                                  (error)="onAttachmentError($event)">
+                                </app-attachment-manager>
+                              }
                               
                               <div class="flex flex-wrap border-t border-stone-100"
                                    [ngClass]="{'gap-2 pt-2': !isMobile(), 'gap-1.5 pt-1.5': isMobile()}">
@@ -987,6 +1002,8 @@ export class TextViewComponent implements OnDestroy, AfterViewInit {
     }
     
     this.selectedTaskId.set(id);
+    // 跳转后默认进入预览模式，而非编辑模式
+    this.previewTaskId.set(id);
     this.scrollToElementById(`[data-task-id="${id}"]`);
   }
 
@@ -1507,5 +1524,21 @@ export class TextViewComponent implements OnDestroy, AfterViewInit {
     } else {
       this.navigateToNewTask(result.value, maxStage + 1);
     }
+  }
+  
+  // ========== 附件管理 ==========
+  
+  /**
+   * 附件变更处理
+   */
+  onAttachmentsChange(taskId: string, attachments: Attachment[]) {
+    this.store.updateTaskAttachments(taskId, attachments);
+  }
+  
+  /**
+   * 附件错误处理
+   */
+  onAttachmentError(error: string) {
+    this.toast.error('附件操作失败', error);
   }
 }

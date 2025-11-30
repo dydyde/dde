@@ -4,28 +4,21 @@ import { SyncService } from './sync.service';
 import { UndoService } from './undo.service';
 import { ToastService } from './toast.service';
 import { LayoutService } from './layout.service';
-import { UiStateService } from './ui-state.service';
 import { ActionQueueService } from './action-queue.service';
+import { MigrationService } from './migration.service';
+import { ConflictResolutionService } from './conflict-resolution.service';
 import { 
-  Task, Project, Connection, UnfinishedItem, ThemeType 
+  Task, Project, Connection, UnfinishedItem, ThemeType, Attachment 
 } from '../models';
 import { 
-  LAYOUT_CONFIG, SYNC_CONFIG, CACHE_CONFIG, LETTERS, SUPERSCRIPT_DIGITS 
+  LAYOUT_CONFIG, SYNC_CONFIG, CACHE_CONFIG, LETTERS, SUPERSCRIPT_DIGITS, TRASH_CONFIG 
 } from '../config/constants';
 import { 
   validateProject, sanitizeProject, detectCycles, detectOrphans 
 } from '../utils/validation';
 import {
-  Result, OperationError, ErrorCodes, success, failure, getErrorMessage
+  Result, OperationError, ErrorCodes, success, failure, getErrorMessage, isFailure
 } from '../utils/result';
-
-/** 回收站自动清理配置 */
-const TRASH_CONFIG = {
-  /** 自动清理天数 */
-  AUTO_CLEANUP_DAYS: 30,
-  /** 清理检查间隔（毫秒） */
-  CLEANUP_INTERVAL: 60 * 60 * 1000 // 1小时
-} as const;
 
 @Injectable({
   providedIn: 'root'
@@ -36,8 +29,9 @@ export class StoreService {
   private undoService = inject(UndoService);
   private toastService = inject(ToastService);
   private layoutService = inject(LayoutService);
-  private uiState = inject(UiStateService);
   private actionQueue = inject(ActionQueueService);
+  private migrationService = inject(MigrationService);
+  private conflictService = inject(ConflictResolutionService);
   private destroyRef = inject(DestroyRef);
   
   // ========== 代理访问其他服务的状态 ==========
@@ -78,24 +72,26 @@ export class StoreService {
   /** 待处理的离线操作数量 */
   readonly pendingActionsCount = this.actionQueue.queueSize;
   
-  // ========== UI 状态 (代理到 UiStateService) ==========
+  // ========== UI 状态 ==========
   
-  readonly isMobile = this.uiState.isMobile;
-  readonly sidebarWidth = this.uiState.sidebarWidth;
-  readonly textColumnRatio = this.uiState.textColumnRatio;
-  readonly layoutDirection = this.uiState.layoutDirection;
-  readonly floatingWindowPref = this.uiState.floatingWindowPref;
-  readonly theme = this.uiState.theme;
-  readonly isTextUnfinishedOpen = this.uiState.isTextUnfinishedOpen;
-  readonly isTextUnassignedOpen = this.uiState.isTextUnassignedOpen;
-  readonly isFlowUnfinishedOpen = this.uiState.isFlowUnfinishedOpen;
-  readonly isFlowUnassignedOpen = this.uiState.isFlowUnassignedOpen;
-  readonly isFlowDetailOpen = this.uiState.isFlowDetailOpen;
+  readonly isMobile = signal(typeof window !== 'undefined' && window.innerWidth < 768);
+  readonly sidebarWidth = signal(280);
+  readonly textColumnRatio = signal(50);
+  readonly layoutDirection = signal<'ltr' | 'rtl'>('ltr');
+  readonly floatingWindowPref = signal<'auto' | 'fixed'>('auto');
+  readonly theme = signal<ThemeType>('default');
+  readonly isTextUnfinishedOpen = signal(true);
+  readonly isTextUnassignedOpen = signal(true);
+  readonly isFlowUnfinishedOpen = signal(true);
+  readonly isFlowUnassignedOpen = signal(true);
+  readonly isFlowDetailOpen = signal(false);
   
   readonly searchQuery = signal<string>('');
   
+  /** 项目列表搜索查询 */
+  readonly projectSearchQuery = signal<string>('');
+
   // ========== 核心数据状态 ==========
-  
   readonly projects = signal<Project[]>([]);
   readonly activeProjectId = signal<string | null>(null);
   readonly activeView = signal<'text' | 'flow' | null>('text');
@@ -121,7 +117,7 @@ export class StoreService {
   // ========== 冲突处理回调 ==========
   
   /** 冲突回调函数，由 AppComponent 设置 */
-  onConflict: ((localProject: Project, remoteProject: any, projectId: string) => void) | null = null;
+  onConflict: ((localProject: Project, remoteProject: Project, projectId: string) => void) | null = null;
 
   // ========== 计算属性 ==========
 
@@ -204,8 +200,27 @@ export class StoreService {
     return this.tasks().filter(t => 
       t.title.toLowerCase().includes(query) ||
       t.content.toLowerCase().includes(query) ||
-      t.displayId.toLowerCase().includes(query)
+      t.displayId.toLowerCase().includes(query) ||
+      // 搜索附件名称
+      (t.attachments?.some(a => a.name.toLowerCase().includes(query)) ?? false) ||
+      // 搜索标签
+      (t.tags?.some(tag => tag.toLowerCase().includes(query)) ?? false)
     );
+  });
+
+  /** 项目列表搜索结果（模糊搜索）*/
+  readonly filteredProjects = computed(() => {
+    const query = this.projectSearchQuery().toLowerCase().trim();
+    const projects = this.projects();
+    
+    if (!query) return projects;
+    
+    // 模糊搜索：支持项目名称、描述的部分匹配
+    return projects.filter(p => {
+      const nameMatch = p.name.toLowerCase().includes(query);
+      const descMatch = p.description?.toLowerCase().includes(query) ?? false;
+      return nameMatch || descMatch;
+    });
   });
 
   readonly rootTasks = computed(() => {
@@ -229,28 +244,102 @@ export class StoreService {
     this.startTrashCleanupTimer();
     
     // 设置远程变更回调 - 使用增量更新而非全量重载
-    this.syncService.setRemoteChangeCallback(async (payload?: any) => {
+    this.syncService.setRemoteChangeCallback(async (payload) => {
       if (this.isEditing || this.hasPendingLocalChanges || Date.now() - this.lastPersistAt < 800) {
         return;
       }
       
-      // 尝试增量更新
-      if (payload?.eventType && payload?.projectId) {
-        await this.handleIncrementalUpdate(payload);
-      } else {
-        // 回退到全量加载
-        await this.loadProjects();
+      try {
+        // 尝试增量更新
+        if (payload?.eventType && payload?.projectId) {
+          await this.handleIncrementalUpdate(payload);
+        } else {
+          // 回退到全量加载
+          await this.loadProjects();
+        }
+      } catch (e) {
+        console.error('处理远程变更失败', e);
+        // 静默失败，不影响用户操作
       }
+    });
+    
+    // 设置任务级别变更回调 - 支持实时同步单个任务
+    this.syncService.setTaskChangeCallback((payload) => {
+      if (this.isEditing || this.hasPendingLocalChanges || Date.now() - this.lastPersistAt < 800) {
+        return;
+      }
+      
+      this.handleTaskLevelUpdate(payload);
     });
     
     // 清理
     this.destroyRef.onDestroy(() => {
+      // 确保待处理的防抖操作被保存
+      this.undoService.flushPendingAction();
+      
       if (this.persistTimer) clearTimeout(this.persistTimer);
       if (this.editingTimer) clearTimeout(this.editingTimer);
       if (this.rebalanceTimer) clearTimeout(this.rebalanceTimer);
       if (this.trashCleanupTimer) clearInterval(this.trashCleanupTimer);
       this.syncService.destroy();
     });
+  }
+  
+  /**
+   * 处理任务级别的远程更新
+   * 支持实时同步单个任务的增删改
+   */
+  private handleTaskLevelUpdate(payload: { eventType: string; taskId: string; projectId: string; data?: Record<string, unknown> }) {
+    const { eventType, taskId, projectId, data } = payload;
+    
+    // 仅处理当前活动项目的任务变更
+    if (projectId !== this.activeProjectId()) {
+      return;
+    }
+    
+    switch (eventType) {
+      case 'DELETE':
+        // 远程删除任务
+        this.projects.update(projects => 
+          projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              tasks: p.tasks.filter(t => t.id !== taskId)
+            };
+          })
+        );
+        break;
+        
+      case 'INSERT':
+      case 'UPDATE':
+        // 插入或更新任务 - 需要从服务器获取完整数据
+        // 因为 Realtime 的 payload 可能不包含完整任务数据
+        void this.syncService.loadSingleProject(projectId, this.currentUserId()!).then(remoteProject => {
+          if (!remoteProject) return;
+          
+          const remoteTask = remoteProject.tasks.find(t => t.id === taskId);
+          if (!remoteTask) return;
+          
+          this.projects.update(projects =>
+            projects.map(p => {
+              if (p.id !== projectId) return p;
+              
+              const existingTaskIndex = p.tasks.findIndex(t => t.id === taskId);
+              if (existingTaskIndex >= 0) {
+                // 更新现有任务
+                const updatedTasks = [...p.tasks];
+                updatedTasks[existingTaskIndex] = remoteTask;
+                return { ...p, tasks: updatedTasks };
+              } else {
+                // 插入新任务
+                return { ...p, tasks: [...p.tasks, remoteTask] };
+              }
+            })
+          );
+        });
+        break;
+    }
   }
 
   /**
@@ -262,8 +351,9 @@ export class StoreService {
       const userId = this.currentUserId();
       if (!userId) return false;
       
-      const project = action.payload as Project;
-      const result = await this.syncService.saveProjectToCloud(project, userId);
+      // 类型安全的 payload 访问
+      const payload = action.payload as { project: Project };
+      const result = await this.syncService.saveProjectToCloud(payload.project, userId);
       return result.success;
     });
     
@@ -273,6 +363,65 @@ export class StoreService {
       if (!userId) return false;
       
       return await this.syncService.deleteProjectFromCloud(action.entityId, userId);
+    });
+    
+    // 项目创建处理器（复用更新逻辑）
+    this.actionQueue.registerProcessor('project:create', async (action) => {
+      const userId = this.currentUserId();
+      if (!userId) return false;
+      
+      const payload = action.payload as { project: Project };
+      const result = await this.syncService.saveProjectToCloud(payload.project, userId);
+      return result.success;
+    });
+    
+    // 任务创建处理器
+    this.actionQueue.registerProcessor('task:create', async (action) => {
+      const userId = this.currentUserId();
+      if (!userId) return false;
+      
+      const payload = action.payload as { task: Task; projectId: string };
+      // 任务操作通过项目级别的同步来处理
+      const project = this.projects().find(p => p.id === payload.projectId);
+      if (!project) return false;
+      
+      const result = await this.syncService.saveProjectToCloud(project, userId);
+      return result.success;
+    });
+    
+    // 任务更新处理器
+    this.actionQueue.registerProcessor('task:update', async (action) => {
+      const userId = this.currentUserId();
+      if (!userId) return false;
+      
+      const payload = action.payload as { task: Task; projectId: string };
+      const project = this.projects().find(p => p.id === payload.projectId);
+      if (!project) return false;
+      
+      const result = await this.syncService.saveProjectToCloud(project, userId);
+      return result.success;
+    });
+    
+    // 任务删除处理器
+    this.actionQueue.registerProcessor('task:delete', async (action) => {
+      const userId = this.currentUserId();
+      if (!userId) return false;
+      
+      const payload = action.payload as { taskId: string; projectId: string };
+      const project = this.projects().find(p => p.id === payload.projectId);
+      if (!project) return false;
+      
+      const result = await this.syncService.saveProjectToCloud(project, userId);
+      return result.success;
+    });
+    
+    // 用户偏好更新处理器
+    this.actionQueue.registerProcessor('preference:update', async (action) => {
+      const userId = this.currentUserId();
+      if (!userId) return false;
+      
+      const payload = action.payload as { preferences: Partial<import('../models').UserPreferences>; userId: string };
+      return await this.syncService.saveUserPreferences(userId, payload.preferences);
     });
   }
 
@@ -332,10 +481,13 @@ export class StoreService {
   /**
    * 处理增量更新（而非全量重载）
    */
-  private async handleIncrementalUpdate(payload: { eventType: string; projectId: string; data?: any }) {
-    const { eventType, projectId, data } = payload;
+  private async handleIncrementalUpdate(payload: { eventType: string; projectId: string }) {
+    const { eventType, projectId } = payload;
     
     if (eventType === 'DELETE') {
+      // 项目被删除，清理相关的撤销历史
+      this.undoService.clearOutdatedHistory(projectId, Number.MAX_SAFE_INTEGER);
+      
       // 项目被删除
       this.projects.update(ps => ps.filter(p => p.id !== projectId));
       if (this.activeProjectId() === projectId) {
@@ -365,9 +517,16 @@ export class StoreService {
         const remoteVersion = remoteProject.version ?? 0;
         
         if (remoteVersion > localVersion) {
-          // 远程版本更新，合并或替换
-          const merged = this.mergeProjects(localProject, remoteProject);
-          const validated = this.validateAndRebalance(merged);
+          // 远程版本更新，清理过时的撤销历史
+          // 这可以防止撤销时意外覆盖远程更新
+          const clearedCount = this.undoService.clearOutdatedHistory(projectId, remoteVersion);
+          if (clearedCount > 0) {
+            console.log(`清理了 ${clearedCount} 条过时的撤销历史 (项目: ${projectId})`);
+          }
+          
+          // 合并或替换 - 使用 ConflictResolutionService
+          const mergeResult = this.conflictService.smartMerge(localProject, remoteProject);
+          const validated = this.validateAndRebalance(mergeResult.project);
           this.projects.update(ps => ps.map(p => p.id === projectId ? validated : p));
         }
       }
@@ -430,15 +589,51 @@ export class StoreService {
       this.loadLocalPreferences();
     }
   }
+  
+  /**
+   * 切换活动项目
+   * 切换时会清空之前项目的撤销历史（全局撤销栈 + 切换时清空策略）
+   */
+  switchActiveProject(projectId: string | null) {
+    const previousProjectId = this.activeProjectId();
+    
+    // 如果切换到同一个项目，无需操作
+    if (previousProjectId === projectId) return;
+    
+    // 先 flush 待处理的防抖操作，确保数据不丢失
+    this.undoService.flushPendingAction();
+    
+    // 清空之前项目的撤销历史
+    if (previousProjectId) {
+      this.undoService.onProjectSwitch(previousProjectId);
+    }
+    
+    // 设置新的活动项目
+    this.activeProjectId.set(projectId);
+  }
 
   /**
    * 执行撤销
    * 在撤销前检查版本号，处理远程更新冲突
    */
   undo() {
-    const action = this.undoService.undo();
-    if (!action) return;
+    const activeProject = this.activeProject();
+    const currentVersion = activeProject?.version;
+    const result = this.undoService.undo(currentVersion);
     
+    if (!result) return;
+    
+    // 版本不匹配，提示用户
+    if (result === 'version-mismatch') {
+      this.toastService.warning('撤销失败', '远程数据已更新，无法撤销');
+      // 清理过时的撤销历史
+      if (activeProject) {
+        this.undoService.clearOutdatedHistory(activeProject.id, currentVersion ?? 0);
+      }
+      return;
+    }
+    
+    const action = result;
     const project = this.projects().find(p => p.id === action.projectId);
     if (project) {
       const localVersion = project.version ?? 0;
@@ -460,8 +655,19 @@ export class StoreService {
    * 执行重做
    */
   redo() {
-    const action = this.undoService.redo();
-    if (!action) return;
+    const activeProject = this.activeProject();
+    const currentVersion = activeProject?.version;
+    const result = this.undoService.redo(currentVersion);
+    
+    if (!result) return;
+    
+    // 版本不匹配，提示用户
+    if (result === 'version-mismatch') {
+      this.toastService.warning('重做失败', '远程数据已更新，无法重做');
+      return;
+    }
+    
+    const action = result;
     
     // 应用重做后的状态
     this.applyProjectSnapshot(action.projectId, action.data.after);
@@ -469,6 +675,7 @@ export class StoreService {
 
   /**
    * 加载项目
+   * 支持离线数据重连同步：当离线期间有数据修改时，重新连接后自动合并
    */
   async loadProjects() {
     const userId = this.currentUserId();
@@ -478,11 +685,47 @@ export class StoreService {
     }
     
     const previousActive = this.activeProjectId();
+    
+    // 先加载离线缓存，用于后续的离线数据合并检查
+    const offlineProjects = this.syncService.loadOfflineSnapshot();
+    
+    // 从云端加载
     const projects = await this.syncService.loadProjectsFromCloud(userId);
     
     if (projects.length > 0) {
-      // 验证并重平衡每个项目
-      const rebalanced = projects.map(p => this.validateAndRebalance(p));
+      // 验证并重平衡每个项目，过滤掉验证失败的
+      const validatedProjects: Project[] = [];
+      const failedProjects: string[] = [];
+      
+      for (const p of projects) {
+        const result = this.validateAndRebalanceWithResult(p);
+        if (result.ok) {
+          validatedProjects.push(result.value);
+        } else if (isFailure(result)) {
+          failedProjects.push(p.name || p.id);
+          console.error(`项目 "${p.name}" 验证失败，跳过加载:`, result.error.message);
+        }
+      }
+      
+      if (failedProjects.length > 0) {
+        this.toastService.warning(
+          '部分项目加载失败', 
+          `以下项目数据损坏已跳过: ${failedProjects.join(', ')}`
+        );
+      }
+      
+      let rebalanced = validatedProjects;
+      
+      // 检查是否有离线数据需要合并（离线期间做的修改）
+      if (offlineProjects && offlineProjects.length > 0) {
+        const mergeResult = await this.mergeOfflineDataOnReconnect(rebalanced, offlineProjects, userId);
+        rebalanced = mergeResult.projects;
+        
+        if (mergeResult.syncedCount > 0) {
+          this.toastService.success('离线数据已同步', `已将 ${mergeResult.syncedCount} 个项目的离线修改同步到云端`);
+        }
+      }
+      
       this.projects.set(rebalanced);
       
       if (previousActive && rebalanced.some(p => p.id === previousActive)) {
@@ -504,19 +747,115 @@ export class StoreService {
       this.toastService.error('同步失败', syncError);
     }
   }
+  
+  /**
+   * 在重新连接时合并离线数据
+   * 比较离线缓存和云端数据，将离线期间的修改同步到云端
+   */
+  private async mergeOfflineDataOnReconnect(
+    cloudProjects: Project[], 
+    offlineProjects: Project[],
+    userId: string
+  ): Promise<{ projects: Project[]; syncedCount: number }> {
+    const cloudMap = new Map(cloudProjects.map(p => [p.id, p]));
+    const mergedProjects: Project[] = [...cloudProjects];
+    let syncedCount = 0;
+    
+    for (const offlineProject of offlineProjects) {
+      const cloudProject = cloudMap.get(offlineProject.id);
+      
+      if (!cloudProject) {
+        // 离线创建的新项目，需要上传到云端
+        const result = await this.syncService.saveProjectToCloud(offlineProject, userId);
+        if (result.success) {
+          mergedProjects.push(offlineProject);
+          syncedCount++;
+          console.log('离线新建项目已同步:', offlineProject.name);
+        }
+        continue;
+      }
+      
+      // 比较版本号，如果离线版本更高，说明离线期间有修改
+      const offlineVersion = offlineProject.version ?? 0;
+      const cloudVersion = cloudProject.version ?? 0;
+      
+      if (offlineVersion > cloudVersion) {
+        // 离线版本更新，需要同步到云端
+        // 递增版本号以覆盖
+        const projectToSync = { 
+          ...offlineProject, 
+          version: Math.max(offlineVersion, cloudVersion) + 1 
+        };
+        
+        const result = await this.syncService.saveProjectToCloud(projectToSync, userId);
+        if (result.success) {
+          const idx = mergedProjects.findIndex(p => p.id === offlineProject.id);
+          if (idx !== -1) {
+            mergedProjects[idx] = projectToSync;
+          }
+          syncedCount++;
+          console.log('离线修改已同步:', offlineProject.name);
+        } else if (result.conflict) {
+          // 存在冲突，触发冲突解决流程
+          console.warn('离线数据存在冲突:', offlineProject.name);
+          this.onConflict?.(offlineProject, result.remoteData!, offlineProject.id);
+        }
+      }
+    }
+    
+    return { projects: mergedProjects, syncedCount };
+  }
 
   /**
    * 验证并重平衡项目数据
    * 包括数据完整性检查、循环检测、孤儿修复
    */
-  private validateAndRebalance(project: Project): Project {
+  /**
+   * 验证并重平衡项目数据
+   * 包括数据完整性检查、循环检测、孤儿修复
+   * @returns Result 包含处理后的项目或错误信息
+   */
+  private validateAndRebalanceWithResult(project: Project): Result<Project, OperationError> {
     // 1. 数据验证
     const validation = validateProject(project);
-    if (!validation.valid) {
-      console.warn('项目数据验证失败', { projectId: project.id, errors: validation.errors });
-      // 尝试清理数据
-      project = sanitizeProject(project);
+    
+    // 区分致命错误和可修复错误
+    const fatalErrors = validation.errors.filter(e => 
+      e.includes('ID 无效') || e.includes('必须是数组') || e.includes('项目 ID')
+    );
+    
+    if (fatalErrors.length > 0) {
+      console.error('项目数据致命错误，无法恢复', { 
+        projectId: project.id, 
+        fatalErrors 
+      });
+      return failure(
+        ErrorCodes.VALIDATION_ERROR,
+        `项目数据损坏无法修复: ${fatalErrors.join('; ')}`,
+        { projectId: project.id, errors: fatalErrors }
+      );
     }
+    
+    // 可修复的验证错误 - 尝试清理数据
+    if (!validation.valid) {
+      console.warn('项目数据验证失败，尝试清理修复', { 
+        projectId: project.id, 
+        errors: validation.errors 
+      });
+      project = sanitizeProject(project);
+      
+      // 再次验证清理后的数据
+      const revalidation = validateProject(project);
+      if (!revalidation.valid) {
+        console.error('清理后数据仍然无效', { errors: revalidation.errors });
+        return failure(
+          ErrorCodes.VALIDATION_ERROR,
+          `项目数据清理后仍然无效: ${revalidation.errors.join('; ')}`,
+          { projectId: project.id, errors: revalidation.errors }
+        );
+      }
+    }
+    
     if (validation.warnings.length > 0) {
       console.warn('项目数据警告', { projectId: project.id, warnings: validation.warnings });
     }
@@ -528,7 +867,24 @@ export class StoreService {
     }
     
     // 3. 重平衡
-    return this.layoutService.rebalance(fixedProject);
+    return success(this.layoutService.rebalance(fixedProject));
+  }
+
+  /**
+   * 验证并重平衡项目数据 (兼容旧代码)
+   * 在严重错误时抛出异常而不是静默继续
+   */
+  private validateAndRebalance(project: Project): Project {
+    const result = this.validateAndRebalanceWithResult(project);
+    if (isFailure(result)) {
+      // 记录错误并使用原始数据的清理版本作为后备
+      const errorMsg = result.error.message;
+      console.error('validateAndRebalance 失败:', errorMsg);
+      this.toastService.error('数据验证失败', errorMsg);
+      // 返回清理后的版本，即使不完美也比完全失败好
+      return sanitizeProject(project);
+    }
+    return result.value;
   }
 
   /**
@@ -553,65 +909,53 @@ export class StoreService {
     const conflictData = this.conflictData();
     if (!conflictData || conflictData.projectId !== projectId) return;
     
-    let projectToSync: Project | null = null;
+    const localProject = this.projects().find(p => p.id === projectId);
+    if (!localProject) return;
     
-    if (choice === 'local') {
-      // 使用本地版本，强制推送到云端
-      const project = this.projects().find(p => p.id === projectId);
-      if (project) {
-        // 递增版本号以覆盖远程版本
-        const updatedProject = { ...project, version: (project.version ?? 0) + 1 };
-        this.projects.update(ps => ps.map(p => 
-          p.id === projectId ? updatedProject : p
-        ));
-        this.syncService.resolveConflict(projectId, updatedProject, 'local');
-        projectToSync = updatedProject;
-      }
-    } else if (choice === 'remote') {
-      // 使用远程版本，更新本地数据
-      const remoteProject = conflictData.remoteData as Project;
-      if (remoteProject) {
-        const validated = this.validateAndRebalance(remoteProject);
-        this.projects.update(ps => ps.map(p => 
-          p.id === projectId ? { ...validated, id: projectId } : p
-        ));
-        this.syncService.resolveConflict(projectId, validated, 'remote');
-        // 远程版本不需要再同步，但需要更新本地缓存
-        this.syncService.saveOfflineSnapshot(this.projects());
-      }
-    } else if (choice === 'merge') {
-      // 智能合并：保留双方的新增内容，冲突时使用较新的版本
-      const localProject = this.projects().find(p => p.id === projectId);
-      const remoteProject = conflictData.remoteData as Project;
-      
-      if (localProject && remoteProject) {
-        const mergedProject = this.mergeProjects(localProject, remoteProject);
-        // 使用更高的版本号确保合并结果能覆盖远程
-        mergedProject.version = Math.max(localProject.version ?? 0, remoteProject.version ?? 0) + 1;
-        this.projects.update(ps => ps.map(p => 
-          p.id === projectId ? mergedProject : p
-        ));
-        this.syncService.resolveConflict(projectId, mergedProject, 'local');
-        projectToSync = mergedProject;
-      }
+    const remoteProject = conflictData.remoteData as Project | undefined;
+    
+    // 委托给 ConflictResolutionService 处理冲突解决逻辑
+    const result = this.conflictService.resolveConflict(
+      projectId,
+      choice,
+      localProject,
+      remoteProject
+    );
+    
+    if (isFailure(result)) {
+      this.toastService.error('冲突解决失败', result.error.message);
+      return;
     }
     
-    // 强制同步解决后的数据
-    if (projectToSync) {
+    // 重新平衡并验证解决后的项目数据
+    const resolvedProject = this.validateAndRebalance(result.value);
+    
+    // 更新本地项目状态
+    this.projects.update(ps => ps.map(p => 
+      p.id === projectId ? resolvedProject : p
+    ));
+    
+    // 如果解决冲突的项目是当前活动项目，清空撤销历史避免状态混乱
+    if (this.activeProjectId() === projectId) {
+      this.undoService.clearHistory(projectId);
+    }
+    
+    // 强制同步解决后的数据（除了选择远程版本的情况）
+    if (choice !== 'remote') {
       const userId = this.currentUserId();
       if (userId) {
         try {
-          const result = await this.syncService.saveProjectToCloud(projectToSync, userId);
-          if (!result.success && !result.conflict) {
+          const syncResult = await this.syncService.saveProjectToCloud(resolvedProject, userId);
+          if (!syncResult.success && !syncResult.conflict) {
             // 同步失败，加入重试队列
             this.actionQueue.enqueue({
               type: 'update',
               entityType: 'project',
               entityId: projectId,
-              payload: projectToSync
+              payload: { project: resolvedProject }
             });
             this.toastService.warning('同步待重试', '冲突已解决，但同步失败，稍后将自动重试');
-          } else if (result.conflict) {
+          } else if (syncResult.conflict) {
             // 又发生冲突，提示用户
             this.toastService.error('同步冲突', '解决冲突后又发生新冲突，请稍后重试');
           }
@@ -621,106 +965,72 @@ export class StoreService {
             type: 'update',
             entityType: 'project',
             entityId: projectId,
-            payload: projectToSync
+            payload: { project: resolvedProject }
           });
         }
       }
-      this.syncService.saveOfflineSnapshot(this.projects());
-    }
-  }
-  
-  /**
-   * 智能合并两个项目
-   * 合并后执行完整性检查，修复潜在的循环依赖和孤儿节点
-   * 
-   * 冲突解决策略：
-   * 1. 使用版本号（优先）判断优先级
-   * 2. 对于相同版本的任务，使用 updatedAt 时间戳（服务端维护）
-   * 3. 新增任务直接保留
-   */
-  private mergeProjects(local: Project, remote: Project): Project {
-    // 创建任务映射
-    const localTaskMap = new Map(local.tasks.map(t => [t.id, t]));
-    const remoteTaskMap = new Map(remote.tasks.map(t => [t.id, t]));
-    
-    const mergedTasks: Task[] = [];
-    const processedIds = new Set<string>();
-    
-    // 处理本地任务
-    for (const localTask of local.tasks) {
-      processedIds.add(localTask.id);
-      const remoteTask = remoteTaskMap.get(localTask.id);
-      
-      if (!remoteTask) {
-        // 本地新增的任务，保留
-        mergedTasks.push(localTask);
-      } else {
-        // 双方都有的任务，比较内容是否有差异
-        const hasContentDiff = localTask.title !== remoteTask.title || 
-                               localTask.content !== remoteTask.content ||
-                               localTask.status !== remoteTask.status;
-        
-        if (hasContentDiff) {
-          // 有内容差异时，优先使用本地版本
-          // 因为本地是用户最新编辑的，远程冲突已通过版本号检测
-          // 如果远程版本号更高，这个方法不会被调用（会先提示冲突）
-          mergedTasks.push(localTask);
-        } else {
-          // 无内容差异，保留本地版本（可能有位置等其他属性更新）
-          mergedTasks.push(localTask);
-        }
-      }
     }
     
-    // 处理远程新增的任务
-    for (const remoteTask of remote.tasks) {
-      if (!processedIds.has(remoteTask.id)) {
-        mergedTasks.push(remoteTask);
-      }
-    }
-    
-    // 合并 connections
-    const localConnSet = new Set(local.connections.map(c => `${c.source}->${c.target}`));
-    const mergedConnections = [...local.connections];
-    for (const conn of remote.connections) {
-      const key = `${conn.source}->${conn.target}`;
-      if (!localConnSet.has(key)) {
-        mergedConnections.push(conn);
-      }
-    }
-    
-    // 构建合并后的项目
-    const mergedProject: Project = {
-      ...local,
-      tasks: mergedTasks,
-      connections: mergedConnections,
-      updatedAt: new Date().toISOString(),
-      // 使用较大的版本号
-      version: Math.max(local.version ?? 0, remote.version ?? 0)
-    };
-    
-    // 合并后执行完整性检查
-    const { project: validatedProject, issues } = this.layoutService.validateAndFixTree(mergedProject);
-    if (issues.length > 0) {
-      console.log('合并后修复数据问题', { issues });
-      this.toastService.info('数据同步', `已自动修复 ${issues.length} 个数据问题`);
-    }
-    
-    return validatedProject;
+    // 更新本地缓存
+    this.syncService.saveOfflineSnapshot(this.projects());
   }
 
   // ========== 项目操作 ==========
 
-  addProject(project: Project) {
+  /**
+   * 添加新项目（乐观更新 + 失败回滚）
+   */
+  async addProject(project: Project): Promise<{ success: boolean; error?: string }> {
     const balanced = this.layoutService.rebalance(project);
+    const previousProjects = this.projects();
+    const previousActiveId = this.activeProjectId();
+    
+    // 乐观更新：先更新本地状态
     this.projects.update(p => [...p, balanced]);
     this.activeProjectId.set(balanced.id);
+    
+    // 如果用户已登录，尝试同步到云端
+    const userId = this.currentUserId();
+    if (userId) {
+      const result = await this.syncService.saveProjectToCloud(balanced, userId);
+      
+      if (!result.success && !result.conflict) {
+        // 同步失败，加入重试队列（不回滚，因为离线操作应该保留）
+        if (!this.isOnline()) {
+          this.actionQueue.enqueue({
+            type: 'create',
+            entityType: 'project',
+            entityId: balanced.id,
+            payload: { project: balanced }
+          });
+          this.toastService.info('离线创建', '项目将在网络恢复后同步到云端');
+        } else {
+          // 在线但同步失败，回滚本地状态
+          this.projects.set(previousProjects);
+          this.activeProjectId.set(previousActiveId);
+          this.toastService.error('创建失败', '无法保存项目到云端，请稍后重试');
+          return { success: false, error: '同步失败' };
+        }
+      } else if (result.conflict) {
+        // 发生冲突（理论上新建不应该冲突，但以防万一）
+        this.toastService.warning('数据冲突', '检测到数据冲突，请检查');
+      }
+    }
+    
     this.schedulePersist();
+    return { success: true };
   }
 
-  async deleteProject(projectId: string) {
+  /**
+   * 删除项目（乐观更新 + 失败回滚）
+   */
+  async deleteProject(projectId: string): Promise<{ success: boolean; error?: string }> {
     const userId = this.currentUserId();
+    const previousProjects = this.projects();
+    const previousActiveId = this.activeProjectId();
+    const deletedProject = previousProjects.find(p => p.id === projectId);
     
+    // 乐观更新：先删除本地状态
     this.projects.update(p => p.filter(proj => proj.id !== projectId));
     
     if (this.activeProjectId() === projectId) {
@@ -731,19 +1041,28 @@ export class StoreService {
     if (userId) {
       const success = await this.syncService.deleteProjectFromCloud(projectId, userId);
       
-      // 如果删除失败（可能是网络问题），加入重试队列
-      if (!success && !this.isOnline()) {
-        this.actionQueue.enqueue({
-          type: 'delete',
-          entityType: 'project',
-          entityId: projectId,
-          payload: { projectId, userId }
-        });
-        this.toastService.info('离线删除', '项目将在网络恢复后同步删除');
+      if (!success) {
+        if (!this.isOnline()) {
+          // 离线删除，加入重试队列
+          this.actionQueue.enqueue({
+            type: 'delete',
+            entityType: 'project',
+            entityId: projectId,
+            payload: { projectId, userId }
+          });
+          this.toastService.info('离线删除', '项目将在网络恢复后同步删除');
+        } else {
+          // 在线但删除失败，回滚本地状态
+          this.projects.set(previousProjects);
+          this.activeProjectId.set(previousActiveId);
+          this.toastService.error('删除失败', '无法从云端删除项目，请稍后重试');
+          return { success: false, error: '同步失败' };
+        }
       }
     }
     
     this.syncService.saveOfflineSnapshot(this.projects());
+    return { success: true };
   }
 
   updateProjectMetadata(projectId: string, metadata: { description?: string; createdDate?: string }) {
@@ -755,6 +1074,18 @@ export class StoreService {
     if (this.activeProjectId() === projectId) {
       this.schedulePersist();
     }
+  }
+
+  /**
+   * 重命名项目
+   */
+  renameProject(projectId: string, newName: string) {
+    if (!newName.trim()) return;
+    
+    this.projects.update(projects => projects.map(p => 
+      p.id === projectId ? { ...p, name: newName.trim() } : p
+    ));
+    this.schedulePersist();
   }
 
   /**
@@ -792,10 +1123,11 @@ export class StoreService {
   updateTaskContent(taskId: string, newContent: string) {
     this.markEditing();
     this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
     // 使用防抖记录，避免每个字符都产生撤销记录
     this.recordAndUpdateDebounced(p => this.layoutService.rebalance({
       ...p,
-      tasks: p.tasks.map(t => t.id === taskId ? { ...t, content: newContent } : t)
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, content: newContent, updatedAt: now } : t)
     }));
   }
   
@@ -852,10 +1184,11 @@ export class StoreService {
   updateTaskTitle(taskId: string, title: string) {
     this.markEditing();
     this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
     // 使用防抖记录，避免每个字符都产生撤销记录
     this.recordAndUpdateDebounced(p => this.layoutService.rebalance({
       ...p,
-      tasks: p.tasks.map(t => t.id === taskId ? { ...t, title } : t)
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, title, updatedAt: now } : t)
     }));
   }
 
@@ -938,10 +1271,133 @@ export class StoreService {
   }
 
   updateTaskStatus(taskId: string, status: Task['status']) {
+    const now = new Date().toISOString();
     this.recordAndUpdate(p => this.layoutService.rebalance({
       ...p,
-      tasks: p.tasks.map(t => t.id === taskId ? { ...t, status } : t)
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, status, updatedAt: now } : t)
     }));
+  }
+  
+  /**
+   * 更新任务附件
+   */
+  updateTaskAttachments(taskId: string, attachments: Attachment[]) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdateDebounced(p => ({
+      ...p,
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, attachments, updatedAt: now } : t)
+    }));
+  }
+
+  /**
+   * 添加单个附件（原子操作，避免竞态条件）
+   */
+  addTaskAttachment(taskId: string, attachment: Attachment) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => {
+        if (t.id === taskId) {
+          const currentAttachments = t.attachments || [];
+          // 检查是否已存在（避免重复添加）
+          if (currentAttachments.some(a => a.id === attachment.id)) {
+            return t;
+          }
+          return { ...t, attachments: [...currentAttachments, attachment], updatedAt: now };
+        }
+        return t;
+      })
+    }));
+  }
+
+  /**
+   * 移除单个附件（原子操作，避免竞态条件）
+   */
+  removeTaskAttachment(taskId: string, attachmentId: string) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => {
+        if (t.id === taskId) {
+          const currentAttachments = t.attachments || [];
+          return { 
+            ...t, 
+            attachments: currentAttachments.filter(a => a.id !== attachmentId),
+            updatedAt: now
+          };
+        }
+        return t;
+      })
+    }));
+  }
+
+  /**
+   * 更新任务优先级
+   */
+  updateTaskPriority(taskId: string, priority: 'low' | 'medium' | 'high' | 'urgent' | undefined) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, priority, updatedAt: now } : t)
+    }));
+  }
+
+  /**
+   * 更新任务截止日期
+   */
+  updateTaskDueDate(taskId: string, dueDate: string | null) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, dueDate, updatedAt: now } : t)
+    }));
+  }
+
+  /**
+   * 更新任务标签
+   */
+  updateTaskTags(taskId: string, tags: string[]) {
+    this.markEditing();
+    this.lastUpdateType = 'content';
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => t.id === taskId ? { ...t, tags, updatedAt: now } : t)
+    }));
+  }
+
+  /**
+   * 添加单个标签
+   */
+  addTaskTag(taskId: string, tag: string) {
+    const task = this.tasks().find(t => t.id === taskId);
+    if (!task) return;
+    
+    const currentTags = task.tags || [];
+    if (currentTags.includes(tag)) return; // 避免重复
+    
+    this.updateTaskTags(taskId, [...currentTags, tag]);
+  }
+
+  /**
+   * 移除单个标签
+   */
+  removeTaskTag(taskId: string, tag: string) {
+    const task = this.tasks().find(t => t.id === taskId);
+    if (!task) return;
+    
+    const currentTags = task.tags || [];
+    this.updateTaskTags(taskId, currentTags.filter(t => t !== tag));
   }
 
   /**
@@ -1080,6 +1536,7 @@ export class StoreService {
       x: pos.x, 
       y: pos.y,
       createdDate: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       displayId: '?',
       shortId: this.generateShortId(activeP.tasks), // 生成永久短 ID
       hasIncompleteTask: this.detectIncomplete(content)
@@ -1204,6 +1661,7 @@ export class StoreService {
       x,
       y,
       createdDate: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       displayId: '?',
       hasIncompleteTask: this.detectIncomplete(content)
     };
@@ -1379,7 +1837,9 @@ export class StoreService {
   // ========== 主题设置 ==========
   
   async setTheme(theme: ThemeType) {
-    this.uiState.setTheme(theme);
+    this.theme.set(theme);
+    this.applyThemeToDOM(theme);
+    localStorage.setItem(CACHE_CONFIG.THEME_CACHE_KEY, theme);
     const userId = this.currentUserId();
     if (userId) {
       await this.syncService.saveUserPreferences(userId, { theme });
@@ -1387,8 +1847,13 @@ export class StoreService {
   }
 
   private applyThemeToDOM(theme: string) {
-    // 委托给 UiStateService
-    this.uiState.setTheme(theme as ThemeType);
+    if (typeof document === 'undefined') return;
+    
+    if (theme === 'default') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
   }
 
   private async loadUserPreferences() {
@@ -1609,7 +2074,11 @@ export class StoreService {
 
   private async persistActiveProject() {
     const project = this.activeProject();
-    this.syncService.saveOfflineSnapshot(this.projects());
+    const projects = this.projects();
+    
+    // 保存离线快照（无论是否登录都保存）
+    this.syncService.saveOfflineSnapshot(projects);
+    
     if (!project) {
       this.hasPendingLocalChanges = false;
       return;
@@ -1617,6 +2086,9 @@ export class StoreService {
 
     const userId = this.currentUserId();
     if (!userId) {
+      // 未登录时，额外保存到访客数据存储
+      // 确保登录时迁移服务能正确获取数据
+      this.migrationService.saveGuestData(projects);
       this.hasPendingLocalChanges = false;
       this.lastPersistAt = Date.now();
       return;

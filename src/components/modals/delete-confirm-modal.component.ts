@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
+import { Component, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 @Component({
@@ -32,10 +32,14 @@ import { CommonModule } from '@angular/common';
   `
 })
 export class DeleteConfirmModalComponent {
-  @Input() title = signal('删除确认');
-  @Input() message = signal('确定要删除吗？');
-  @Input() itemName = signal('');
-  @Input() warning = signal<string | null>(null);
+  /** 对话框标题 */
+  title = input('删除确认');
+  /** 确认消息 */
+  message = input('确定要删除吗？');
+  /** 要删除的项目名称 */
+  itemName = input('');
+  /** 警告信息（可选） */
+  warning = input<string | null>(null);
   
   @Output() close = new EventEmitter<void>();
   @Output() confirm = new EventEmitter<void>();

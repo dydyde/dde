@@ -157,15 +157,23 @@ export class UndoService {
   /**
    * 执行撤销
    * 在撤销前检查快照中的任务是否仍然存在
-   * @returns 需要应用的撤销数据，或 null（如果没有可撤销的操作）
+   * @param currentProjectVersion 当前项目版本号，用于检测远程更新冲突
+   * @returns 需要应用的撤销数据，或 null（如果没有可撤销的操作），或 'version-mismatch'（如果版本不匹配）
    */
-  undo(): UndoAction | null {
+  undo(currentProjectVersion?: number): UndoAction | null | 'version-mismatch' {
     const stack = this.undoStack();
     if (stack.length === 0) return null;
     
-    this.isUndoRedoing = true;
-    
     const action = stack[stack.length - 1];
+    
+    // 版本检查：如果远程版本已更新，拒绝撤销
+    if (currentProjectVersion !== undefined && 
+        action.projectVersion !== undefined &&
+        currentProjectVersion > action.projectVersion + 1) {
+      return 'version-mismatch';
+    }
+    
+    this.isUndoRedoing = true;
     
     // 注意：撤销操作的安全检查由 StoreService.applyProjectSnapshot 完成
     // 这里不阻止撤销，只记录可能的警告供日志使用
@@ -179,15 +187,24 @@ export class UndoService {
 
   /**
    * 执行重做
-   * @returns 需要应用的重做数据，或 null（如果没有可重做的操作）
+   * @param currentProjectVersion 当前项目版本号，用于检测远程更新冲突
+   * @returns 需要应用的重做数据，或 null（如果没有可重做的操作），或 'version-mismatch'（如果版本不匹配）
    */
-  redo(): UndoAction | null {
+  redo(currentProjectVersion?: number): UndoAction | null | 'version-mismatch' {
     const stack = this.redoStack();
     if (stack.length === 0) return null;
     
+    const action = stack[stack.length - 1];
+    
+    // 版本检查：如果远程版本已更新，拒绝重做
+    if (currentProjectVersion !== undefined && 
+        action.projectVersion !== undefined &&
+        currentProjectVersion > action.projectVersion + 1) {
+      return 'version-mismatch';
+    }
+    
     this.isUndoRedoing = true;
     
-    const action = stack[stack.length - 1];
     this.redoStack.update(s => s.slice(0, -1));
     this.undoStack.update(s => [...s, action]);
     
@@ -227,10 +244,31 @@ export class UndoService {
 
   /**
    * 清空历史（切换项目时调用）
+   * @param projectId 可选，指定要清空的项目ID。如果不传则清空所有历史。
    */
-  clearHistory(): void {
-    this.undoStack.set([]);
-    this.redoStack.set([]);
+  clearHistory(projectId?: string): void {
+    // 取消任何待处理的防抖操作
+    this.flushPendingAction();
+    
+    if (projectId) {
+      // 只清空指定项目的历史
+      this.undoStack.update(stack => stack.filter(a => a.projectId !== projectId));
+      this.redoStack.update(stack => stack.filter(a => a.projectId !== projectId));
+    } else {
+      // 清空所有历史
+      this.undoStack.set([]);
+      this.redoStack.set([]);
+    }
+  }
+  
+  /**
+   * 在项目切换时调用，清空当前项目的撤销历史
+   * 这是全局撤销栈 + 切换时清空的策略实现
+   */
+  onProjectSwitch(previousProjectId: string | null): void {
+    if (previousProjectId) {
+      this.clearHistory(previousProjectId);
+    }
   }
 
   /**

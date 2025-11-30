@@ -1,6 +1,7 @@
 {
   "name": "NanoFlow Tracker",
   "short_name": "NanoFlow",
+  "description": "轻量级项目跟踪和任务管理工具，支持流程图视图和文本大纲视图，具备离线优先的同步能力",
   "display": "standalone",
   "scope": "./",
   "start_url": "./",

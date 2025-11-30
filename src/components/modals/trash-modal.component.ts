@@ -6,7 +6,7 @@ import { Task } from '../../models';
 
 /**
  * 回收站模态框组件
- * 展示已删除的任务并提供恢复/永久删除功能
+ * 展示已删除和已归档的任务并提供恢复/永久删除功能
  */
 @Component({
   selector: 'app-trash-modal',
@@ -29,7 +29,9 @@ import { Task } from '../../models';
               </div>
               <div>
                 <h3 class="text-lg font-bold text-stone-800">回收站</h3>
-                <p class="text-xs text-stone-500">{{ deletedTasks().length }} 个已删除任务</p>
+                <p class="text-xs text-stone-500">
+                  {{ deletedTasks().length }} 个已删除 · {{ archivedTasks().length }} 个已归档
+                </p>
               </div>
             </div>
             <button (click)="close.emit()" class="text-stone-400 hover:text-stone-600 p-1">
@@ -39,74 +41,159 @@ import { Task } from '../../models';
             </button>
           </div>
           
+          <!-- 切换标签 -->
+          <div class="flex border-b border-stone-100">
+            <button 
+              (click)="activeTab.set('deleted')"
+              class="flex-1 py-2.5 text-sm font-medium transition-colors"
+              [class.text-stone-800]="activeTab() === 'deleted'"
+              [class.border-b-2]="activeTab() === 'deleted'"
+              [class.border-stone-800]="activeTab() === 'deleted'"
+              [class.text-stone-400]="activeTab() !== 'deleted'">
+              已删除 ({{ deletedTasks().length }})
+            </button>
+            <button 
+              (click)="activeTab.set('archived')"
+              class="flex-1 py-2.5 text-sm font-medium transition-colors"
+              [class.text-violet-700]="activeTab() === 'archived'"
+              [class.border-b-2]="activeTab() === 'archived'"
+              [class.border-violet-600]="activeTab() === 'archived'"
+              [class.text-stone-400]="activeTab() !== 'archived'">
+              已归档 ({{ archivedTasks().length }})
+            </button>
+          </div>
+          
           <!-- 任务列表 -->
           <div class="flex-1 overflow-y-auto px-5 py-3">
-            @if (deletedTasks().length === 0) {
-              <div class="text-center py-8">
-                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-stone-50 flex items-center justify-center">
-                  <svg class="w-8 h-8 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+            <!-- 已删除任务 -->
+            @if (activeTab() === 'deleted') {
+              @if (deletedTasks().length === 0) {
+                <div class="text-center py-8">
+                  <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-stone-50 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <p class="text-stone-400 text-sm">回收站是空的</p>
+                  <p class="text-stone-300 text-xs mt-1">删除的任务将在此显示</p>
                 </div>
-                <p class="text-stone-400 text-sm">回收站是空的</p>
-                <p class="text-stone-300 text-xs mt-1">删除的任务将在此显示</p>
-              </div>
-            } @else {
-              <ul class="space-y-2">
-                @for (task of deletedTasks(); track task.id) {
-                  <li class="p-3 bg-stone-50 rounded-lg border border-stone-100 hover:border-stone-200 transition-all">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2 mb-1">
-                          <span class="font-medium text-stone-800 text-sm truncate">{{ task.title }}</span>
-                          @if (task.shortId) {
-                            <span class="text-[9px] font-mono text-stone-400 bg-stone-100 px-1 rounded">{{ task.shortId }}</span>
-                          }
-                        </div>
-                        <p class="text-xs text-stone-500 truncate">{{ task.content || '无内容' }}</p>
-                        <div class="flex items-center gap-2 mt-1">
-                          <span class="text-[10px] text-stone-400">
-                            删除于 {{ formatDeletedAt(task.deletedAt) }}
-                          </span>
-                          @if (hasChildren(task.id)) {
-                            <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 rounded">
-                              含 {{ getChildCount(task.id) }} 个子任务
+              } @else {
+                <ul class="space-y-2">
+                  @for (task of deletedTasks(); track task.id) {
+                    <li class="p-3 bg-stone-50 rounded-lg border border-stone-100 hover:border-stone-200 transition-all">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-stone-800 text-sm truncate">{{ task.title }}</span>
+                            @if (task.shortId) {
+                              <span class="text-[9px] font-mono text-stone-400 bg-stone-100 px-1 rounded">{{ task.shortId }}</span>
+                            }
+                          </div>
+                          <p class="text-xs text-stone-500 truncate">{{ task.content || '无内容' }}</p>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-[10px] text-stone-400">
+                              删除于 {{ formatDeletedAt(task.deletedAt) }}
                             </span>
-                          }
+                            @if (hasChildren(task.id)) {
+                              <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 rounded">
+                                含 {{ getChildCount(task.id) }} 个子任务
+                              </span>
+                            }
+                          </div>
+                        </div>
+                        <div class="flex gap-1 flex-shrink-0">
+                          <button 
+                            (click)="restoreTask(task)"
+                            class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded transition-all"
+                            title="恢复任务">
+                            恢复
+                          </button>
+                          <button 
+                            (click)="confirmPermanentDelete(task)"
+                            class="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-medium rounded transition-all"
+                            title="永久删除">
+                            删除
+                          </button>
                         </div>
                       </div>
-                      <div class="flex gap-1 flex-shrink-0">
-                        <button 
-                          (click)="restoreTask(task)"
-                          class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-medium rounded transition-all"
-                          title="恢复任务">
-                          恢复
-                        </button>
-                        <button 
-                          (click)="confirmPermanentDelete(task)"
-                          class="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-medium rounded transition-all"
-                          title="永久删除">
-                          删除
-                        </button>
+                    </li>
+                  }
+                </ul>
+              }
+            }
+            
+            <!-- 已归档任务 -->
+            @if (activeTab() === 'archived') {
+              @if (archivedTasks().length === 0) {
+                <div class="text-center py-8">
+                  <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-violet-50 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                  </div>
+                  <p class="text-stone-400 text-sm">没有归档任务</p>
+                  <p class="text-stone-300 text-xs mt-1">归档的任务将在此显示</p>
+                </div>
+              } @else {
+                <ul class="space-y-2">
+                  @for (task of archivedTasks(); track task.id) {
+                    <li class="p-3 bg-violet-50/50 rounded-lg border border-violet-100 hover:border-violet-200 transition-all">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-stone-800 text-sm truncate">{{ task.title }}</span>
+                            @if (task.shortId) {
+                              <span class="text-[9px] font-mono text-violet-400 bg-violet-100 px-1 rounded">{{ task.shortId }}</span>
+                            }
+                          </div>
+                          <p class="text-xs text-stone-500 truncate">{{ task.content || '无内容' }}</p>
+                          <div class="flex items-center gap-2 mt-1">
+                            <span class="text-[10px] text-violet-500">
+                              <svg class="w-3 h-3 inline-block mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                              </svg>
+                              已归档
+                            </span>
+                            @if (hasChildren(task.id)) {
+                              <span class="text-[10px] text-amber-600 bg-amber-50 px-1.5 rounded">
+                                含 {{ getChildCount(task.id) }} 个子任务
+                              </span>
+                            }
+                          </div>
+                        </div>
+                        <div class="flex gap-1 flex-shrink-0">
+                          <button 
+                            (click)="unarchiveTask(task)"
+                            class="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-700 text-[10px] font-medium rounded transition-all"
+                            title="取消归档">
+                            取消归档
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                }
-              </ul>
+                    </li>
+                  }
+                </ul>
+              }
             }
           </div>
           
           <!-- 底部操作栏 -->
           <div class="px-5 py-3 border-t border-stone-100 flex justify-between items-center flex-shrink-0 bg-stone-50/50">
-            <p class="text-[10px] text-stone-400">
-              任务将在删除 30 天后自动清除
-            </p>
-            @if (deletedTasks().length > 0) {
-              <button 
-                (click)="confirmEmptyTrash()"
-                class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg transition-all">
-                清空回收站
-              </button>
+            @if (activeTab() === 'deleted') {
+              <p class="text-[10px] text-stone-400">
+                任务将在删除 30 天后自动清除
+              </p>
+              @if (deletedTasks().length > 0) {
+                <button 
+                  (click)="confirmEmptyTrash()"
+                  class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg transition-all">
+                  清空回收站
+                </button>
+              }
+            } @else {
+              <p class="text-[10px] text-violet-500">
+                归档任务不会自动删除
+              </p>
             }
           </div>
         </div>
@@ -196,12 +283,20 @@ export class TrashModalComponent {
   private store = inject(StoreService);
   private toast = inject(ToastService);
   
+  // 当前激活的标签页
+  activeTab = signal<'deleted' | 'archived'>('deleted');
+  
   // 确认删除状态
   confirmDeleteTask = signal<Task | null>(null);
   showEmptyConfirm = signal(false);
   
   // 已删除任务列表
   deletedTasks = computed(() => this.store.deletedTasks());
+  
+  // 已归档任务列表（当前项目中状态为 archived 的任务）
+  archivedTasks = computed(() => 
+    this.store.tasks().filter(t => t.status === 'archived' && !t.deletedAt)
+  );
   
   /**
    * 格式化删除时间
@@ -254,6 +349,14 @@ export class TrashModalComponent {
   restoreTask(task: Task) {
     this.store.restoreTask(task.id);
     this.toast.success('已恢复', `任务 "${task.title}" 已恢复`);
+  }
+  
+  /**
+   * 取消归档任务
+   */
+  unarchiveTask(task: Task) {
+    this.store.updateTaskStatus(task.id, 'active');
+    this.toast.success('已取消归档', `任务 "${task.title}" 已恢复到主视图`);
   }
   
   /**

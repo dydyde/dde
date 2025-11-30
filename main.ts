@@ -1,14 +1,16 @@
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { provideExperimentalZonelessChangeDetection, isDevMode } from '@angular/core';
+import { provideExperimentalZonelessChangeDetection, isDevMode, ErrorHandler } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withHashLocation } from '@angular/router';
 import { AppComponent } from './src/app.component';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './src/app.routes';
+import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
 bootstrapApplication(AppComponent, {
   providers: [
     provideExperimentalZonelessChangeDetection(),
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
     provideRouter(
       routes,
       withComponentInputBinding(),

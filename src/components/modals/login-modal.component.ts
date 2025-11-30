@@ -1,4 +1,4 @@
-import { Component, inject, signal, Output, EventEmitter, Input } from '@angular/core';
+import { Component, signal, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -50,8 +50,8 @@ import { FormsModule } from '@angular/forms';
                      class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
                      autocomplete="email" required>
               
-              @if (authError()) {
-                <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ authError() }}</div>
+              @if (currentError) {
+                <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
               }
               
               <div class="flex gap-2 pt-2">
@@ -84,10 +84,10 @@ import { FormsModule } from '@angular/forms';
                      autocomplete="new-password" required>
             </div>
             
-            @if (authError()) {
+            @if (currentError) {
               <div class="text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2"
-                   [class.text-red-500]="!authError()?.includes('成功')"
-                   [class.text-green-600]="authError()?.includes('成功')">{{ authError() }}</div>
+                   [class.text-red-500]="!currentError?.includes('成功')"
+                   [class.text-green-600]="currentError?.includes('成功')">{{ currentError }}</div>
             }
             
             <div class="flex gap-2 pt-2">
@@ -114,8 +114,8 @@ import { FormsModule } from '@angular/forms';
                      autocomplete="current-password" required>
             </div>
             
-            @if (authError()) {
-              <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ authError() }}</div>
+            @if (currentError) {
+              <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
             }
             
             <div class="flex flex-col gap-2 pt-2">
@@ -142,8 +142,13 @@ export class LoginModalComponent {
   @Output() signup = new EventEmitter<{ email: string; password: string; confirmPassword: string }>();
   @Output() resetPassword = new EventEmitter<string>();
   
-  @Input() authError = signal<string | null>(null);
-  @Input() isLoading = signal(false);
+  /** 认证错误信息 */
+  authError = input<string | null>(null);
+  /** 是否正在加载 */
+  isLoading = input(false);
+  
+  // 内部状态：用于模态框内部清除错误
+  private _internalError = signal<string | null>(null);
   
   // 内部状态
   email = signal('');
@@ -156,7 +161,7 @@ export class LoginModalComponent {
   switchToSignup() {
     this.isSignupMode.set(true);
     this.isResetPasswordMode.set(false);
-    this.authError.set(null);
+    this._internalError.set(null);
     this.password.set('');
     this.confirmPassword.set('');
   }
@@ -165,14 +170,19 @@ export class LoginModalComponent {
     this.isSignupMode.set(false);
     this.isResetPasswordMode.set(false);
     this.resetPasswordSent.set(false);
-    this.authError.set(null);
+    this._internalError.set(null);
   }
   
   switchToResetPassword() {
     this.isResetPasswordMode.set(true);
     this.isSignupMode.set(false);
     this.resetPasswordSent.set(false);
-    this.authError.set(null);
+    this._internalError.set(null);
+  }
+  
+  /** 获取当前显示的错误（外部传入优先，其次是内部错误） */
+  get currentError(): string | null {
+    return this.authError() ?? this._internalError();
   }
   
   handleLogin(event: Event) {

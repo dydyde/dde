@@ -29,6 +29,7 @@ export const ErrorCodes = {
   DATA_NOT_FOUND: 'DATA_NOT_FOUND',
   DATA_INVALID: 'DATA_INVALID',
   DATA_DUPLICATE: 'DATA_DUPLICATE',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
   
   // 同步错误
   SYNC_CONFLICT: 'SYNC_CONFLICT',
@@ -76,6 +77,7 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   [ErrorCodes.DATA_NOT_FOUND]: '数据不存在',
   [ErrorCodes.DATA_INVALID]: '数据格式无效',
   [ErrorCodes.DATA_DUPLICATE]: '数据重复',
+  [ErrorCodes.VALIDATION_ERROR]: '数据验证失败',
   [ErrorCodes.SYNC_CONFLICT]: '数据冲突，请选择保留的版本',
   [ErrorCodes.SYNC_OFFLINE]: '当前离线，数据将在恢复连接后同步',
   [ErrorCodes.SYNC_AUTH_EXPIRED]: '登录已过期，请重新登录',
@@ -102,4 +104,80 @@ export function isSuccess<T, E>(result: Result<T, E>): result is { ok: true; val
  */
 export function isFailure<T, E>(result: Result<T, E>): result is { ok: false; error: E } {
   return result.ok === false;
+}
+
+/**
+ * 从 Result 中提取值，失败时抛出异常
+ */
+export function unwrap<T>(result: Result<T, OperationError>): T {
+  if (result.ok) {
+    return result.value;
+  }
+  // TypeScript 在这里知道 result 是 { ok: false; error: OperationError }
+  const failedResult = result as { ok: false; error: OperationError };
+  throw new Error(failedResult.error.message);
+}
+
+/**
+ * 从 Result 中提取值，失败时返回默认值
+ */
+export function unwrapOr<T>(result: Result<T, OperationError>, defaultValue: T): T {
+  return result.ok ? result.value : defaultValue;
+}
+
+/**
+ * 将可能抛出异常的操作包装为 Result
+ */
+export function tryCatch<T>(
+  fn: () => T,
+  errorCode: ErrorCode = ErrorCodes.UNKNOWN
+): Result<T, OperationError> {
+  try {
+    return success(fn());
+  } catch (e: any) {
+    return failure(errorCode, e?.message ?? String(e));
+  }
+}
+
+/**
+ * 将可能抛出异常的异步操作包装为 Result
+ */
+export async function tryCatchAsync<T>(
+  fn: () => Promise<T>,
+  errorCode: ErrorCode = ErrorCodes.UNKNOWN
+): Promise<Result<T, OperationError>> {
+  try {
+    const value = await fn();
+    return success(value);
+  } catch (e: any) {
+    return failure(errorCode, e?.message ?? String(e));
+  }
+}
+
+/**
+ * 映射 Result 的成功值
+ */
+export function map<T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => U
+): Result<U, E> {
+  if (result.ok) {
+    return { ok: true, value: fn(result.value) };
+  }
+  // 类型明确为失败，直接返回
+  return result as { ok: false; error: E };
+}
+
+/**
+ * 链式处理 Result（flatMap）
+ */
+export function flatMap<T, U, E>(
+  result: Result<T, E>,
+  fn: (value: T) => Result<U, E>
+): Result<U, E> {
+  if (result.ok) {
+    return fn(result.value);
+  }
+  // 类型明确为失败，直接返回
+  return result as { ok: false; error: E };
 }

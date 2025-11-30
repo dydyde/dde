@@ -5,27 +5,70 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
  * 支持基础语法：标题、粗体、斜体、删除线、链接、代码、列表、待办
  * 
  * 安全特性：
- * - 转义所有 HTML 特殊字符
- * - 验证和清洗 URL（阻止 javascript: 伪协议）
+ * - 转义所有 HTML 特殊字符（防止 XSS）
+ * - 验证和清洗 URL（阻止 javascript:、vbscript:、data: 等危险协议）
  * - 限制允许的 HTML 标签和属性
+ * - 所有用户输入都经过转义处理
+ * - 链接添加 rel="noopener noreferrer" 防止 tabnabbing 攻击
  */
 
 /**
- * 危险 URL 协议列表
+ * 危险 URL 协议列表 - 完整版
+ * 这些协议可能被用于执行恶意代码
  */
 const DANGEROUS_PROTOCOLS = [
   'javascript:',
   'vbscript:',
   'data:text/html',
   'data:application/javascript',
+  'data:application/x-javascript',
+  'data:text/javascript',
+  'file:',
+  'blob:',
+  // IE 特有的危险协议
+  'mhtml:',
+  'x-javascript:',
+];
+
+/**
+ * 允许的 URL 协议白名单
+ */
+const SAFE_PROTOCOLS = [
+  'http:',
+  'https:',
+  'mailto:',
+  'tel:',
+  'ftp:',
+  '#', // 页内锚点
 ];
 
 /**
  * 验证 URL 是否安全
+ * 采用白名单 + 黑名单双重检查
  */
 function isSafeUrl(url: string): boolean {
+  if (!url) return false;
+  
   const normalized = url.toLowerCase().trim();
-  return !DANGEROUS_PROTOCOLS.some(proto => normalized.startsWith(proto));
+  
+  // 黑名单检查
+  if (DANGEROUS_PROTOCOLS.some(proto => normalized.startsWith(proto))) {
+    return false;
+  }
+  
+  // 相对 URL 和锚点是安全的
+  if (normalized.startsWith('/') || normalized.startsWith('#') || normalized.startsWith('./') || normalized.startsWith('../')) {
+    return true;
+  }
+  
+  // 白名单检查：如果包含协议，必须在白名单中
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:/i.test(normalized);
+  if (hasProtocol) {
+    return SAFE_PROTOCOLS.some(proto => normalized.startsWith(proto));
+  }
+  
+  // 无协议的 URL（如 www.example.com）视为安全
+  return true;
 }
 
 /**
@@ -34,27 +77,31 @@ function isSafeUrl(url: string): boolean {
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
   if (!isSafeUrl(trimmed)) {
-    console.warn('Blocked potentially dangerous URL:', trimmed);
+    console.warn('[Security] Blocked potentially dangerous URL:', trimmed.substring(0, 50));
     return '#blocked';
   }
-  // 转义 URL 中的特殊字符
+  // 转义 URL 中的特殊字符，防止属性注入
   return trimmed
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/\\/g, '&#92;'); // 防止反斜杠转义
 }
 
 /**
  * 转义 HTML 特殊字符
+ * 这是防止 XSS 攻击的核心函数
  */
 function escapeHtml(text: string): string {
+  if (!text) return '';
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/'/g, '&#39;')
+    .replace(/\\/g, '&#92;'); // 防止反斜杠在某些上下文中的转义
 }
 
 /**

@@ -47,6 +47,7 @@ export class MigrationService {
   readonly showMigrationDialog = signal(false);
   
   private readonly GUEST_DATA_KEY = 'nanoflow.guest-data';
+  private readonly DATA_VERSION = 2; // 数据结构版本号
   
   /**
    * 检查是否需要数据迁移
@@ -152,6 +153,7 @@ export class MigrationService {
     userId: string
   ): Promise<MigrationResult> {
     let migratedCount = 0;
+    const failedProjects: string[] = [];
     
     for (const project of localProjects) {
       try {
@@ -159,21 +161,31 @@ export class MigrationService {
         const result = await this.syncService.saveProjectToCloud(project, userId);
         if (result.success) {
           migratedCount++;
+        } else {
+          failedProjects.push(project.name || project.id);
         }
       } catch (e) {
         console.warn('迁移项目失败:', project.id, e);
+        failedProjects.push(project.name || project.id);
       }
     }
     
     // 清除访客数据标记
     this.clearLocalGuestData();
     
-    this.toast.success('数据迁移完成', `已将 ${migratedCount} 个项目上传到云端`);
+    if (failedProjects.length > 0) {
+      this.toast.warning('部分项目迁移失败', `以下项目未能上传: ${failedProjects.join(', ')}`);
+    }
+    
+    if (migratedCount > 0) {
+      this.toast.success('数据迁移完成', `已将 ${migratedCount} 个项目上传到云端`);
+    }
     
     return {
-      success: migratedCount > 0,
+      success: migratedCount > 0 || failedProjects.length === 0,
       migratedProjects: migratedCount,
-      strategy: 'keep-local'
+      strategy: 'keep-local',
+      error: failedProjects.length > 0 ? `${failedProjects.length} 个项目迁移失败` : undefined
     };
   }
   
@@ -278,6 +290,7 @@ export class MigrationService {
     try {
       localStorage.setItem(this.GUEST_DATA_KEY, JSON.stringify({
         projects,
+        version: this.DATA_VERSION,
         savedAt: new Date().toISOString()
       }));
     } catch (e) {
@@ -287,6 +300,7 @@ export class MigrationService {
   
   /**
    * 获取本地访客数据
+   * 包含版本检查和数据迁移
    */
   getLocalGuestData(): Project[] | null {
     if (typeof localStorage === 'undefined') return null;
@@ -296,7 +310,17 @@ export class MigrationService {
       const guestData = localStorage.getItem(this.GUEST_DATA_KEY);
       if (guestData) {
         const parsed = JSON.parse(guestData);
-        return parsed.projects || null;
+        const dataVersion = parsed.version ?? 1;
+        let projects = parsed.projects || null;
+        
+        // 版本检查和迁移
+        if (projects && dataVersion < this.DATA_VERSION) {
+          projects = this.migrateLocalData(projects, dataVersion);
+          // 保存迁移后的数据
+          this.saveGuestData(projects);
+        }
+        
+        return projects;
       }
       
       // 回退到离线缓存
@@ -311,6 +335,28 @@ export class MigrationService {
       console.warn('读取访客数据失败:', e);
       return null;
     }
+  }
+  
+  /**
+   * 迁移本地数据到最新版本
+   */
+  private migrateLocalData(projects: Project[], fromVersion: number): Project[] {
+    let migrated = projects;
+    
+    // 版本 1 -> 2: 添加 version 字段、status 默认值等
+    if (fromVersion < 2) {
+      migrated = migrated.map(project => ({
+        ...project,
+        version: project.version ?? 0,
+        tasks: project.tasks.map(task => ({
+          ...task,
+          status: task.status || 'active',
+          rank: task.rank ?? 10000
+        }))
+      }));
+    }
+    
+    return migrated;
   }
   
   /**

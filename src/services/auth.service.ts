@@ -41,6 +41,7 @@ export class AuthService {
 
   /**
    * 检查并恢复会话
+   * 添加超时保护，防止网络异常时无限阻塞
    */
   async checkSession(): Promise<{ userId: string | null; email: string | null }> {
     if (!this.supabase.isConfigured) {
@@ -50,8 +51,15 @@ export class AuthService {
     
     this.authState.update(s => ({ ...s, isCheckingSession: true }));
     
+    // 超时保护：10秒后自动放弃
+    const SESSION_TIMEOUT = 10000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('会话检查超时')), SESSION_TIMEOUT);
+    });
+    
     try {
-      const { data, error } = await this.supabase.getSession();
+      const sessionPromise = this.supabase.getSession();
+      const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
       if (error) throw error;
       
       const session = data?.session;
@@ -207,12 +215,11 @@ export class AuthService {
 
   /**
    * 登出
+   * 注意：先清理本地状态，再调用 Supabase 登出
+   * 这样可以确保即使 Supabase 调用失败，本地状态也已被清理
    */
   async signOut(): Promise<void> {
-    if (this.supabase.isConfigured) {
-      await this.supabase.signOut();
-    }
-    
+    // 先清理本地状态
     this.currentUserId.set(null);
     this.sessionEmail.set(null);
     this.authState.update(s => ({
@@ -221,6 +228,16 @@ export class AuthService {
       email: null,
       error: null
     }));
+    
+    // 再调用 Supabase 登出
+    if (this.supabase.isConfigured) {
+      try {
+        await this.supabase.signOut();
+      } catch (e) {
+        // 即使 Supabase 登出失败，本地状态已清理
+        console.warn('Supabase signOut failed:', e);
+      }
+    }
   }
 
   /**

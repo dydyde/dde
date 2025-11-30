@@ -1,4 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
+import { TOAST_CONFIG } from '../config/constants';
 
 /**
  * Toast 消息类型
@@ -35,9 +36,9 @@ export class ToastService {
   readonly hasMessages = computed(() => this.toasts().length > 0);
   
   /** 默认显示时间（毫秒） */
-  private static readonly DEFAULT_DURATION = 5000;
-  private static readonly ERROR_DURATION = 8000;
-  private static readonly MAX_TOASTS = 5;
+  private static readonly DEFAULT_DURATION: number = TOAST_CONFIG.DEFAULT_DURATION;
+  private static readonly ERROR_DURATION: number = 8000;
+  private static readonly MAX_TOASTS: number = 5;
 
   /**
    * 显示成功消息

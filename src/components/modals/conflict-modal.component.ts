@@ -1,4 +1,4 @@
-import { Component, inject, signal, Output, EventEmitter, Input, computed } from '@angular/core';
+import { Component, signal, Output, EventEmitter, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Project, Task } from '../../models';
 
@@ -157,7 +157,7 @@ import { Project, Task } from '../../models';
               </p>
               <p class="flex items-center gap-1.5">
                 <span class="w-1.5 h-1.5 rounded-full bg-stone-300"></span>
-                修改：{{ conflictData()?.remoteProject?.updated_at | date:'yyyy-MM-dd HH:mm' }}
+                修改：{{ conflictData()?.remoteProject?.updatedAt | date:'yyyy-MM-dd HH:mm' }}
               </p>
             </div>
             <div class="mt-2 text-[10px] text-teal-600 bg-teal-50 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
@@ -211,9 +211,10 @@ import { Project, Task } from '../../models';
   `
 })
 export class ConflictModalComponent {
-  @Input() conflictData = signal<{
+  /** 冲突数据（本地和远程项目信息） */
+  conflictData = input<{
     localProject: Project;
-    remoteProject: any;
+    remoteProject: Project;
     projectId: string;
   } | null>(null);
   
