@@ -156,25 +156,26 @@ export class AttachmentService implements OnDestroy {
   private async checkAndRefreshExpiredUrls() {
     if (this.monitoredAttachments.size === 0 || !this.supabase.isConfigured) return;
 
-    const refreshedUrls = new Map<string, { url: string; thumbnailUrl?: string }>();
+    const refreshedUrls = new Map<string, { url: string; thumbnailUrl?: string; signedAt: string }>();
     const now = Date.now();
     const expiryBuffer = GLOBAL_ATTACHMENT_CONFIG.URL_EXPIRY_BUFFER;
 
     for (const [id, { userId, projectId, taskId, attachment }] of this.monitoredAttachments) {
-      // 检查 URL 是否即将过期（通过 createdAt 估算）
-      const createdAt = new Date(attachment.createdAt).getTime();
-      const urlAge = now - createdAt;
+      // 检查 URL 是否即将过期（优先使用 signedAt，fallback 到 createdAt）
+      const signedAt = attachment.signedAt ? new Date(attachment.signedAt).getTime() : new Date(attachment.createdAt).getTime();
+      const urlAge = now - signedAt;
       
       // 如果 URL 年龄超过缓冲时间，刷新它
       if (urlAge > expiryBuffer) {
         try {
           const newUrls = await this.refreshUrl(userId, projectId, taskId, attachment);
           if (newUrls) {
-            refreshedUrls.set(id, newUrls);
+            const signedAtNow = new Date().toISOString();
+            refreshedUrls.set(id, { ...newUrls, signedAt: signedAtNow });
             // 更新监控列表中的附件
             this.monitoredAttachments.set(id, {
               userId, projectId, taskId,
-              attachment: { ...attachment, url: newUrls.url, thumbnailUrl: newUrls.thumbnailUrl }
+              attachment: { ...attachment, url: newUrls.url, thumbnailUrl: newUrls.thumbnailUrl, signedAt: signedAtNow }
             });
           }
         } catch (e) {
@@ -260,7 +261,8 @@ export class AttachmentService implements OnDestroy {
         url,
         mimeType: file.type,
         size: file.size,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        signedAt: new Date().toISOString() // 记录 URL 签名时间
       };
 
       // 如果是图片，尝试生成缩略图 URL
@@ -314,7 +316,43 @@ export class AttachmentService implements OnDestroy {
   }
 
   /**
-   * 删除文件
+   * 软删除文件（标记为已删除，不立即从存储中移除）
+   * 附件会在指定保留期后由后台任务清理
+   * @param attachment 要删除的附件对象
+   * @returns 带有 deletedAt 标记的附件对象
+   */
+  markAsDeleted(attachment: Attachment): Attachment {
+    return {
+      ...attachment,
+      deletedAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * 检查附件是否已被软删除
+   */
+  isDeleted(attachment: Attachment): boolean {
+    return !!attachment.deletedAt;
+  }
+
+  /**
+   * 恢复软删除的附件
+   */
+  restoreDeleted(attachment: Attachment): Attachment {
+    const { deletedAt, ...rest } = attachment as Attachment & { deletedAt?: string };
+    return rest as Attachment;
+  }
+
+  /**
+   * 过滤掉已删除的附件（用于显示）
+   */
+  filterActive(attachments: Attachment[]): Attachment[] {
+    return attachments.filter(a => !this.isDeleted(a));
+  }
+
+  /**
+   * 删除文件（硬删除 - 仅供清理任务使用）
+   * 注意：正常删除应使用 markAsDeleted 进行软删除
    */
   async deleteFile(
     userId: string,
@@ -343,6 +381,47 @@ export class AttachmentService implements OnDestroy {
       console.error('File deletion failed:', e);
       return { success: false, error: e?.message ?? '删除失败' };
     }
+  }
+
+  /**
+   * 批量硬删除文件（供清理任务使用）
+   */
+  async deleteFiles(filePaths: string[]): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+    if (!this.supabase.isConfigured) {
+      return { success: false, deletedCount: 0, errors: ['Supabase 未配置'] };
+    }
+
+    if (filePaths.length === 0) {
+      return { success: true, deletedCount: 0, errors: [] };
+    }
+
+    const errors: string[] = [];
+    let deletedCount = 0;
+
+    // Supabase Storage 批量删除有限制，分批处理
+    const batchSize = 100;
+    for (let i = 0; i < filePaths.length; i += batchSize) {
+      const batch = filePaths.slice(i, i + batchSize);
+      try {
+        const { error } = await this.supabase.client().storage
+          .from(ATTACHMENT_CONFIG.BUCKET_NAME)
+          .remove(batch);
+
+        if (error) {
+          errors.push(`批次 ${Math.floor(i / batchSize) + 1}: ${error.message}`);
+        } else {
+          deletedCount += batch.length;
+        }
+      } catch (e: any) {
+        errors.push(`批次 ${Math.floor(i / batchSize) + 1}: ${e?.message ?? '删除失败'}`);
+      }
+    }
+
+    return { 
+      success: errors.length === 0, 
+      deletedCount, 
+      errors 
+    };
   }
 
   /**

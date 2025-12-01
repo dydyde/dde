@@ -117,6 +117,11 @@ export class StoreService {
   private editingTimer: ReturnType<typeof setTimeout> | null = null;
   private lastUpdateType: 'content' | 'structure' | 'position' = 'structure';
   
+  /** 持久化操作锁 - 防止并发写入导致数据损坏 */
+  private isPersisting = false;
+  /** 持久化操作队列 - 记录锁定期间是否有新的持久化请求 */
+  private persistPending = false;
+  
   /** 重平衡锁定的阶段 */
   private rebalancingStages = new Set<number>();
   
@@ -1901,6 +1906,131 @@ export class StoreService {
     return operationResult;
   }
 
+  /**
+   * 将任务插入到两个已有节点之间（连接线上）
+   * 
+   * 操作逻辑：
+   * 1. 新任务成为原父节点(sourceId)的子节点
+   * 2. 原子节点(targetId)及其子树成为新任务的子节点
+   * 3. 原子节点及其子树的 stage 全部 +1（级联更新）
+   * 4. displayId 由 layoutService.rebalance 自动重新计算
+   * 
+   * @param taskId 要插入的任务ID（通常是待分配任务）
+   * @param sourceId 原父节点ID
+   * @param targetId 原子节点ID（将成为新任务的子节点）
+   */
+  insertTaskBetween(taskId: string, sourceId: string, targetId: string): Result<void, OperationError> {
+    const activeP = this.activeProject();
+    if (!activeP) {
+      return failure(ErrorCodes.DATA_NOT_FOUND, '没有活动项目');
+    }
+
+    const sourceTask = activeP.tasks.find(t => t.id === sourceId);
+    const targetTask = activeP.tasks.find(t => t.id === targetId);
+    const insertTask = activeP.tasks.find(t => t.id === taskId);
+
+    if (!sourceTask || !targetTask || !insertTask) {
+      return failure(ErrorCodes.DATA_NOT_FOUND, '找不到相关任务');
+    }
+
+    // 确保 target 当前是 source 的直接子节点
+    if (targetTask.parentId !== sourceId) {
+      return failure(ErrorCodes.VALIDATION_ERROR, '目标任务不是源任务的直接子节点');
+    }
+
+    // 检查循环依赖
+    if (this.wouldCreateCycle(taskId, sourceId, targetId, activeP.tasks)) {
+      return failure(ErrorCodes.LAYOUT_CYCLE_DETECTED, '操作会产生循环依赖');
+    }
+
+    let operationResult: Result<void, OperationError> = success(undefined);
+    
+    this.recordAndUpdate(p => {
+      const tasks = p.tasks.map(t => ({ ...t }));
+      
+      const source = tasks.find(t => t.id === sourceId)!;
+      const target = tasks.find(t => t.id === targetId)!;
+      const newTask = tasks.find(t => t.id === taskId)!;
+      
+      // 1. 收集 target 及其所有后代的 ID
+      const targetSubtreeIds = this.collectSubtreeIds(targetId, tasks);
+      
+      // 2. 设置新任务的父级和阶段
+      const newTaskStage = (source.stage || 1) + 1;
+      newTask.parentId = sourceId;
+      newTask.stage = newTaskStage;
+      
+      // 3. 将 target 的父级改为新任务
+      target.parentId = taskId;
+      
+      // 4. target 及其子树的 stage 全部 +1
+      targetSubtreeIds.forEach(id => {
+        const t = tasks.find(task => task.id === id);
+        if (t && t.stage !== null) {
+          t.stage = t.stage + 1;
+        }
+      });
+      
+      // 5. 计算新任务的 rank（应该在 source 的子任务中合适的位置）
+      const sourceChildren = tasks
+        .filter(t => t.parentId === sourceId && t.id !== taskId)
+        .sort((a, b) => a.rank - b.rank);
+      
+      // 找到 target 原来在兄弟中的位置，新任务插入到同一位置
+      const targetOriginalRank = target.rank;
+      newTask.rank = targetOriginalRank;
+      
+      // target 的 rank 需要调整到新任务之后
+      target.rank = newTask.rank + LAYOUT_CONFIG.RANK_STEP / 2;
+      
+      return this.layoutService.rebalance({ ...p, tasks });
+    });
+    
+    return operationResult;
+  }
+
+  /**
+   * 收集指定任务及其所有后代的 ID
+   */
+  private collectSubtreeIds(taskId: string, tasks: Task[]): Set<string> {
+    const result = new Set<string>();
+    const stack = [taskId];
+    
+    while (stack.length > 0) {
+      const currentId = stack.pop()!;
+      result.add(currentId);
+      
+      // 找到所有以 currentId 为父级的任务
+      tasks.filter(t => t.parentId === currentId).forEach(child => {
+        stack.push(child.id);
+      });
+    }
+    
+    return result;
+  }
+
+  /**
+   * 检查插入操作是否会产生循环依赖
+   */
+  private wouldCreateCycle(taskId: string, sourceId: string, targetId: string, tasks: Task[]): boolean {
+    // 检查 taskId 是否是 sourceId 的祖先
+    let current = tasks.find(t => t.id === sourceId);
+    while (current && current.parentId) {
+      if (current.parentId === taskId) {
+        return true;
+      }
+      current = tasks.find(t => t.id === current!.parentId);
+    }
+    
+    // 检查 taskId 是否已经在 target 子树中（不太可能，但保险起见）
+    const targetSubtree = this.collectSubtreeIds(targetId, tasks);
+    if (targetSubtree.has(taskId)) {
+      return true;
+    }
+    
+    return false;
+  }
+
   reorderStage(stage: number, orderedIds: string[]) {
     this.recordAndUpdate(p => {
       const tasks = p.tasks.map(t => ({ ...t }));
@@ -2238,7 +2368,37 @@ export class StoreService {
     }, SYNC_CONFIG.DEBOUNCE_DELAY);
   }
 
+  /**
+   * 持久化活动项目到本地和云端
+   * 使用锁机制防止并发写入导致数据损坏
+   */
   private async persistActiveProject() {
+    // 如果正在持久化，标记有待处理的请求
+    if (this.isPersisting) {
+      this.persistPending = true;
+      return;
+    }
+    
+    this.isPersisting = true;
+    
+    try {
+      await this.doPersistActiveProject();
+    } finally {
+      this.isPersisting = false;
+      
+      // 如果锁定期间有新的持久化请求，重新调度
+      if (this.persistPending) {
+        this.persistPending = false;
+        // 短延迟后再次执行，避免过于频繁
+        this.schedulePersist();
+      }
+    }
+  }
+  
+  /**
+   * 实际执行持久化（内部方法）
+   */
+  private async doPersistActiveProject() {
     const project = this.activeProject();
     const projects = this.projects();
     

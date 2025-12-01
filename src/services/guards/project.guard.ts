@@ -6,29 +6,38 @@ import { ToastService } from '../toast.service';
 /**
  * 等待数据初始化完成
  * 使用响应式方式等待，避免低效的轮询
- * 包含超时保护
- * @returns true 如果数据加载成功，false 如果超时
+ * 包含超时保护和重试机制
+ * @returns { loaded: true } 如果数据加载成功
+ *          { loaded: false, reason: string } 如果超时或失败
  */
-async function waitForDataInit(store: StoreService, maxWaitMs: number = 5000): Promise<boolean> {
+async function waitForDataInit(
+  store: StoreService, 
+  maxWaitMs: number = 5000
+): Promise<{ loaded: boolean; reason?: string }> {
   const startTime = Date.now();
   const checkInterval = 100;
+  let lastCheckReason = '';
   
   while (Date.now() - startTime < maxWaitMs) {
     // 如果已有项目数据，初始化完成
     if (store.projects().length > 0) {
-      return true;
+      return { loaded: true };
     }
     // 如果不在加载中且没有数据，说明真的没数据
     if (!store.isLoadingRemote()) {
-      return true;
+      return { loaded: true };
     }
+    lastCheckReason = '数据正在加载中';
     // 等待一小段时间再检查
     await new Promise(resolve => setTimeout(resolve, checkInterval));
   }
   
-  // 超时，返回 false 表示数据加载失败
-  console.warn('数据初始化等待超时');
-  return false;
+  // 超时，返回失败原因
+  const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+  return { 
+    loaded: false, 
+    reason: `数据加载超时 (${elapsedSeconds}秒)，${lastCheckReason || '请检查网络连接'}` 
+  };
 }
 
 /**
@@ -48,11 +57,11 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
   }
   
   // 等待数据初始化
-  const dataLoaded = await waitForDataInit(store);
+  const initResult = await waitForDataInit(store);
   
-  // 如果超时且仍在加载中，重定向到项目列表
-  if (!dataLoaded && store.isLoadingRemote()) {
-    toast.warning('加载超时', '数据加载超时，请检查网络连接');
+  // 如果超时且仍在加载中，重定向到项目列表并显示具体原因
+  if (!initResult.loaded && store.isLoadingRemote()) {
+    toast.warning('加载超时', initResult.reason || '数据加载超时，请检查网络连接');
     void router.navigate(['/projects']);
     return false;
   }

@@ -74,7 +74,10 @@ import { SyncService } from '../services/sync.service';
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <!-- 状态点 -->
-            <div class="w-2 h-2 rounded-full flex-shrink-0" 
+            <div data-testid="sync-status-indicator" class="w-2 h-2 rounded-full flex-shrink-0" 
+                 [attr.data-testid-offline]="!isOnline() || offlineMode() ? 'offline-indicator' : null"
+                 [attr.data-testid-pending]="pendingCount() > 0 ? 'pending-sync-indicator' : null"
+                 [attr.data-testid-success]="isOnline() && !offlineMode() && !hasIssues() ? 'sync-success-indicator' : null"
                  [class.bg-green-500]="isOnline() && !offlineMode() && !hasIssues()"
                  [class.bg-amber-500]="!isOnline() || offlineMode() || pendingCount() > 0"
                  [class.bg-red-500]="deadLetterCount() > 0"

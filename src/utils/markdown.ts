@@ -23,12 +23,19 @@ const DANGEROUS_PROTOCOLS = [
   'data:application/javascript',
   'data:application/x-javascript',
   'data:text/javascript',
+  'data:image/svg+xml',  // SVG 可以包含脚本
   'file:',
   'blob:',
   // IE 特有的危险协议
   'mhtml:',
   'x-javascript:',
 ];
+
+/**
+ * 危险协议的编码变体正则
+ * 检测如 java&#x73;cript: 这样的编码绕过
+ */
+const ENCODED_PROTOCOL_PATTERN = /^\s*(?:j[\s]*a[\s]*v[\s]*a|v[\s]*b|d[\s]*a[\s]*t[\s]*a)[\s]*(?:&#[xX]?[0-9a-fA-F]+;?|&#?\d+;?|[\s])*:/i;
 
 /**
  * 允许的 URL 协议白名单
@@ -53,6 +60,17 @@ function isSafeUrl(url: string): boolean {
   
   // 黑名单检查
   if (DANGEROUS_PROTOCOLS.some(proto => normalized.startsWith(proto))) {
+    return false;
+  }
+  
+  // 检测编码绕过尝试
+  if (ENCODED_PROTOCOL_PATTERN.test(normalized)) {
+    return false;
+  }
+  
+  // 检测 data: URI 中的 SVG（可能包含嵌入脚本）
+  if (normalized.startsWith('data:') && 
+      (normalized.includes('svg') || normalized.includes('<script') || normalized.includes('onerror'))) {
     return false;
   }
   

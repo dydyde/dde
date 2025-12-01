@@ -70,6 +70,8 @@ export const ATTACHMENT_CONFIG = {
 export const UNDO_CONFIG = {
   /** 最大撤销历史数 */
   MAX_HISTORY_SIZE: 50,
+  /** 版本容差：当远程版本超过记录版本这么多时，拒绝撤销 */
+  VERSION_TOLERANCE: 5,
 } as const;
 
 /**
@@ -90,6 +92,17 @@ export const TRASH_CONFIG = {
   AUTO_CLEANUP_DAYS: 30,
   /** 清理检查间隔（毫秒）- 1小时 */
   CLEANUP_INTERVAL: 60 * 60 * 1000,
+} as const;
+
+/**
+ * 附件清理配置
+ * 用于前端和 Edge Function 共用的配置
+ */
+export const ATTACHMENT_CLEANUP_CONFIG = {
+  /** 软删除附件保留天数 */
+  RETENTION_DAYS: 30,
+  /** 每批处理的文件数 */
+  BATCH_SIZE: 100,
 } as const;
 
 /**

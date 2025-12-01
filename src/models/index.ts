@@ -27,6 +27,10 @@ export interface Attachment {
   mimeType?: string;
   size?: number; // 文件大小（字节）
   createdAt: string;
+  /** URL 签名时间戳，用于准确判断签名 URL 是否过期 */
+  signedAt?: string;
+  /** 软删除时间戳，存在表示已标记删除，等待后台清理 */
+  deletedAt?: string;
 }
 
 /**
@@ -70,11 +74,13 @@ export interface Task {
  * 连接模型（任务之间的关联）
  */
 export interface Connection {
-  /** 连接的唯一标识符 */
-  id?: string;
+  /** 连接的唯一标识符（必需，用于同步和恢复） */
+  id: string;
   source: string;
   target: string;
   description?: string; // 联系块描述
+  /** 软删除时间戳，存在表示已标记删除，等待恢复或永久删除 */
+  deletedAt?: string | null;
 }
 
 /**

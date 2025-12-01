@@ -8,7 +8,7 @@ import { FormsModule } from '@angular/forms';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in" (click)="$event.stopPropagation()">
+      <div data-testid="login-modal" class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in" (click)="$event.stopPropagation()">
         <div class="flex items-center gap-3 mb-5">
           <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
             <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -51,7 +51,7 @@ import { FormsModule } from '@angular/forms';
                      autocomplete="email" required>
               
               @if (currentError) {
-                <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
+                <div data-testid="auth-error" class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
               }
               
               <div class="flex gap-2 pt-2">
@@ -132,12 +132,12 @@ import { FormsModule } from '@angular/forms';
         @else {
           <form (submit)="handleLogin($event)" class="space-y-4">
             <div class="space-y-3">
-              <input type="email" placeholder="邮箱" 
+              <input data-testid="email-input" type="email" placeholder="邮箱" 
                      [ngModel]="email()" (ngModelChange)="email.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="authEmailModal" 
                      class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
                      autocomplete="email" required>
-              <input type="password" placeholder="密码" 
+              <input data-testid="password-input" type="password" placeholder="密码" 
                      [ngModel]="password()" (ngModelChange)="password.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="authPasswordModal" 
                      class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
@@ -145,13 +145,13 @@ import { FormsModule } from '@angular/forms';
             </div>
             
             @if (currentError) {
-              <div class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
+              <div data-testid="auth-error" class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
             }
             
             <div class="flex flex-col gap-2 pt-2">
               <div class="flex gap-2">
                 <button type="button" (click)="close.emit()" class="flex-1 px-4 py-2.5 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors text-sm font-medium">取消</button>
-                <button type="submit" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold disabled:opacity-60" [disabled]="isLoading()">
+                <button data-testid="submit-login" type="submit" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold disabled:opacity-60" [disabled]="isLoading()">
                   @if (isLoading()) { 登录中... } @else { 登录 }
                 </button>
               </div>

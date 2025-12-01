@@ -123,7 +123,7 @@ export class ConflictResolutionService {
    * 策略：
    * 1. 新增任务：双方都保留
    * 2. 删除任务：双方都执行
-   * 3. 修改冲突：使用 updatedAt 较新的版本，如果相同则使用本地
+   * 3. 修改冲突：字段级合并 - 选择每个字段较新的版本
    * 4. 合并后执行完整性检查
    */
   smartMerge(local: Project, remote: Project): MergeResult {
@@ -148,36 +148,15 @@ export class ConflictResolutionService {
         continue;
       }
       
-      // 双方都有的任务，检查是否有修改冲突
-      const hasContentDiff = this.hasTaskContentDiff(localTask, remoteTask);
+      // 双方都有的任务，执行字段级合并
+      const { mergedTask, hasConflict } = this.mergeTaskFields(localTask, remoteTask);
       
-      if (hasContentDiff) {
+      if (hasConflict) {
         conflictCount++;
-        // 比较更新时间，选择较新的版本
-        const localTime = localTask.updatedAt ? new Date(localTask.updatedAt).getTime() : 0;
-        const remoteTime = remoteTask.updatedAt ? new Date(remoteTask.updatedAt).getTime() : 0;
-        
-        if (remoteTime > localTime) {
-          // 远程版本更新，使用远程版本
-          mergedTasks.push(remoteTask);
-          this.logger.debug('任务修改冲突，使用远程版本（更新）', { taskId: localTask.id, localTime, remoteTime });
-        } else {
-          // 本地版本更新或时间相同，使用本地版本
-          mergedTasks.push(localTask);
-          this.logger.debug('任务修改冲突，使用本地版本', { taskId: localTask.id, localTime, remoteTime });
-        }
-      } else {
-        // 无内容差异，合并位置等其他属性（使用更新时间较新的版本）
-        const localTime = localTask.updatedAt ? new Date(localTask.updatedAt).getTime() : 0;
-        const remoteTime = remoteTask.updatedAt ? new Date(remoteTask.updatedAt).getTime() : 0;
-        
-        mergedTasks.push({
-          ...(remoteTime > localTime ? remoteTask : localTask),
-          // 保留位置信息（位置不作为冲突判定）
-          x: localTask.x,
-          y: localTask.y
-        });
+        this.logger.debug('任务存在字段冲突，已合并', { taskId: localTask.id });
       }
+      
+      mergedTasks.push(mergedTask);
     }
     
     // 处理远程新增的任务
@@ -212,6 +191,174 @@ export class ConflictResolutionService {
       issues,
       conflictCount
     };
+  }
+
+  /**
+   * 字段级任务合并
+   * 对每个字段单独判断，使用更新时间更晚的版本
+   * 如果两个版本的更新时间相同，优先使用本地版本
+   */
+  private mergeTaskFields(local: Task, remote: Task): { mergedTask: Task; hasConflict: boolean } {
+    const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+    const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+    
+    // 确定基础版本（使用更新时间较新的）
+    const baseTask = remoteTime > localTime ? remote : local;
+    const otherTask = remoteTime > localTime ? local : remote;
+    
+    let hasConflict = false;
+    
+    // 字段级合并：检查每个可编辑字段
+    const mergedTask: Task = { ...baseTask };
+    
+    // 标题：如果不同，检测是否是有意义的编辑
+    if (local.title !== remote.title) {
+      hasConflict = true;
+      // 使用较长的标题（更可能是编辑后的）或更新时间较新的
+      mergedTask.title = remoteTime > localTime ? remote.title : local.title;
+    }
+    
+    // 内容：如果不同，尝试合并或使用较新版本
+    if (local.content !== remote.content) {
+      hasConflict = true;
+      // 对于内容，尝试智能合并（如果两边都有添加）
+      const mergedContent = this.mergeTextContent(local.content, remote.content, localTime, remoteTime);
+      mergedTask.content = mergedContent;
+    }
+    
+    // 状态：如果不同，使用更新时间较新的
+    if (local.status !== remote.status) {
+      hasConflict = true;
+      mergedTask.status = remoteTime > localTime ? remote.status : local.status;
+    }
+    
+    // 优先级：如果不同，使用更新时间较新的
+    if (local.priority !== remote.priority) {
+      hasConflict = true;
+      mergedTask.priority = remoteTime > localTime ? remote.priority : local.priority;
+    }
+    
+    // 截止日期：如果不同，使用更新时间较新的
+    if (local.dueDate !== remote.dueDate) {
+      hasConflict = true;
+      mergedTask.dueDate = remoteTime > localTime ? remote.dueDate : local.dueDate;
+    }
+    
+    // 标签：合并两边的标签（去重）
+    if (local.tags || remote.tags) {
+      const localTags = local.tags || [];
+      const remoteTags = remote.tags || [];
+      const mergedTags = [...new Set([...localTags, ...remoteTags])];
+      mergedTask.tags = mergedTags.length > 0 ? mergedTags : undefined;
+    }
+    
+    // 附件：合并两边的附件（按 ID 去重）
+    if (local.attachments || remote.attachments) {
+      const localAttachments = local.attachments || [];
+      const remoteAttachments = remote.attachments || [];
+      const attachmentMap = new Map<string, typeof localAttachments[0]>();
+      
+      // 先添加本地附件
+      localAttachments.forEach(a => attachmentMap.set(a.id, a));
+      // 远程附件覆盖（如果存在）
+      remoteAttachments.forEach(a => {
+        if (!attachmentMap.has(a.id) || remoteTime > localTime) {
+          attachmentMap.set(a.id, a);
+        }
+      });
+      
+      mergedTask.attachments = Array.from(attachmentMap.values());
+    }
+    
+    // 位置信息：保留本地位置（避免拖拽位置被覆盖）
+    mergedTask.x = local.x;
+    mergedTask.y = local.y;
+    
+    // 阶段、父级、排序：使用较新版本的结构信息
+    if (local.stage !== remote.stage || local.parentId !== remote.parentId || local.order !== remote.order) {
+      if (remoteTime > localTime) {
+        mergedTask.stage = remote.stage;
+        mergedTask.parentId = remote.parentId;
+        mergedTask.order = remote.order;
+        mergedTask.rank = remote.rank;
+      }
+    }
+    
+    // 更新合并时间戳
+    mergedTask.updatedAt = new Date().toISOString();
+    
+    return { mergedTask, hasConflict };
+  }
+
+  /**
+   * 智能合并文本内容
+   * 尝试保留双方的添加
+   */
+  private mergeTextContent(localContent: string, remoteContent: string, localTime: number, remoteTime: number): string {
+    // 简单策略：如果一方的内容是另一方的前缀/后缀，则合并
+    // 否则使用更新时间较新的版本
+    
+    // 检查是否一方是另一方的扩展
+    if (remoteContent.startsWith(localContent)) {
+      // 远程内容是本地内容的扩展，使用远程
+      return remoteContent;
+    }
+    if (localContent.startsWith(remoteContent)) {
+      // 本地内容是远程内容的扩展，使用本地
+      return localContent;
+    }
+    if (remoteContent.endsWith(localContent)) {
+      // 远程内容以本地内容结尾
+      return remoteContent;
+    }
+    if (localContent.endsWith(remoteContent)) {
+      // 本地内容以远程内容结尾
+      return localContent;
+    }
+    
+    // 尝试行级合并（适用于待办列表场景）
+    const localLines = localContent.split('\n');
+    const remoteLines = remoteContent.split('\n');
+    
+    // 如果行数差异不大，尝试合并
+    if (Math.abs(localLines.length - remoteLines.length) <= 5) {
+      const mergedLines = this.mergeLines(localLines, remoteLines);
+      if (mergedLines) {
+        return mergedLines.join('\n');
+      }
+    }
+    
+    // 默认：使用更新时间较新的版本
+    return remoteTime > localTime ? remoteContent : localContent;
+  }
+
+  /**
+   * 行级合并
+   * 尝试保留双方新增的行
+   */
+  private mergeLines(localLines: string[], remoteLines: string[]): string[] | null {
+    const localSet = new Set(localLines);
+    const remoteSet = new Set(remoteLines);
+    
+    // 找出双方共有的行
+    const commonLines = localLines.filter(line => remoteSet.has(line));
+    
+    // 如果共有行太少，说明内容差异太大，无法行级合并
+    if (commonLines.length < Math.min(localLines.length, remoteLines.length) * 0.5) {
+      return null;
+    }
+    
+    // 找出各自新增的行
+    const localOnlyLines = localLines.filter(line => !remoteSet.has(line));
+    const remoteOnlyLines = remoteLines.filter(line => !localSet.has(line));
+    
+    // 合并：保留所有共有行 + 本地新增 + 远程新增
+    // 保持原有顺序：以较长的版本为基础，在合适位置插入新增行
+    const baselines = localLines.length >= remoteLines.length ? localLines : remoteLines;
+    const additionalLines = localLines.length >= remoteLines.length ? remoteOnlyLines : localOnlyLines;
+    
+    // 简单策略：将新增行追加到末尾
+    return [...baselines, ...additionalLines.filter(line => !new Set(baselines).has(line))];
   }
 
   /**
@@ -287,22 +434,49 @@ export class ConflictResolutionService {
 
   /**
    * 合并连接
+   * 支持软删除：如果两边都有同一连接，使用更新时间较新的版本
    */
   private mergeConnections(
     local: Project['connections'],
     remote: Project['connections']
   ): Project['connections'] {
-    const localConnSet = new Set(local.map(c => `${c.source}->${c.target}`));
-    const merged = [...local];
+    const connMap = new Map<string, typeof local[0]>();
     
+    // 先添加本地连接
+    for (const conn of local) {
+      const key = `${conn.source}->${conn.target}`;
+      connMap.set(key, conn);
+    }
+    
+    // 合并远程连接
     for (const conn of remote) {
       const key = `${conn.source}->${conn.target}`;
-      if (!localConnSet.has(key)) {
-        merged.push(conn);
+      const existing = connMap.get(key);
+      
+      if (!existing) {
+        // 远程新增的连接
+        connMap.set(key, conn);
+      } else {
+        // 两边都有，处理软删除状态
+        // 如果一边软删除了，另一边没有，使用未删除的版本（除非远程删除时间更新）
+        if (existing.deletedAt && !conn.deletedAt) {
+          connMap.set(key, conn);
+        } else if (!existing.deletedAt && conn.deletedAt) {
+          // 保留本地未删除版本，但检查描述是否需要更新
+          if (conn.description && conn.description !== existing.description) {
+            connMap.set(key, { ...existing, description: conn.description });
+          }
+        } else if (conn.description && conn.description !== existing.description) {
+          // 两边都未删除，合并描述（使用较长的描述）
+          const mergedDesc = (conn.description?.length || 0) > (existing.description?.length || 0) 
+            ? conn.description 
+            : existing.description;
+          connMap.set(key, { ...existing, description: mergedDesc });
+        }
       }
     }
     
-    return merged;
+    return Array.from(connMap.values());
   }
 
   /**

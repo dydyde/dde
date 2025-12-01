@@ -137,8 +137,20 @@ export class ToastService {
 
   /**
    * 显示 Toast 消息
+   * 支持消息合并：相同类型和标题的消息不会重复显示
    */
   private show(type: ToastType, title: string, message?: string, duration = ToastService.DEFAULT_DURATION, action?: ToastAction): void {
+    // 检查是否已有相同的消息显示中（合并逻辑）
+    const existingToast = this.toasts().find(
+      t => t.type === type && t.title === title && t.message === message
+    );
+    
+    if (existingToast) {
+      // 相同消息已存在，重置其时间（延长显示）
+      // 通过移除旧的并添加新的来刷新
+      this.dismiss(existingToast.id);
+    }
+    
     const id = crypto.randomUUID();
     const toast: ToastMessage = {
       id,
@@ -152,9 +164,16 @@ export class ToastService {
 
     this.toasts.update(current => {
       const updated = [...current, toast];
-      // 限制最大数量，移除最旧的
+      // 限制最大数量，移除最旧的（保留错误消息优先级）
       if (updated.length > ToastService.MAX_TOASTS) {
-        return updated.slice(-ToastService.MAX_TOASTS);
+        // 找到第一个非错误类型的消息移除
+        const nonErrorIndex = updated.findIndex(t => t.type !== 'error');
+        if (nonErrorIndex !== -1) {
+          updated.splice(nonErrorIndex, 1);
+        } else {
+          // 如果全是错误消息，移除最旧的
+          return updated.slice(-ToastService.MAX_TOASTS);
+        }
       }
       return updated;
     });

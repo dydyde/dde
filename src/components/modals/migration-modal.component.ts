@@ -1,6 +1,7 @@
 import { Component, inject, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MigrationService, MigrationStrategy } from '../../services/migration.service';
+import { AuthService } from '../../services/auth.service';
 
 /**
  * 数据迁移对话框组件
@@ -183,6 +184,7 @@ import { MigrationService, MigrationStrategy } from '../../services/migration.se
 })
 export class MigrationModalComponent {
   private migrationService = inject(MigrationService);
+  private authService = inject(AuthService);
   
   close = output<void>();
   migrated = output<void>();
@@ -199,10 +201,10 @@ export class MigrationModalComponent {
   async executeMigration() {
     if (!this.selectedStrategy) return;
     
-    // 获取当前用户ID（从localStorage或其他途径）
-    const userId = localStorage.getItem('currentUserId') || '';
+    // 从 AuthService 获取当前用户 ID（安全的方式）
+    const userId = this.authService.currentUserId();
     if (!userId) {
-      console.error('无法获取用户ID');
+      console.error('无法获取用户ID：用户未登录');
       return;
     }
     

@@ -16,6 +16,7 @@ import { ToastService, ToastMessage } from '../services/toast.service';
         @for (message of toast.messages(); track message.id) {
           <div 
             class="pointer-events-auto animate-toast-in rounded-lg shadow-lg border backdrop-blur-sm p-4 flex items-start gap-3 transition-all duration-300"
+            [attr.data-testid]="message.type === 'error' ? 'error-toast' : null"
             [class.bg-emerald-50]="message.type === 'success'"
             [class.border-emerald-200]="message.type === 'success'"
             [class.bg-red-50]="message.type === 'error'"

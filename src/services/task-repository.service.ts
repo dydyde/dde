@@ -633,6 +633,7 @@ export class TaskRepositoryService {
 
   private mapRowToConnection(row: ConnectionRow): Connection {
     return {
+      id: row.id,
       source: row.source_id,
       target: row.target_id,
       description: row.description ?? undefined

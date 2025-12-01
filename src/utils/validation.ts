@@ -337,6 +337,8 @@ export function sanitizeAttachment(attachment: any): Attachment {
  * 注意：此函数会静默修复无效数据，修复内容已在日志中记录
  */
 export function sanitizeTask(task: any): Task {
+  const fixes: string[] = [];
+  
   // 解析附件
   const attachments = Array.isArray(task.attachments)
     ? task.attachments.slice(0, MAX_ATTACHMENTS_PER_TASK).map(sanitizeAttachment)
@@ -360,6 +362,20 @@ export function sanitizeTask(task: any): Task {
     if (!isNaN(parsedDate.getTime())) {
       dueDate = task.dueDate;
     }
+  }
+
+  // 记录修复的字段
+  if (!task.id) fixes.push('id (已生成)');
+  if (!task.title || typeof task.title !== 'string') fixes.push('title');
+  if (typeof task.rank !== 'number' || !Number.isFinite(task.rank)) fixes.push('rank');
+  if (typeof task.order !== 'number' || !Number.isFinite(task.order)) fixes.push('order');
+  if (!['active', 'completed', 'archived'].includes(task.status)) fixes.push('status');
+  if (typeof task.x !== 'number' || !Number.isFinite(task.x)) fixes.push('x');
+  if (typeof task.y !== 'number' || !Number.isFinite(task.y)) fixes.push('y');
+  
+  // 输出修复日志
+  if (fixes.length > 0) {
+    console.warn(`[sanitizeTask] 任务 ${task.id || 'unknown'} 的以下字段已修复:`, fixes.join(', '));
   }
 
   return {

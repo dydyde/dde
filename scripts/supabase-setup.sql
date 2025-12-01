@@ -481,7 +481,42 @@ CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON public.user_preferenc
 -- 路径格式: {user_id}/{project_id}/{task_id}/{filename}
 
 -- ============================================
--- 9. 回收站自动清理函数
+-- 9. 清理日志表 (cleanup_logs)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.cleanup_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  details JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 启用 RLS（仅服务端可访问）
+ALTER TABLE public.cleanup_logs ENABLE ROW LEVEL SECURITY;
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_cleanup_logs_type ON public.cleanup_logs(type);
+CREATE INDEX IF NOT EXISTS idx_cleanup_logs_created_at ON public.cleanup_logs(created_at);
+
+-- 自动清理超过 30 天的日志
+CREATE OR REPLACE FUNCTION cleanup_old_logs()
+RETURNS INTEGER AS $$
+DECLARE
+  deleted_count INTEGER;
+BEGIN
+  WITH deleted AS (
+    DELETE FROM public.cleanup_logs 
+    WHERE created_at < NOW() - INTERVAL '30 days'
+    RETURNING id
+  )
+  SELECT COUNT(*) INTO deleted_count FROM deleted;
+  
+  RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================
+-- 10. 回收站自动清理函数
 -- ============================================
 
 -- 创建清理函数
@@ -512,9 +547,15 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 --   '0 3 * * *',  -- 每天凌晨 3 点执行
 --   $$SELECT cleanup_old_deleted_tasks()$$
 -- );
+--
+-- SELECT cron.schedule(
+--   'cleanup-old-logs',
+--   '0 4 * * *',  -- 每天凌晨 4 点执行
+--   $$SELECT cleanup_old_logs()$$
+-- );
 
 -- ============================================
--- 10. 启用实时订阅
+-- 11. 启用实时订阅
 -- ============================================
 
 DO $$
@@ -551,7 +592,7 @@ BEGIN
 END $$;
 
 -- ============================================
--- 11. RLS 验证查询（可选）
+-- 12. RLS 验证查询（可选）
 -- ============================================
 
 -- 验证 RLS 是否启用
@@ -563,7 +604,7 @@ END $$;
 -- WHERE schemaname = 'public';
 
 -- ============================================
--- 12. 附加脚本说明
+-- 13. 附加脚本说明
 -- ============================================
 -- 
 -- 以下脚本需要单独运行：

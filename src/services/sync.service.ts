@@ -296,15 +296,32 @@ export class SyncService {
   /**
    * 初始化实时订阅
    * 订阅项目级别和任务级别的变更
+   * 使用订阅管理器模式防止重复订阅
    */
   async initRealtimeSubscription(userId: string) {
     if (!this.supabase.isConfigured || !userId) return;
     
+    // 防止重复订阅：如果已经为同一个用户订阅了，直接返回
+    if (this.currentSubscribedUserId === userId && 
+        this.realtimeChannel !== null && 
+        this.tasksChannel !== null) {
+      this.logger.debug('已经为该用户建立了订阅，跳过重复订阅', { userId });
+      return;
+    }
+    
+    // 如果是不同用户或需要重新订阅，先清理旧订阅
+    if (this.currentSubscribedUserId !== null && this.currentSubscribedUserId !== userId) {
+      this.logger.info('用户已切换，清理旧订阅', { 
+        oldUserId: this.currentSubscribedUserId, 
+        newUserId: userId 
+      });
+    }
+    
+    this.teardownRealtimeSubscription();
+    
     // 记录当前订阅的用户
     this.currentSubscribedUserId = userId;
     this.isDestroyed = false;
-    
-    this.teardownRealtimeSubscription();
 
     // 项目级别订阅 - 使用 Tab ID 隔离避免多标签页频道冲突
     const channel = this.supabase.client()

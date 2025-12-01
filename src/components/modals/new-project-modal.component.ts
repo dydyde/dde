@@ -7,10 +7,11 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-scale-in" (click)="$event.stopPropagation()">
+      <div data-testid="new-project-modal" class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-scale-in" (click)="$event.stopPropagation()">
         <h2 class="text-xl font-bold mb-4 text-stone-800">新建项目</h2>
         <input 
-          #projName 
+          #projName
+          data-testid="project-name-input"
           placeholder="项目名称" 
           class="w-full border border-stone-200 p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-300 text-stone-700" 
           maxlength="50"
@@ -23,6 +24,7 @@ import { CommonModule } from '@angular/common';
         <div class="flex justify-end gap-2">
           <button (click)="close.emit()" class="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors">取消</button>
           <button 
+            data-testid="create-project-confirm"
             (click)="onConfirm()"
             [disabled]="!projName.value.trim()"
             class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">

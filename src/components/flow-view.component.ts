@@ -834,10 +834,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         const pt = new go.Point(x, y);
         const loc = this.diagram.transformViewToDoc(pt);
         
-        // 查找插入位置
+        // 查找插入位置（包括连接线上的插入）
         const insertInfo = this.findInsertPosition(loc);
         
-        if (insertInfo.parentId) {
+        // 新增：处理拖放到连接线上的情况
+        if (insertInfo.insertOnLink) {
+          const { sourceId, targetId } = insertInfo.insertOnLink;
+          this.insertTaskBetweenNodes(task.id, sourceId, targetId, loc);
+        } else if (insertInfo.parentId) {
           const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
           if (parentTask) {
             const newStage = (parentTask.stage || 1) + 1;
@@ -1019,7 +1023,26 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
               e.subject.each((part: any) => {
                   if (part instanceof go.Node) {
                       const loc = part.location;
+                      const nodeData = part.data;
+                      
                       this.zone.run(() => {
+                          // === 新增：检测待分配节点是否拖到了连接线上 ===
+                          if (nodeData?.isUnassigned || nodeData?.stage === null) {
+                              const insertInfo = this.findInsertPosition(loc);
+                              
+                              if (insertInfo.insertOnLink) {
+                                  // 拖到了连接线上，执行插入操作
+                                  const { sourceId, targetId } = insertInfo.insertOnLink;
+                                  this.logger.info('待分配节点拖到连接线上', { 
+                                      taskId: nodeData.key, 
+                                      sourceId, 
+                                      targetId 
+                                  });
+                                  this.insertTaskBetweenNodes(nodeData.key, sourceId, targetId, loc);
+                                  return; // 插入操作会更新位置，不需要再单独保存
+                              }
+                          }
+                          
                           // 使用带 Rank 同步的位置更新，保持文本视图和流程图排序一致
                           this.store.updateTaskPositionWithRankSync(part.data.key, loc.x, loc.y);
                       });
@@ -1254,10 +1277,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
               const pt = this.diagram.lastInput.viewPoint;
               const loc = this.diagram.transformViewToDoc(pt);
               
-              // 查找拖放位置附近的节点，判断是否插入到两个节点之间
+              // 查找拖放位置附近的节点或连接线，判断是否插入到两个节点之间
               const insertInfo = this.findInsertPosition(loc);
               
-              if (insertInfo.parentId) {
+              // 新增：处理拖放到连接线上的情况（插入到两个节点之间）
+              if (insertInfo.insertOnLink) {
+                  const { sourceId, targetId } = insertInfo.insertOnLink;
+                  this.insertTaskBetweenNodes(task.id, sourceId, targetId, loc);
+              } else if (insertInfo.parentId) {
                   // 插入为某个节点的子节点
                   const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
                   if (parentTask) {
@@ -1388,10 +1415,29 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   // 根据拖放位置查找插入点
-  private findInsertPosition(loc: any): { parentId?: string; beforeTaskId?: string; afterTaskId?: string } {
+  // 支持插入到连接线上（两个节点之间）
+  private findInsertPosition(loc: any): { 
+    parentId?: string; 
+    beforeTaskId?: string; 
+    afterTaskId?: string;
+    // 新增：插入到连接线上的信息
+    insertOnLink?: {
+      sourceId: string;  // 原父节点
+      targetId: string;  // 原子节点
+    };
+  } {
       if (!this.diagram) return {};
       
       const threshold = GOJS_CONFIG.LINK_CAPTURE_THRESHOLD; // 检测范围（像素）
+      
+      // === 新增：优先检测是否拖放到连接线上 ===
+      const linkInsertInfo = this.findLinkAtPosition(loc);
+      if (linkInsertInfo) {
+        this.logger.info('拖放位置匹配连接线', linkInsertInfo);
+        return { insertOnLink: linkInsertInfo };
+      }
+      
+      // === 原有逻辑：检测节点附近 ===
       let closestNode: any = null;
       let closestDistance = Infinity;
       let insertPosition: string = 'after';
@@ -1437,6 +1483,193 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       } else {
           return { afterTaskId: nodeId };
       }
+  }
+
+  /**
+   * 检测指定位置是否靠近某条父子连接线
+   * 如果是，返回该连接线的源（父）和目标（子）节点ID
+   */
+  private findLinkAtPosition(loc: any): { sourceId: string; targetId: string } | null {
+    if (!this.diagram) return null;
+    
+    const linkThreshold = 50; // 连接线捕获距离（像素）- 增大以提高易用性
+    let closestLink: any = null;
+    let closestDistance = Infinity;
+    
+    // 统计连接线数量用于调试
+    let linkCount = 0;
+    let parentChildLinkCount = 0;
+    
+    // 遍历所有连接线
+    this.diagram.links.each((link: any) => {
+      linkCount++;
+      
+      // 只处理父子连接线（非跨树连接）
+      if (link.data?.isCrossTree) return;
+      
+      parentChildLinkCount++;
+      
+      // 确保连接线有有效数据
+      if (!link.data?.from || !link.data?.to) return;
+      
+      // 计算点到连接线的距离
+      const distance = this.pointToLinkDistance(loc, link);
+      
+      if (distance < linkThreshold && distance < closestDistance) {
+        closestDistance = distance;
+        closestLink = link;
+      }
+    });
+    
+    // 调试日志
+    if (parentChildLinkCount > 0) {
+      this.logger.debug('连接线检测', { 
+        总连接线数: linkCount,
+        父子连接线数: parentChildLinkCount,
+        最近距离: closestDistance,
+        阈值: linkThreshold,
+        是否找到: !!closestLink
+      });
+    }
+    
+    if (closestLink && closestLink.data) {
+      this.logger.info('检测到靠近连接线', { 
+        from: closestLink.data.from, 
+        to: closestLink.data.to,
+        distance: closestDistance 
+      });
+      return {
+        sourceId: closestLink.data.from,
+        targetId: closestLink.data.to
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * 计算点到连接线的最近距离
+   * 使用连接线的多个采样点进行计算，提高精确度
+   */
+  private pointToLinkDistance(point: any, link: go.Link): number {
+    // 尝试使用连接线的实际路径几何
+    const geo = link.path?.geometry;
+    if (geo) {
+      // 获取连接线路径的边界
+      const bounds = geo.bounds;
+      if (bounds) {
+        // 检查点是否在边界附近
+        const expandedBounds = bounds.copy().inflate(30, 30);
+        if (!expandedBounds.containsPoint(new go.Point(point.x - (link.location?.x || 0), point.y - (link.location?.y || 0)))) {
+          return Infinity; // 点不在连接线附近，直接返回无穷大
+        }
+      }
+    }
+    
+    // 获取连接线的起点和终点
+    const fromNode = link.fromNode;
+    const toNode = link.toNode;
+    if (!fromNode || !toNode) return Infinity;
+    
+    const startPoint = fromNode.location;
+    const endPoint = toNode.location;
+    
+    if (!startPoint || !endPoint) return Infinity;
+    
+    // 使用点到线段的距离公式
+    const distance = this.pointToSegmentDistance(
+      point.x, point.y,
+      startPoint.x, startPoint.y,
+      endPoint.x, endPoint.y
+    );
+    
+    return distance;
+  }
+
+  /**
+   * 计算点到线段的最短距离
+   */
+  private pointToSegmentDistance(
+    px: number, py: number,
+    x1: number, y1: number,
+    x2: number, y2: number
+  ): number {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    
+    if (lengthSquared === 0) {
+      // 线段长度为0，返回点到点的距离
+      return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    }
+    
+    // 计算投影点在线段上的位置参数 t
+    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSquared;
+    
+    // 限制 t 在 [0, 1] 范围内（投影点在线段上）
+    t = Math.max(0, Math.min(1, t));
+    
+    // 计算投影点坐标
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    
+    // 返回点到投影点的距离
+    return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+  }
+
+  /**
+   * 将任务插入到两个节点之间（连接线上）
+   * 
+   * 操作步骤：
+   * 1. 将原子节点(target)的父级改为新任务
+   * 2. 将新任务的父级设为原父节点(source)
+   * 3. 阶段(stage)和 displayId 会由 layoutService 自动级联更新
+   * 
+   * @param taskId 要插入的任务ID（待分配任务）
+   * @param sourceId 原父节点ID
+   * @param targetId 原子节点ID
+   * @param loc 拖放位置
+   */
+  private insertTaskBetweenNodes(taskId: string, sourceId: string, targetId: string, loc: any): void {
+    const sourceTask = this.store.tasks().find(t => t.id === sourceId);
+    const targetTask = this.store.tasks().find(t => t.id === targetId);
+    
+    if (!sourceTask || !targetTask) {
+      this.logger.warn('insertTaskBetweenNodes: 找不到源或目标任务', { sourceId, targetId });
+      return;
+    }
+    
+    // 确保 source 是 target 的直接父节点（父子关系）
+    if (targetTask.parentId !== sourceId) {
+      this.logger.warn('insertTaskBetweenNodes: 目标任务的父节点不是源节点', { 
+        targetParentId: targetTask.parentId, 
+        sourceId 
+      });
+      return;
+    }
+    
+    // 计算新任务的阶段：应该在 source 和 target 之间
+    // 如果 source.stage = N, target.stage = N+1, 新任务也应该是 N+1
+    // 然后 target 及其子树的 stage 都需要 +1
+    const newTaskStage = (sourceTask.stage || 1) + 1;
+    
+    this.logger.info('插入任务到连接线', { 
+      taskId, 
+      sourceId, 
+      targetId, 
+      newTaskStage 
+    });
+    
+    // 使用 store 的方法完成插入
+    // 这是一个复合操作，需要调用专门的方法
+    this.store.insertTaskBetween(taskId, sourceId, targetId);
+    
+    // 更新拖放位置
+    setTimeout(() => {
+      this.store.updateTaskPosition(taskId, loc.x, loc.y);
+    }, 100);
+    
+    this.toast.success('任务已插入', '任务已插入到两个节点之间');
   }
 
   updateDiagram(tasks: Task[], forceRefresh: boolean = false) {

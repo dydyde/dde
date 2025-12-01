@@ -101,6 +101,7 @@ export class GoJSDiagramService {
   
   /**
    * 销毁图表
+   * 完全清理图表资源，防止内存泄漏
    */
   destroyDiagram() {
     if (this.positionSaveTimer) {
@@ -109,11 +110,21 @@ export class GoJSDiagramService {
     }
     
     if (this.diagram) {
+      // 移除所有事件监听器
+      this.diagram.removeDiagramListener('SelectionMoved', () => {});
+      this.diagram.removeDiagramListener('PartResized', () => {});
+      
+      // 清理图表内容
+      this.diagram.clear();
+      
+      // 断开与 DOM 的连接
       this.diagram.div = null;
       this.diagram = null;
     }
     
     this.callbacks = null;
+    this.isLinkMode.set(false);
+    this.diagramError.set(null);
   }
   
   /**

@@ -169,13 +169,16 @@ export class UndoService {
     
     const action = stack[stack.length - 1];
     
-    // 版本检查：如果远程版本已更新，拒绝撤销
+    // 版本检查：如果远程版本已更新（超过本地记录的版本），拒绝撤销
     // 只有当两个版本号都有定义时才进行检查
+    // 注意：允许本地版本比记录的版本高（本地多次操作后撤销是正常的）
+    // 只拒绝当检测到远程同步导致版本跳跃的情况
+    // 使用宽松判断：如果远程版本比记录版本高超过允许的偏差量才拒绝
     if (currentProjectVersion !== undefined && 
         currentProjectVersion !== null &&
         action.projectVersion !== undefined &&
         action.projectVersion !== null &&
-        currentProjectVersion > action.projectVersion + 1) {
+        currentProjectVersion > action.projectVersion + UNDO_CONFIG.VERSION_TOLERANCE) {
       return 'version-mismatch';
     }
     
@@ -204,11 +207,12 @@ export class UndoService {
     
     // 版本检查：如果远程版本已更新，拒绝重做
     // 只有当两个版本号都有定义时才进行检查
+    // 使用与 undo 相同的宽松判断逻辑
     if (currentProjectVersion !== undefined && 
         currentProjectVersion !== null &&
         action.projectVersion !== undefined &&
         action.projectVersion !== null &&
-        currentProjectVersion > action.projectVersion + 1) {
+        currentProjectVersion > action.projectVersion + UNDO_CONFIG.VERSION_TOLERANCE) {
       return 'version-mismatch';
     }
     

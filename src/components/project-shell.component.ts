@@ -273,11 +273,12 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   /**
    * 处理任务深链接定位
    * 等待任务数据加载后定位到指定任务
+   * 使用指数退避策略减少不必要的等待
    */
   private handleTaskDeepLink(taskId: string) {
-    // 使用 setTimeout 和重试机制，但动态调整重试间隔
-    const maxRetries = 15;
+    const maxRetries = 10;
     const baseDelay = 100;
+    const maxDelay = 2000;
     let retries = 0;
     
     const tryFocusTask = () => {
@@ -303,13 +304,24 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
         }, 100);
       } else if (retries < maxRetries && (isLoading || !task)) {
         // 数据尚未加载，继续重试，使用指数退避
-        const delay = Math.min(baseDelay * Math.pow(1.5, retries - 1), 1000);
+        const delay = Math.min(baseDelay * Math.pow(1.5, retries - 1), maxDelay);
         setTimeout(tryFocusTask, delay);
       } else {
         // 超时未找到任务，导航到流程图视图并提示用户
         const projectId = this.store.activeProjectId();
         if (projectId) {
           void this.router.navigate(['/projects', projectId, 'flow'], { replaceUrl: true });
+          
+          // 如果任务确实不存在（而不是加载超时），显示提示
+          if (!isLoading && !task) {
+            import('../services/toast.service').then(m => {
+              // 使用动态导入避免循环依赖
+              const toast = (window as any).__nanoflowToastService;
+              if (toast) {
+                toast.warning('任务不存在', '请求的任务可能已被删除或您没有访问权限');
+              }
+            });
+          }
         }
       }
     };
