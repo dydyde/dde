@@ -1,11 +1,10 @@
-import { Component, input, output, signal, computed, inject, ElementRef } from '@angular/core';
+import { Component, input, output, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../../services/store.service';
 import { Task, Attachment } from '../../models';
 import { AttachmentManagerComponent } from '../attachment-manager.component';
 import { renderMarkdown } from '../../utils/markdown';
-import { FEATURE_FLAGS } from '../../config/feature-flags';
 
 /**
  * 任务详情面板组件
@@ -159,37 +158,6 @@ import { FEATURE_FLAGS } from '../../config/feature-flags';
                       <div class="text-[11px] text-stone-400 italic">点击编辑内容...</div>
                   }
               </div>
-              
-              <!-- 预览模式下的属性显示（Feature Flag 控制） -->
-              @if (featureFlags.ENABLE_PRIORITY || featureFlags.ENABLE_DUE_DATE) {
-                <div class="flex flex-wrap gap-2 text-[10px] pt-1">
-                    @if (featureFlags.ENABLE_PRIORITY && task.priority) {
-                        <span class="px-1.5 py-0.5 rounded"
-                              [class.bg-red-100]="task.priority === 'urgent'"
-                              [class.text-red-700]="task.priority === 'urgent'"
-                              [class.bg-orange-100]="task.priority === 'high'"
-                              [class.text-orange-700]="task.priority === 'high'"
-                              [class.bg-yellow-100]="task.priority === 'medium'"
-                              [class.text-yellow-700]="task.priority === 'medium'"
-                              [class.bg-blue-100]="task.priority === 'low'"
-                              [class.text-blue-700]="task.priority === 'low'">
-                            {{ getPriorityLabel(task.priority) }}
-                        </span>
-                    }
-                    @if (featureFlags.ENABLE_DUE_DATE && task.dueDate) {
-                        <span class="text-stone-500">📅 {{ task.dueDate | date:'MM-dd' }}</span>
-                    }
-                </div>
-              }
-              
-              <!-- 预览模式下的标签（Feature Flag 控制） -->
-              @if (featureFlags.ENABLE_TAGS && task.tags?.length) {
-                  <div class="flex flex-wrap gap-1">
-                      @for (tag of task.tags; track tag) {
-                          <span class="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[9px]">{{ tag }}</span>
-                      }
-                  </div>
-              }
           } @else {
               <!-- 编辑模式 -->
               <input type="text" [ngModel]="task.title" (ngModelChange)="titleChange.emit({ taskId: task.id, title: $event })"
@@ -199,65 +167,6 @@ import { FEATURE_FLAGS } from '../../config/feature-flags';
               <textarea [ngModel]="task.content" (ngModelChange)="contentChange.emit({ taskId: task.id, content: $event })" rows="4"
                   class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
                   placeholder="输入内容（支持 Markdown）..."></textarea>
-
-              <!-- 任务属性：优先级和截止日期（Feature Flag 控制） -->
-              @if (featureFlags.ENABLE_PRIORITY || featureFlags.ENABLE_DUE_DATE) {
-                <div class="flex gap-2">
-                    @if (featureFlags.ENABLE_PRIORITY) {
-                      <div class="flex-1">
-                          <label class="text-[9px] text-stone-400 block mb-0.5">优先级</label>
-                          <select 
-                              [ngModel]="task.priority || ''"
-                              (ngModelChange)="priorityChange.emit({ taskId: task.id, priority: $event || undefined })"
-                              class="w-full text-[10px] border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white">
-                              <option value="">无</option>
-                              <option value="low">低</option>
-                              <option value="medium">中</option>
-                              <option value="high">高</option>
-                              <option value="urgent">紧急</option>
-                          </select>
-                      </div>
-                    }
-                    @if (featureFlags.ENABLE_DUE_DATE) {
-                      <div class="flex-1">
-                          <label class="text-[9px] text-stone-400 block mb-0.5">截止日期</label>
-                          <input 
-                              type="date"
-                              [ngModel]="task.dueDate || ''"
-                              (ngModelChange)="dueDateChange.emit({ taskId: task.id, dueDate: $event || null })"
-                              class="w-full text-[10px] border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white">
-                      </div>
-                    }
-                </div>
-              }
-
-              <!-- 标签（Feature Flag 控制） -->
-              @if (featureFlags.ENABLE_TAGS) {
-                <div>
-                    <label class="text-[9px] text-stone-400 block mb-0.5">标签</label>
-                    <div class="flex flex-wrap gap-1 mb-1">
-                        @for (tag of task.tags || []; track tag) {
-                            <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[9px]">
-                                {{ tag }}
-                                <button (click)="tagRemove.emit({ taskId: task.id, tag })" class="hover:text-indigo-900">×</button>
-                            </span>
-                        }
-                    </div>
-                    <div class="flex gap-1">
-                        <input 
-                            #tagInput
-                            type="text"
-                            placeholder="添加标签..."
-                            (keydown.enter)="addTag(task.id, tagInput)"
-                            class="flex-1 text-[10px] border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white">
-                        <button 
-                            (click)="addTag(task.id, tagInput)"
-                            class="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded text-[10px] transition-colors">
-                            +
-                        </button>
-                    </div>
-                </div>
-              }
           }
 
           <div class="flex gap-1.5 pt-1">
@@ -357,29 +266,6 @@ import { FEATURE_FLAGS } from '../../config/feature-flags';
           } @else {
             <div class="text-[10px] text-stone-400 italic">无内容</div>
           }
-          
-          <!-- 属性标签 -->
-          <div class="flex flex-wrap gap-1 text-[9px]">
-            @if (task.priority) {
-              <span class="px-1 py-0.5 rounded"
-                    [class.bg-red-100]="task.priority === 'urgent'"
-                    [class.text-red-700]="task.priority === 'urgent'"
-                    [class.bg-orange-100]="task.priority === 'high'"
-                    [class.text-orange-700]="task.priority === 'high'"
-                    [class.bg-yellow-100]="task.priority === 'medium'"
-                    [class.text-yellow-700]="task.priority === 'medium'"
-                    [class.bg-blue-100]="task.priority === 'low'"
-                    [class.text-blue-700]="task.priority === 'low'">
-                {{ getPriorityLabel(task.priority) }}
-              </span>
-            }
-            @if (task.dueDate) {
-              <span class="text-stone-500">📅 {{ task.dueDate | date:'MM-dd' }}</span>
-            }
-            @for (tag of task.tags || []; track tag) {
-              <span class="px-1 py-0.5 bg-indigo-100 text-indigo-700 rounded">{{ tag }}</span>
-            }
-          </div>
         </div>
       } @else {
         <!-- 编辑模式 -->
@@ -470,9 +356,6 @@ import { FEATURE_FLAGS } from '../../config/feature-flags';
 export class FlowTaskDetailComponent {
   readonly store = inject(StoreService);
   
-  // Feature Flags - 暴露给模板使用
-  readonly featureFlags = FEATURE_FLAGS;
-  
   // 输入
   readonly task = input<Task | null>(null);
   readonly position = input<{ x: number; y: number }>({ x: -1, y: -1 });
@@ -489,10 +372,6 @@ export class FlowTaskDetailComponent {
   // 任务操作输出
   readonly titleChange = output<{ taskId: string; title: string }>();
   readonly contentChange = output<{ taskId: string; content: string }>();
-  readonly priorityChange = output<{ taskId: string; priority: string | undefined }>();
-  readonly dueDateChange = output<{ taskId: string; dueDate: string | null }>();
-  readonly tagAdd = output<{ taskId: string; tag: string }>();
-  readonly tagRemove = output<{ taskId: string; tag: string }>();
   readonly addSibling = output<Task>();
   readonly addChild = output<Task>();
   readonly toggleStatus = output<Task>();
@@ -524,19 +403,6 @@ export class FlowTaskDetailComponent {
    */
   renderMarkdownContent(content: string): string {
     return renderMarkdown(content);
-  }
-  
-  /**
-   * 获取优先级标签
-   */
-  getPriorityLabel(priority: string): string {
-    const labels: Record<string, string> = {
-      'low': '低优先级',
-      'medium': '中优先级',
-      'high': '高优先级',
-      'urgent': '紧急'
-    };
-    return labels[priority] || priority;
   }
   
   // 桌面端面板拖动
@@ -625,15 +491,6 @@ export class FlowTaskDetailComponent {
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onEnd);
     window.addEventListener('touchcancel', onEnd);
-  }
-  
-  // 标签添加
-  addTag(taskId: string, inputEl: HTMLInputElement) {
-    const tag = inputEl.value.trim();
-    if (tag) {
-      this.tagAdd.emit({ taskId, tag });
-      inputEl.value = '';
-    }
   }
   
   // 快速待办

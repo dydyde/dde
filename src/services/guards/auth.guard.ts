@@ -196,7 +196,7 @@ export const authGuard: CanActivateFn = async (route, state) => {
   // 未登录且无本地缓存：
   // 生成匿名会话 ID 用于数据隔离，允许访问但功能受限
   const anonymousId = getOrCreateAnonymousSessionId();
-  console.info('匿名访问模式，会话 ID:', anonymousId);
+  // 注意：不要输出会话 ID 到控制台，防止恶意脚本捕获
   console.warn('匿名用户数据仅保存在当前浏览器会话中，关闭浏览器后将丢失');
   
   return true;

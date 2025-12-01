@@ -22,10 +22,13 @@
         "./*"
       ]
     },
-    // 启用严格模式子选项，逐步增强类型安全
+    // 启用严格模式 - 所有类型检查均开启
+    "strict": true,
     "strictNullChecks": true,
-    "strictPropertyInitialization": false,
-    "noImplicitAny": false
+    "strictPropertyInitialization": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
   },
   "files": [
     "./main.ts",

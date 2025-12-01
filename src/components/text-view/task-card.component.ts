@@ -33,6 +33,7 @@ export interface TaskConnections {
   imports: [CommonModule, AttachmentManagerComponent],
   template: `
     <div 
+      data-testid="task-card"
       [attr.data-task-id]="task().id"
       (click)="onCardClick($event)"
       [attr.draggable]="!isSelected()"
@@ -77,6 +78,7 @@ export interface TaskConnections {
             <!-- 标题编辑 -->
             <input
               #titleInput
+              data-testid="task-title-edit"
               data-title-input
               type="text"
               [value]="task().title"
@@ -175,6 +177,7 @@ export interface TaskConnections {
                 同级
               </button>
               <button 
+                data-testid="child-drop-zone"
                 (click)="addChild.emit(task()); $event.stopPropagation()" 
                 class="flex-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 font-medium rounded-md flex items-center justify-center transition-all"
                 [ngClass]="{'px-2 py-1 text-xs gap-1': !isMobile(), 'px-1.5 py-0.5 text-[10px] gap-0.5': isMobile()}"
@@ -183,6 +186,7 @@ export interface TaskConnections {
                 下级
               </button>
               <button 
+                data-testid="delete-task-btn"
                 (click)="deleteTask.emit(task()); $event.stopPropagation()" 
                 class="bg-stone-100 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
                 [ngClass]="{'px-2 py-1 text-xs': !isMobile(), 'px-1.5 py-0.5 text-[10px]': isMobile()}"

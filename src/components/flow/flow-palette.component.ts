@@ -74,7 +74,7 @@ import { Task } from '../../models';
                                 {{task.title}}
                             </div>
                         }
-                        <button (click)="createUnassigned.emit()" class="px-3 py-1.5 bg-white/50 hover:bg-teal-50 text-stone-400 hover:text-teal-600 rounded-md text-xs font-medium border border-transparent transition-all">+ 新建</button>
+                        <button data-testid="create-unassigned-btn" (click)="createUnassigned.emit()" class="px-3 py-1.5 bg-white/50 hover:bg-teal-50 text-stone-400 hover:text-teal-600 rounded-md text-xs font-medium border border-transparent transition-all">+ 新建</button>
                     </div>
                     <!-- 拖回待分配区域的提示 -->
                     @if (isDropTargetActive()) {

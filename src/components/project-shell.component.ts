@@ -124,7 +124,7 @@ import { FlowViewComponent } from './flow-view.component';
                        </svg>
                    </button>
                    
-                   <button (click)="switchToFlow()" class="btn-compact bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-medium active:bg-indigo-600">
+                   <button data-testid="flow-view-tab" (click)="switchToFlow()" class="btn-compact bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-medium active:bg-indigo-600">
                       流程图
                    </button>
                  </div>
@@ -175,7 +175,7 @@ import { FlowViewComponent } from './flow-view.component';
                 @if (store.isMobile()) { 流程图 } @else { 流程视图 }
               </span>
               @if(store.isMobile()) {
-                  <button (click)="switchToText()" class="btn-compact bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-medium active:bg-indigo-600">
+                  <button data-testid="text-view-tab" (click)="switchToText()" class="btn-compact bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-medium active:bg-indigo-600">
                       文本
                   </button>
               }

@@ -19,7 +19,7 @@ import { AttachmentManagerComponent } from './attachment-manager.component';
       
       <!-- 加载状态指示器 -->
       @if (store.isLoadingRemote()) {
-        <div class="flex-none animate-pulse" [ngClass]="{'mx-4 mt-4 space-y-4': !isMobile(), 'mx-2 mt-2 space-y-2': isMobile()}">
+        <div data-testid="loading-indicator" class="flex-none animate-pulse" [ngClass]="{'mx-4 mt-4 space-y-4': !isMobile(), 'mx-2 mt-2 space-y-2': isMobile()}">
           <!-- 骨架屏：待办事项区域 -->
           <div class="rounded-xl bg-stone-100 border border-stone-200/50" [ngClass]="{'h-20': !isMobile(), 'h-14': isMobile()}">
             <div class="p-3 flex items-center gap-2">
@@ -57,7 +57,7 @@ import { AttachmentManagerComponent } from './attachment-manager.component';
       <!-- 1. 待完成区域 -->
       <section 
         class="flex-none mt-2 px-2 pb-1 rounded-xl bg-retro-rust/10 border border-retro-rust/30 transition-all"
-        [ngClass]="{'mx-4 mt-4': !isMobile(), 'mx-2': isMobile()}">>
+        [ngClass]="{'mx-4 mt-4': !isMobile(), 'mx-2': isMobile()}">
         <header 
           (click)="store.isTextUnfinishedOpen.set(!store.isTextUnfinishedOpen())" 
           class="py-2 cursor-pointer flex justify-between items-center group select-none">
@@ -120,6 +120,7 @@ import { AttachmentManagerComponent } from './attachment-manager.component';
                     <div class="space-y-2">
                       <input
                         #unassignedTitleInput
+                        data-testid="task-title-input"
                         type="text"
                         [value]="task.title"
                         (input)="onTitleInput(task.id, unassignedTitleInput.value)"
@@ -194,6 +195,7 @@ import { AttachmentManagerComponent } from './attachment-manager.component';
                 <span class="text-xs text-stone-400 italic py-1 font-light">暂无</span>
               }
               <button 
+                data-testid="add-task-btn"
                 (click)="createUnassigned()" 
                 class="px-2 py-1 bg-panel/30 hover:bg-retro-teal/20 text-retro-muted hover:text-retro-teal rounded-md text-xs font-medium transition-all">
                 + 新建

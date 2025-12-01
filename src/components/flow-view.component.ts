@@ -60,7 +60,7 @@ import * as go from 'gojs';
        <div class="flex-1 relative overflow-hidden bg-[#F9F8F6] mt-0 mx-0 border-t border-stone-200/50">
            <!-- GoJS Diagram Div - flow-canvas-container 类用于禁用浏览器默认触摸手势 -->
            @if (!diagramError()) {
-             <div #diagramDiv class="absolute inset-0 w-full h-full z-0 flow-canvas-container"></div>
+             <div #diagramDiv data-testid="flow-diagram" class="absolute inset-0 w-full h-full z-0 flow-canvas-container"></div>
            } @else {
              <!-- 流程图加载失败时的降级 UI -->
              <div class="absolute inset-0 flex flex-col items-center justify-center bg-stone-50 p-6">

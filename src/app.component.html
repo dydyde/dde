@@ -105,7 +105,8 @@
       
       @for (proj of store.filteredProjects(); track proj.id) {
         <div class="space-y-2">
-          <div (click)="selectProject(proj.id)" (dblclick)="handleProjectDoubleClick(proj.id, $event)" 
+          <div data-testid="project-item" [attr.data-project-id]="proj.id"
+               (click)="selectProject(proj.id)" (dblclick)="handleProjectDoubleClick(proj.id, $event)" 
                class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100" 
                [ngClass]="{'px-4 py-3': !store.isMobile(), 'px-2 py-2': store.isMobile()}"
                [class.bg-indigo-100]="store.activeProjectId() === proj.id" 
