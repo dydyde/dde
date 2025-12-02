@@ -13,7 +13,7 @@ import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
-import { TextViewComponent } from './text-view.component';
+import { TextViewComponent } from './text-view/text-view.component';
 import { FlowViewComponent } from './flow-view.component';
 
 /**
@@ -35,15 +35,14 @@ import { FlowViewComponent } from './flow-view.component';
     }
   `],
   template: `
-    <div class="flex h-full w-full overflow-hidden" style="background-color: var(--theme-bg);">
+    <div class="flex h-full w-full min-h-0 overflow-hidden" style="background-color: var(--theme-bg);">
       @if (store.activeProjectId()) {
         <!-- Text Column - 允许滑动手势切换 -->
-        <div class="flex flex-col border-r min-w-[300px]" 
+        <div class="flex flex-col border-r min-w-[300px] min-h-0" 
              style="background-color: var(--theme-bg); border-color: var(--theme-border);"
              [class.hidden]="store.isMobile() && store.activeView() !== 'text'"
              [class.w-full]="store.isMobile()"
              [class.flex-1]="store.isMobile()"
-             [class.min-h-0]="store.isMobile()"
              [style.width.%]="store.isMobile() ? 100 : store.textColumnRatio()"
              (touchstart)="onTextViewTouchStart($event)"
              (touchmove)="onTextViewTouchMove($event)"
@@ -165,13 +164,13 @@ import { FlowViewComponent } from './flow-view.component';
         }
 
         <!-- Flow Column -->
-        <div class="flex-1 flex flex-col min-w-[300px] relative" 
+        <div class="flex-1 flex flex-col min-w-[300px] min-h-0 relative" 
              style="background-color: var(--theme-bg);"
              [class.hidden]="store.isMobile() && store.activeView() !== 'flow'"
              [class.w-full]="store.isMobile()">
            <div class="flex items-center justify-between shrink-0 z-10"
-                [ngClass]="{'h-16 mx-6 mt-6': !store.isMobile(), 'mx-2 mt-2 mb-1': store.isMobile()}">
-              <span class="font-medium text-stone-700" [ngClass]="{'text-lg font-bold text-stone-800': !store.isMobile(), 'text-xs': store.isMobile()}">
+                [ngClass]="{'h-14 mx-4 mt-4': !store.isMobile(), 'mx-2 mt-1.5 mb-0.5': store.isMobile()}">
+              <span class="font-medium text-stone-700" [ngClass]="{'text-base font-bold text-stone-800': !store.isMobile(), 'text-xs': store.isMobile()}">
                 @if (store.isMobile()) { 流程图 } @else { 流程视图 }
               </span>
               @if(store.isMobile()) {
@@ -180,7 +179,7 @@ import { FlowViewComponent } from './flow-view.component';
                   </button>
               }
            </div>
-           <app-flow-view class="flex-1 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
+           <app-flow-view class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
         </div>
       } @else {
         <!-- 无活动项目时的占位 -->

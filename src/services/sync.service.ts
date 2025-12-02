@@ -89,6 +89,9 @@ export class SyncService {
   /** 任务级别的变更回调 - 用于细粒度更新 */
   private onTaskChangeCallback: ((payload: RemoteTaskChangePayload) => void) | null = null;
   
+  /** 保存队列最大长度 - 防止内存泄漏 */
+  private static readonly MAX_SAVE_QUEUE_SIZE = 50;
+  
   /** 保存操作的互斥锁 - 防止并发保存导致版本号冲突 */
   private saveLock = {
     isLocked: false,
@@ -96,7 +99,10 @@ export class SyncService {
       resolve: (value: { success: boolean; conflict?: boolean; remoteData?: Project }) => void;
       project: Project;
       userId: string;
-    }>
+      enqueuedAt: number; // 入队时间戳
+    }>,
+    /** 统计：溢出丢弃计数 */
+    overflowCount: 0
   };
   
   /** 是否暂停处理远程更新（队列同步期间） */
@@ -666,8 +672,25 @@ export class SyncService {
     
     // 如果当前有保存操作正在进行，加入队列等待
     if (this.saveLock.isLocked) {
+      // 队列溢出保护：当队列过长时，丢弃最旧的请求
+      if (this.saveLock.queue.length >= SyncService.MAX_SAVE_QUEUE_SIZE) {
+        const droppedCount = Math.floor(SyncService.MAX_SAVE_QUEUE_SIZE / 4); // 丢弃25%
+        const dropped = this.saveLock.queue.splice(0, droppedCount);
+        this.saveLock.overflowCount += droppedCount;
+        
+        // 立即 resolve 被丢弃的请求，返回成功（它们会被后续更新覆盖）
+        for (const item of dropped) {
+          item.resolve({ success: true });
+        }
+        
+        this.logger.warn(`保存队列溢出：丢弃 ${droppedCount} 个旧请求（累计丢弃 ${this.saveLock.overflowCount}）`, {
+          queueLength: this.saveLock.queue.length,
+          maxSize: SyncService.MAX_SAVE_QUEUE_SIZE
+        });
+      }
+      
       return new Promise((resolve) => {
-        this.saveLock.queue.push({ resolve, project, userId });
+        this.saveLock.queue.push({ resolve, project, userId, enqueuedAt: Date.now() });
       });
     }
     
@@ -686,14 +709,33 @@ export class SyncService {
   
   /**
    * 处理保存队列中的下一个请求
+   * 合并相同项目的请求，只保留最新状态
    */
   private processNextSaveInQueue() {
     if (this.saveLock.queue.length === 0) return;
     
-    // 合并队列中相同项目的请求，只保留最后一个
+    // 合并队列中相同项目的请求，只保留最后一个（最新状态）
     const projectMap = new Map<string, typeof this.saveLock.queue[0]>();
+    let mergedCount = 0;
+    const droppedResolvers: Array<(value: { success: boolean }) => void> = [];
+    
     for (const item of this.saveLock.queue) {
+      const existing = projectMap.get(item.project.id);
+      if (existing) {
+        mergedCount++;
+        // 立即 resolve 被覆盖的请求
+        droppedResolvers.push(existing.resolve);
+      }
       projectMap.set(item.project.id, item);
+    }
+    
+    // 记录合并情况
+    if (mergedCount > 0) {
+      this.logger.debug(`保存队列合并: ${this.saveLock.queue.length} -> ${projectMap.size} 个请求 (合并了 ${mergedCount} 个中间状态)`);
+      // 立即 resolve 被合并的旧请求
+      for (const resolver of droppedResolvers) {
+        resolver({ success: true });
+      }
     }
     
     // 清空队列
@@ -1095,5 +1137,59 @@ export class SyncService {
     
     this.onRemoteChangeCallback = null;
     this.onTaskChangeCallback = null;
+  }
+  
+  // ========== 显式状态重置（用于测试和 HMR）==========
+  
+  /**
+   * 显式重置服务状态
+   * 用于测试环境的 afterEach 或 HMR 重载
+   * 
+   * 注意：与 destroy() 不同，reset() 只重置状态，不标记服务为已销毁
+   */
+  reset(): void {
+    // 清理订阅和定时器
+    this.teardownRealtimeSubscription();
+    this.removeNetworkListeners();
+    
+    if (this.remoteChangeTimer) {
+      clearTimeout(this.remoteChangeTimer);
+      this.remoteChangeTimer = null;
+    }
+    
+    if (this.retryState.timer) {
+      clearTimeout(this.retryState.timer);
+      this.retryState.timer = null;
+    }
+    
+    // 重置状态
+    this.syncState.set({
+      isSyncing: false,
+      isOnline: typeof window !== 'undefined' ? navigator.onLine : true,
+      offlineMode: false,
+      sessionExpired: false,
+      syncError: null,
+      hasConflict: false,
+      conflictData: null
+    });
+    
+    this.isLoadingRemote.set(false);
+    this.retryState.count = 0;
+    this.currentSubscribedUserId = null;
+    this.isDestroyed = false;
+    this.pauseRemoteUpdates = false;
+    this.pendingConflictReload = null;
+    
+    // 清空保存锁队列
+    this.saveLock.isLocked = false;
+    this.saveLock.queue = [];
+    this.saveLock.overflowCount = 0;
+    
+    // 清空回调
+    this.onRemoteChangeCallback = null;
+    this.onTaskChangeCallback = null;
+    
+    // 重新设置网络监听器（因为服务可能继续使用）
+    this.setupNetworkListeners();
   }
 }

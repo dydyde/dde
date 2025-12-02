@@ -8,7 +8,8 @@ import { ToastService } from './services/toast.service';
 import { SupabaseClientService } from './services/supabase-client.service';
 import { MigrationService } from './services/migration.service';
 import { GlobalErrorHandler } from './services/global-error-handler.service';
-import { ModalService, type DeleteProjectData, type ConflictData } from './services/modal.service';
+import { ModalService, type DeleteProjectData, type ConflictData, type LoginData } from './services/modal.service';
+import { DynamicModalService } from './services/dynamic-modal.service';
 import { ToastContainerComponent } from './components/toast-container.component';
 import { SyncStatusComponent } from './components/sync-status.component';
 import { OfflineBannerComponent } from './components/offline-banner.component';
@@ -23,11 +24,12 @@ import {
   MigrationModalComponent,
   ErrorRecoveryModalComponent
 } from './components/modals';
+import { ErrorBoundaryComponent } from './components/error-boundary.component';
 import { FormsModule } from '@angular/forms';
 import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
 import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
-import { getErrorMessage } from './utils/result';
+import { getErrorMessage, isFailure, isSuccess } from './utils/result';
 import { ThemeType, Project } from './models';
 
 @Component({
@@ -40,6 +42,7 @@ import { ThemeType, Project } from './models';
     ToastContainerComponent,
     SyncStatusComponent,
     OfflineBannerComponent,
+    ErrorBoundaryComponent,
     SettingsModalComponent,
     LoginModalComponent,
     ConflictModalComponent,
@@ -62,6 +65,7 @@ export class AppComponent implements OnInit, OnDestroy {
   migrationService = inject(MigrationService);
   errorHandler = inject(GlobalErrorHandler);
   modal = inject(ModalService);
+  dynamicModal = inject(DynamicModalService);
   
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -499,8 +503,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.isAuthLoading.set(true);
     try {
       const result = await this.auth.signIn(this.authEmail(), this.authPassword());
-      if (result.error || !result.success) {
-        throw new Error(result.error || 'Login failed');
+      if (isFailure(result)) {
+        throw new Error(getErrorMessage(result.error));
       }
       this.sessionEmail.set(this.auth.sessionEmail());
       
@@ -516,9 +520,19 @@ export class AppComponent implements OnInit, OnDestroy {
       await this.checkMigrationAfterLogin();
       
       this.isReloginMode.set(false);
+      
+      // 获取 returnUrl（如果有）并导航
+      const loginData = this.modal.getData('login') as LoginData | undefined;
+      const returnUrl = loginData?.returnUrl;
+      
       this.modal.closeByType('login', { success: true, userId: userId ?? undefined });
       if (opts?.closeSettings) {
         this.modal.closeByType('settings');
+      }
+      
+      // 如果有 returnUrl，导航到该 URL
+      if (returnUrl && returnUrl !== '/') {
+        void this.router.navigateByUrl(returnUrl);
       }
     } catch (e: any) {
       this.authError.set(e?.message ?? String(e));
@@ -553,13 +567,13 @@ export class AppComponent implements OnInit, OnDestroy {
     this.isAuthLoading.set(true);
     try {
       const result = await this.auth.signUp(this.authEmail(), this.authPassword());
-      if (result.error) {
-        throw new Error(result.error);
+      if (isFailure(result)) {
+        throw new Error(getErrorMessage(result.error));
       }
-      if (result.needsConfirmation) {
+      if (result.value.needsConfirmation) {
         // 需要邮箱验证
         this.authError.set('注册成功！请查收邮件并点击验证链接完成注册。');
-      } else if (result.success && this.auth.currentUserId()) {
+      } else if (this.auth.currentUserId()) {
         // 注册成功且自动登录
         this.sessionEmail.set(this.auth.sessionEmail());
         await this.store.setCurrentUser(this.auth.currentUserId());
@@ -590,8 +604,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.isAuthLoading.set(true);
     try {
       const result = await this.auth.resetPassword(this.authEmail());
-      if (result.error) {
-        throw new Error(result.error);
+      if (isFailure(result)) {
+        throw new Error(getErrorMessage(result.error));
       }
       this.resetPasswordSent.set(true);
     } catch (e: any) {
@@ -826,12 +840,33 @@ async signOut() {
       // 如果失败，模态框保持打开，错误消息由 store 通过 toast 显示
   }
 
-  // 确认删除项目
-  confirmDeleteProject(projectId: string, projectName: string, event: Event) {
+  // 确认删除项目（使用动态模态框 - 推荐方式）
+  async confirmDeleteProject(projectId: string, projectName: string, event: Event) {
     event.stopPropagation();
-    this.modal.show('deleteProject', { projectId, projectName });
+    
+    // 动态渲染模态框，直接等待结果
+    const { DeleteConfirmModalComponent } = await import('./components/modals/delete-confirm-modal.component');
+    
+    const modalRef = this.dynamicModal.open(DeleteConfirmModalComponent, {
+      data: {
+        title: '删除项目',
+        message: '确定要删除项目吗？',
+        itemName: projectName,
+        warning: '此操作将删除项目及其所有任务，且无法撤销！'
+      }
+    });
+    
+    const result = await modalRef.result as { confirmed: boolean } | undefined;
+    
+    if (result?.confirmed) {
+      const deleteResult = await this.store.deleteProject(projectId);
+      if (deleteResult.success) {
+        this.expandedProjectId.set(null);
+      }
+    }
   }
   
+  // 以下方法已废弃，保留用于兼容（如果仍有模板使用旧方式）
   // 执行删除项目
   async executeDeleteProject() {
     const target = this.deleteProjectTarget();

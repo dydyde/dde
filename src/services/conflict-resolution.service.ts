@@ -244,12 +244,17 @@ export class ConflictResolutionService {
       mergedTask.dueDate = remoteTime > localTime ? remote.dueDate : local.dueDate;
     }
     
-    // 标签：合并两边的标签（去重）
+    // 标签：智能合并两边的标签
     if (local.tags || remote.tags) {
       const localTags = local.tags || [];
       const remoteTags = remote.tags || [];
-      const mergedTags = [...new Set([...localTags, ...remoteTags])];
+      const mergedTags = this.mergeTagsWithIntent(localTags, remoteTags, localTime, remoteTime);
       mergedTask.tags = mergedTags.length > 0 ? mergedTags : undefined;
+      // 标签变化也算冲突
+      if (local.tags?.length !== remote.tags?.length || 
+          !localTags.every(t => remoteTags.includes(t))) {
+        hasConflict = true;
+      }
     }
     
     // 附件：合并两边的附件（按 ID 去重）
@@ -474,5 +479,66 @@ export class ConflictResolutionService {
   private validateAndRebalance(project: Project): Project {
     const { project: validatedProject } = this.layoutService.validateAndFixTree(project);
     return this.layoutService.rebalance(validatedProject);
+  }
+
+  /**
+   * 智能合并标签，考虑用户意图
+   * 
+   * 策略：
+   * 1. 两边都有的标签：保留
+   * 2. 只在一边新增的标签：保留（用户添加了新标签）
+   * 3. 标签在一边被删除：
+   *    - 如果删除方的更新时间更新，则删除该标签
+   *    - 否则保留该标签
+   * 
+   * 这样可以正确处理：
+   * - 用户 A 添加标签 X，用户 B 添加标签 Y → 结果：X, Y
+   * - 用户 A 删除标签 X（最后操作），用户 B 未改动 → 结果：无 X
+   * - 用户 A 保留标签 X，用户 B 删除标签 X（最后操作） → 结果：无 X
+   */
+  private mergeTagsWithIntent(
+    localTags: string[],
+    remoteTags: string[],
+    localTime: number,
+    remoteTime: number
+  ): string[] {
+    const localSet = new Set(localTags);
+    const remoteSet = new Set(remoteTags);
+    const resultSet = new Set<string>();
+    
+    // 两边都有的标签：保留
+    for (const tag of localTags) {
+      if (remoteSet.has(tag)) {
+        resultSet.add(tag);
+      }
+    }
+    
+    // 只在本地有的标签：
+    // - 如果本地更新时间 >= 远程，说明是本地新增或保留的，保留
+    // - 如果远程更新时间更新，说明远程可能删除了这个标签，不保留
+    for (const tag of localTags) {
+      if (!remoteSet.has(tag)) {
+        if (localTime >= remoteTime) {
+          // 本地较新，保留本地新增的标签
+          resultSet.add(tag);
+        }
+        // 否则：远程较新，远程可能是有意删除了这个标签，不保留
+      }
+    }
+    
+    // 只在远程有的标签：
+    // - 如果远程更新时间 >= 本地，说明是远程新增的，保留
+    // - 如果本地更新时间更新，说明本地可能删除了这个标签，不保留
+    for (const tag of remoteTags) {
+      if (!localSet.has(tag)) {
+        if (remoteTime >= localTime) {
+          // 远程较新，保留远程新增的标签
+          resultSet.add(tag);
+        }
+        // 否则：本地较新，本地可能是有意删除了这个标签，不保留
+      }
+    }
+    
+    return Array.from(resultSet);
   }
 }

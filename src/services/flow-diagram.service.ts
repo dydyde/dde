@@ -1,0 +1,881 @@
+import { Injectable, inject, signal, NgZone, ElementRef } from '@angular/core';
+import { StoreService } from './store.service';
+import { LoggerService } from './logger.service';
+import { ToastService } from './toast.service';
+import { FlowDiagramConfigService } from './flow-diagram-config.service';
+import { Task, Project } from '../models';
+import { environment } from '../environments/environment';
+import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
+import * as go from 'gojs';
+
+/**
+ * GoJS Diagram 监听器信息
+ */
+interface DiagramListener {
+  name: go.DiagramEventName;
+  handler: (e: any) => void;
+}
+
+/**
+ * 视图状态（用于保存/恢复）
+ */
+interface ViewState {
+  scale: number;
+  positionX: number;
+  positionY: number;
+}
+
+/**
+ * 节点点击回调
+ */
+export interface NodeClickCallback {
+  (taskId: string, isDoubleClick: boolean): void;
+}
+
+/**
+ * 连接线点击回调
+ */
+export interface LinkClickCallback {
+  (linkData: any, x: number, y: number): void;
+}
+
+/**
+ * 连接手势回调
+ */
+export interface LinkGestureCallback {
+  (sourceId: string, targetId: string, x: number, y: number, link: any): void;
+}
+
+/**
+ * 选择移动完成回调
+ */
+export interface SelectionMovedCallback {
+  (movedNodes: Array<{ key: string; x: number; y: number; isUnassigned: boolean }>): void;
+}
+
+/**
+ * FlowDiagramService - GoJS 图表核心服务
+ * 
+ * 职责：
+ * - GoJS Diagram 实例的生命周期管理
+ * - 节点和连接线模板配置
+ * - 缩放、平移、布局操作
+ * - 图表数据更新
+ * - 事件监听器管理
+ * 
+ * 设计原则：
+ * - 封装所有 GoJS 相关操作
+ * - 通过回调与组件通信，保持解耦
+ * - 统一管理事件监听器，防止内存泄漏
+ */
+@Injectable({
+  providedIn: 'root'
+})
+export class FlowDiagramService {
+  private readonly store = inject(StoreService);
+  private readonly logger = inject(LoggerService).category('FlowDiagram');
+  private readonly toast = inject(ToastService);
+  private readonly zone = inject(NgZone);
+  private readonly configService = inject(FlowDiagramConfigService);
+  
+  // ========== 内部状态 ==========
+  private diagram: go.Diagram | null = null;
+  private diagramDiv: HTMLDivElement | null = null;
+  private diagramListeners: DiagramListener[] = [];
+  private resizeObserver: ResizeObserver | null = null;
+  private isDestroyed = false;
+  
+  // ========== 定时器 ==========
+  private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private viewStateSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  // ========== 回调函数 ==========
+  private nodeClickCallback: NodeClickCallback | null = null;
+  private linkClickCallback: LinkClickCallback | null = null;
+  private linkGestureCallback: LinkGestureCallback | null = null;
+  private selectionMovedCallback: SelectionMovedCallback | null = null;
+  private backgroundClickCallback: (() => void) | null = null;
+  
+  // ========== 公开信号 ==========
+  /** 初始化错误信息 */
+  readonly error = signal<string | null>(null);
+  
+  // ========== 公开属性 ==========
+  
+  /** 获取 GoJS Diagram 实例（只读访问） */
+  get diagramInstance(): go.Diagram | null {
+    return this.diagram;
+  }
+  
+  /** 是否已初始化 */
+  get isInitialized(): boolean {
+    return this.diagram !== null && !this.isDestroyed;
+  }
+  
+  // ========== 回调注册 ==========
+  
+  /** 注册节点点击回调 */
+  onNodeClick(callback: NodeClickCallback): void {
+    this.nodeClickCallback = callback;
+  }
+  
+  /** 注册连接线点击回调 */
+  onLinkClick(callback: LinkClickCallback): void {
+    this.linkClickCallback = callback;
+  }
+  
+  /** 注册连接手势回调（绘制/重连连接线） */
+  onLinkGesture(callback: LinkGestureCallback): void {
+    this.linkGestureCallback = callback;
+  }
+  
+  /** 注册选择移动完成回调 */
+  onSelectionMoved(callback: SelectionMovedCallback): void {
+    this.selectionMovedCallback = callback;
+  }
+  
+  /** 注册背景点击回调 */
+  onBackgroundClick(callback: () => void): void {
+    this.backgroundClickCallback = callback;
+  }
+  
+  // ========== 生命周期方法 ==========
+  
+  /**
+   * 初始化 GoJS Diagram
+   * @param container 图表容器元素
+   * @returns 是否初始化成功
+   */
+  initialize(container: HTMLDivElement): boolean {
+    if (typeof go === 'undefined') {
+      this.handleError('GoJS 库未加载', 'GoJS library not loaded');
+      return false;
+    }
+    
+    try {
+      this.isDestroyed = false;
+      this.diagramDiv = container;
+      
+      // 注入 GoJS License Key
+      if (environment.gojsLicenseKey) {
+        (go.Diagram as any).licenseKey = environment.gojsLicenseKey;
+      }
+      
+      const $ = go.GraphObject.make;
+      
+      // 创建 Diagram 实例
+      this.diagram = $(go.Diagram, container, {
+        "undoManager.isEnabled": false,
+        "animationManager.isEnabled": false,
+        "allowDrop": true,
+        layout: $(go.Layout), // 无操作布局，保持用户位置
+        "autoScale": go.Diagram.None,
+        "initialAutoScale": go.Diagram.None,
+        "scrollMargin": GOJS_CONFIG.SCROLL_MARGIN,
+        "draggingTool.isGridSnapEnabled": false
+      });
+      
+      // 设置节点模板
+      this.setupNodeTemplate($);
+      
+      // 设置连接线模板
+      this.setupLinkTemplate($);
+      
+      // 初始化模型
+      this.diagram!.model = new go.GraphLinksModel([], [], {
+        linkKeyProperty: 'key',
+        nodeKeyProperty: 'key'
+      });
+      
+      // 设置事件监听器
+      this.setupEventListeners();
+      
+      // 设置 ResizeObserver
+      this.setupResizeObserver();
+      
+      // 恢复视图状态
+      this.restoreViewState();
+      
+      // 清除错误状态
+      this.error.set(null);
+      
+      this.logger.info('GoJS Diagram 初始化成功');
+      return true;
+      
+    } catch (error) {
+      this.handleError('流程图初始化失败', error);
+      return false;
+    }
+  }
+  
+  /**
+   * 销毁 Diagram 实例和相关资源
+   */
+  dispose(): void {
+    this.isDestroyed = true;
+    
+    // 清理定时器
+    this.clearAllTimers();
+    
+    // 清理 ResizeObserver
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    
+    // 清理事件监听器
+    if (this.diagram) {
+      for (const listener of this.diagramListeners) {
+        try {
+          this.diagram.removeDiagramListener(listener.name, listener.handler);
+        } catch (e) {
+          // 忽略移除失败的错误
+        }
+      }
+      this.diagramListeners = [];
+      
+      // 清理 Diagram
+      this.diagram.div = null;
+      this.diagram.clear();
+      this.diagram = null;
+    }
+    
+    this.diagramDiv = null;
+    
+    // 清理回调
+    this.nodeClickCallback = null;
+    this.linkClickCallback = null;
+    this.linkGestureCallback = null;
+    this.selectionMovedCallback = null;
+    this.backgroundClickCallback = null;
+    
+    this.logger.info('GoJS Diagram 已销毁');
+  }
+  
+  // ========== 图表操作方法 ==========
+  
+  /**
+   * 放大
+   */
+  zoomIn(): void {
+    if (this.diagram) {
+      this.diagram.commandHandler.increaseZoom();
+    }
+  }
+  
+  /**
+   * 缩小
+   */
+  zoomOut(): void {
+    if (this.diagram) {
+      this.diagram.commandHandler.decreaseZoom();
+    }
+  }
+  
+  /**
+   * 设置缩放级别
+   */
+  setZoom(scale: number): void {
+    if (this.diagram) {
+      this.diagram.scale = scale;
+    }
+  }
+  
+  /**
+   * 应用自动布局
+   */
+  applyAutoLayout(): void {
+    if (!this.diagram) return;
+    
+    const $ = go.GraphObject.make;
+    
+    this.diagram.startTransaction('auto-layout');
+    this.diagram.layout = $(go.LayeredDigraphLayout, {
+      direction: 0,
+      layerSpacing: GOJS_CONFIG.LAYER_SPACING,
+      columnSpacing: GOJS_CONFIG.COLUMN_SPACING,
+      setsPortSpots: false
+    });
+    this.diagram.layoutDiagram(true);
+    
+    // 布局完成后保存位置并恢复无操作布局
+    setTimeout(() => {
+      if (this.isDestroyed || !this.diagram) return;
+      this.saveAllNodePositions();
+      this.diagram.layout = $(go.Layout);
+      this.diagram.commitTransaction('auto-layout');
+    }, UI_CONFIG.SHORT_DELAY);
+  }
+  
+  /**
+   * 定位到指定节点
+   * @param nodeKey 节点 key
+   * @param select 是否选中节点
+   */
+  centerOnNode(nodeKey: string, select: boolean = true): void {
+    if (!this.diagram) return;
+    
+    const node = this.diagram.findNodeForKey(nodeKey);
+    if (node) {
+      this.diagram.centerRect(node.actualBounds);
+      if (select) {
+        this.diagram.select(node);
+      }
+    }
+  }
+  
+  /**
+   * 选中指定节点
+   */
+  selectNode(nodeKey: string): void {
+    if (!this.diagram) return;
+    
+    const node = this.diagram.findNodeForKey(nodeKey);
+    if (node) {
+      this.diagram.select(node);
+      // 如果节点不在视图中，滚动到节点位置
+      if (!this.diagram.viewportBounds.containsRect(node.actualBounds)) {
+        this.diagram.centerRect(node.actualBounds);
+      }
+    }
+  }
+  
+  /**
+   * 清除选择
+   */
+  clearSelection(): void {
+    if (this.diagram) {
+      this.diagram.clearSelection();
+    }
+  }
+  
+  /**
+   * 请求重新渲染
+   */
+  requestUpdate(): void {
+    if (this.diagram) {
+      this.diagram.requestUpdate();
+    }
+  }
+  
+  /**
+   * 保存所有节点位置到 store
+   */
+  saveAllNodePositions(): void {
+    if (!this.diagram) return;
+    
+    this.diagram.nodes.each((node: any) => {
+      const loc = node.location;
+      if (node.data && node.data.key && loc.isReal()) {
+        this.store.updateTaskPosition(node.data.key, loc.x, loc.y);
+      }
+    });
+  }
+  
+  /**
+   * 获取选中节点的 key 列表
+   */
+  getSelectedNodeKeys(): string[] {
+    const keys: string[] = [];
+    if (this.diagram) {
+      this.diagram.selection.each((part: any) => {
+        if (part instanceof go.Node && part.data?.key) {
+          keys.push(part.data.key);
+        }
+      });
+    }
+    return keys;
+  }
+  
+  /**
+   * 移除连接线
+   */
+  removeLink(link: go.Link): void {
+    if (this.diagram && link) {
+      this.diagram.remove(link);
+    }
+  }
+  
+  /**
+   * 将视口坐标转换为文档坐标
+   */
+  transformViewToDoc(viewPoint: go.Point): go.Point {
+    if (this.diagram) {
+      return this.diagram.transformViewToDoc(viewPoint);
+    }
+    return viewPoint;
+  }
+  
+  /**
+   * 将文档坐标转换为视口坐标
+   */
+  transformDocToView(docPoint: go.Point): go.Point {
+    if (this.diagram) {
+      return this.diagram.transformDocToView(docPoint);
+    }
+    return docPoint;
+  }
+  
+  /**
+   * 获取最后的输入点（视口坐标）
+   */
+  getLastInputViewPoint(): go.Point | null {
+    return this.diagram?.lastInput?.viewPoint || null;
+  }
+  
+  // ========== 图表数据更新 ==========
+  
+  /**
+   * 更新图表数据
+   * @param tasks 任务列表
+   * @param forceRefresh 是否强制刷新
+   */
+  updateDiagram(tasks: Task[], forceRefresh: boolean = false): void {
+    if (this.error() || !this.diagram) {
+      return;
+    }
+    
+    const project = this.store.activeProject();
+    if (!project) {
+      return;
+    }
+    
+    try {
+      // 检查更新类型
+      const lastUpdateType = this.store.getLastUpdateType();
+      if (lastUpdateType === 'position' && !forceRefresh) {
+        return;
+      }
+      
+      // 构建图表数据
+      const existingNodeMap = new Map<string, any>();
+      (this.diagram.model as any).nodeDataArray.forEach((n: any) => {
+        if (n.key) {
+          existingNodeMap.set(n.key, n);
+        }
+      });
+      
+      const searchQuery = this.store.searchQuery();
+      const diagramData = this.configService.buildDiagramData(
+        tasks.filter(t => !t.deletedAt), // 排除软删除的任务
+        project,
+        searchQuery,
+        existingNodeMap
+      );
+      
+      // 保存当前选中状态
+      const selectedKeys = new Set<string>();
+      this.diagram.selection.each((part: any) => {
+        if (part.data?.key) {
+          selectedKeys.add(part.data.key);
+        }
+      });
+      
+      // 更新模型
+      this.diagram.startTransaction('update');
+      this.diagram.skipsUndoManager = true;
+      
+      const model = this.diagram.model as any;
+      model.mergeNodeDataArray(diagramData.nodeDataArray);
+      model.mergeLinkDataArray(diagramData.linkDataArray);
+      
+      // 移除不存在的节点和连接线
+      const nodeKeys = new Set(diagramData.nodeDataArray.map(n => n.key));
+      const linkKeys = new Set(diagramData.linkDataArray.map(l => l.key));
+      
+      const nodesToRemove = model.nodeDataArray.filter((n: any) => !nodeKeys.has(n.key));
+      nodesToRemove.forEach((n: any) => model.removeNodeData(n));
+      
+      const linksToRemove = model.linkDataArray.filter((l: any) => !linkKeys.has(l.key));
+      linksToRemove.forEach((l: any) => model.removeLinkData(l));
+      
+      this.diagram.skipsUndoManager = false;
+      this.diagram.commitTransaction('update');
+      
+      // 恢复选中状态
+      if (selectedKeys.size > 0) {
+        this.diagram.nodes.each((node: any) => {
+          if (selectedKeys.has(node.data?.key)) {
+            node.isSelected = true;
+          }
+        });
+      }
+      
+    } catch (error) {
+      this.handleError('更新流程图失败', error);
+    }
+  }
+  
+  // ========== 拖放支持 ==========
+  
+  /**
+   * 设置拖放事件处理
+   * @param onDrop 拖放回调
+   */
+  setupDropHandler(onDrop: (taskData: any, docPoint: go.Point) => void): void {
+    if (!this.diagramDiv) return;
+    
+    this.diagramDiv.addEventListener('dragover', (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    });
+    
+    this.diagramDiv.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      const data = e.dataTransfer?.getData("application/json") || e.dataTransfer?.getData("text");
+      if (!data || !this.diagram) return;
+      
+      try {
+        const task = JSON.parse(data);
+        const pt = this.diagram.lastInput.viewPoint;
+        const loc = this.diagram.transformViewToDoc(pt);
+        onDrop(task, loc);
+      } catch (err) {
+        this.logger.error('Drop error:', err);
+      }
+    });
+  }
+  
+  // ========== 私有方法 ==========
+  
+  /**
+   * 设置节点模板
+   */
+  private setupNodeTemplate($: any): void {
+    if (!this.diagram) return;
+    
+    const self = this;
+    
+    this.diagram.nodeTemplate = $(go.Node, "Spot",
+      {
+        locationSpot: go.Spot.Center,
+        selectionAdorned: true,
+        click: (e: any, node: any) => {
+          if (e.diagram.lastInput.dragging) return;
+          self.zone.run(() => {
+            self.nodeClickCallback?.(node.data.key, false);
+          });
+        },
+        doubleClick: (e: any, node: any) => {
+          self.zone.run(() => {
+            self.nodeClickCallback?.(node.data.key, true);
+          });
+        }
+      },
+      new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
+      
+      // 主面板
+      this.configService.getNodeMainPanelConfig($),
+      
+      // 端口
+      this.configService.createPort($, "T", go.Spot.Top, true, true),
+      this.configService.createPort($, "L", go.Spot.Left, true, true),
+      this.configService.createPort($, "R", go.Spot.Right, true, true),
+      this.configService.createPort($, "B", go.Spot.Bottom, true, true)
+    );
+  }
+  
+  /**
+   * 设置连接线模板
+   */
+  private setupLinkTemplate($: any): void {
+    if (!this.diagram) return;
+    
+    const self = this;
+    const isMobile = this.store.isMobile();
+    
+    this.diagram.linkTemplate = $(go.Link,
+      {
+        routing: go.Link.AvoidsNodes,
+        curve: go.Link.JumpOver,
+        corner: 12,
+        toShortLength: 4,
+        relinkableFrom: true,
+        relinkableTo: true,
+        reshapable: true,
+        resegmentable: true,
+        click: (e: any, link: any) => {
+          e.diagram.select(link);
+        },
+        contextMenu: $(go.Adornment, "Vertical",
+          $("ContextMenuButton",
+            $(go.TextBlock, "删除连接", { margin: 5 }),
+            {
+              click: (e: any, obj: any) => {
+                const link = obj.part?.adornedPart;
+                if (link?.data) {
+                  self.zone.run(() => {
+                    self.linkClickCallback?.(link.data, 0, 0);
+                  });
+                }
+              }
+            }
+          )
+        )
+      },
+      ...this.configService.getLinkMainShapesConfig($, isMobile),
+      this.createConnectionLabelPanel($, self)
+    );
+  }
+  
+  /**
+   * 创建联系块标签面板
+   */
+  private createConnectionLabelPanel($: any, self: FlowDiagramService): go.Panel {
+    return $(go.Panel, "Auto",
+      {
+        segmentIndex: NaN,
+        segmentFraction: 0.5,
+        cursor: "pointer",
+        click: (e: any, panel: any) => {
+          e.handled = true;
+          const linkData = panel.part?.data;
+          if (linkData?.isCrossTree && self.diagramDiv) {
+            const rect = self.diagramDiv.getBoundingClientRect();
+            const clickX = e.event.pageX - rect.left;
+            const clickY = e.event.pageY - rect.top;
+            self.zone.run(() => {
+              self.linkClickCallback?.(linkData, clickX, clickY);
+            });
+          }
+        }
+      },
+      new go.Binding("visible", "isCrossTree"),
+      $(go.Shape, "RoundedRectangle", {
+        fill: "#f5f3ff",
+        stroke: "#8b5cf6",
+        strokeWidth: 1,
+        parameter1: 4
+      }),
+      $(go.Panel, "Horizontal",
+        { margin: 3, defaultAlignment: go.Spot.Center },
+        $(go.TextBlock, "🔗", { font: "8px sans-serif" }),
+        $(go.TextBlock, {
+          font: "500 8px sans-serif",
+          stroke: "#6d28d9",
+          maxSize: new go.Size(50, 14),
+          overflow: go.TextBlock.OverflowEllipsis,
+          margin: new go.Margin(0, 0, 0, 2)
+        },
+        new go.Binding("text", "description", (desc: string) => desc ? desc.substring(0, 6) : "..."))
+      )
+    );
+  }
+  
+  /**
+   * 设置事件监听器
+   */
+  private setupEventListeners(): void {
+    if (!this.diagram) return;
+    
+    const self = this;
+    
+    // 选择移动完成
+    this.addTrackedListener('SelectionMoved', (e: any) => {
+      const projectIdAtMove = self.store.activeProjectId();
+      
+      if (self.positionSaveTimer) {
+        clearTimeout(self.positionSaveTimer);
+      }
+      
+      self.positionSaveTimer = setTimeout(() => {
+        if (self.isDestroyed) return;
+        if (self.store.activeProjectId() !== projectIdAtMove) return;
+        
+        const movedNodes: Array<{ key: string; x: number; y: number; isUnassigned: boolean }> = [];
+        
+        e.subject.each((part: any) => {
+          if (part instanceof go.Node) {
+            const loc = part.location;
+            const nodeData = part.data;
+            
+            movedNodes.push({
+              key: nodeData.key,
+              x: loc.x,
+              y: loc.y,
+              isUnassigned: nodeData?.isUnassigned || nodeData?.stage === null
+            });
+          }
+        });
+        
+        if (movedNodes.length > 0) {
+          self.zone.run(() => {
+            self.selectionMovedCallback?.(movedNodes);
+          });
+        }
+      }, GOJS_CONFIG.POSITION_SAVE_DEBOUNCE);
+    });
+    
+    // 连接线绘制/重连
+    this.addTrackedListener('LinkDrawn', (e: any) => this.handleLinkGestureInternal(e));
+    this.addTrackedListener('LinkRelinked', (e: any) => this.handleLinkGestureInternal(e));
+    
+    // 背景点击
+    this.addTrackedListener('BackgroundSingleClicked', () => {
+      self.zone.run(() => {
+        self.backgroundClickCallback?.();
+      });
+    });
+    
+    // 视口变化
+    this.addTrackedListener('ViewportBoundsChanged', () => {
+      self.saveViewState();
+    });
+    
+    // 移动端连接线点击
+    if (this.store.isMobile()) {
+      this.addTrackedListener('ObjectSingleClicked', (e: any) => {
+        const part = e.subject.part;
+        if (part instanceof go.Link && part.data) {
+          const midPoint = part.midPoint;
+          if (midPoint && self.diagramDiv) {
+            const viewPt = self.diagram!.transformDocToView(midPoint);
+            const rect = self.diagramDiv.getBoundingClientRect();
+            self.zone.run(() => {
+              self.linkClickCallback?.(part.data, rect.left + viewPt.x, rect.top + viewPt.y);
+            });
+          }
+        }
+      });
+    }
+  }
+  
+  /**
+   * 处理连接手势（内部）
+   */
+  private handleLinkGestureInternal(e: any): void {
+    if (!this.diagram || !this.diagramDiv) return;
+    
+    const link = e.subject;
+    const fromNode = link?.fromNode;
+    const toNode = link?.toNode;
+    const sourceId = fromNode?.data?.key;
+    const targetId = toNode?.data?.key;
+    
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    
+    // 获取连接终点位置
+    const midPoint = link.midPoint || toNode.location;
+    const viewPt = this.diagram.transformDocToView(midPoint);
+    const diagramRect = this.diagramDiv.getBoundingClientRect();
+    const x = diagramRect.left + viewPt.x;
+    const y = diagramRect.top + viewPt.y;
+    
+    this.zone.run(() => {
+      this.linkGestureCallback?.(sourceId, targetId, x, y, link);
+    });
+  }
+  
+  /**
+   * 添加追踪的事件监听器
+   */
+  private addTrackedListener(name: go.DiagramEventName, handler: (e: any) => void): void {
+    if (!this.diagram) return;
+    this.diagram.addDiagramListener(name, handler);
+    this.diagramListeners.push({ name, handler });
+  }
+  
+  /**
+   * 设置 ResizeObserver
+   */
+  private setupResizeObserver(): void {
+    if (!this.diagramDiv) return;
+    
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.resizeDebounceTimer) {
+        clearTimeout(this.resizeDebounceTimer);
+      }
+      
+      this.resizeDebounceTimer = setTimeout(() => {
+        if (this.isDestroyed || !this.diagram || !this.diagramDiv) return;
+        
+        const width = this.diagramDiv.clientWidth;
+        const height = this.diagramDiv.clientHeight;
+        
+        if (width > 0 && height > 0) {
+          this.diagram.div = null;
+          this.diagram.div = this.diagramDiv;
+          this.diagram.requestUpdate();
+        }
+      }, UI_CONFIG.RESIZE_DEBOUNCE_DELAY);
+    });
+    
+    this.resizeObserver.observe(this.diagramDiv);
+  }
+  
+  /**
+   * 保存视图状态（防抖）
+   */
+  private saveViewState(): void {
+    if (!this.diagram) return;
+    
+    if (this.viewStateSaveTimer) {
+      clearTimeout(this.viewStateSaveTimer);
+    }
+    
+    this.viewStateSaveTimer = setTimeout(() => {
+      if (this.isDestroyed || !this.diagram) return;
+      
+      const projectId = this.store.activeProjectId();
+      if (!projectId) return;
+      
+      const scale = this.diagram.scale;
+      const pos = this.diagram.position;
+      
+      this.store.updateViewState(projectId, {
+        scale,
+        positionX: pos.x,
+        positionY: pos.y
+      });
+      
+      this.viewStateSaveTimer = null;
+    }, 1000);
+  }
+  
+  /**
+   * 恢复视图状态
+   */
+  private restoreViewState(): void {
+    if (!this.diagram) return;
+    
+    const viewState = this.store.getViewState();
+    if (!viewState) return;
+    
+    setTimeout(() => {
+      if (this.isDestroyed || !this.diagram) return;
+      this.diagram.scale = viewState.scale;
+      this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);
+    }, 200);
+  }
+  
+  /**
+   * 清理所有定时器
+   */
+  private clearAllTimers(): void {
+    if (this.positionSaveTimer) {
+      clearTimeout(this.positionSaveTimer);
+      this.positionSaveTimer = null;
+    }
+    if (this.resizeDebounceTimer) {
+      clearTimeout(this.resizeDebounceTimer);
+      this.resizeDebounceTimer = null;
+    }
+    if (this.viewStateSaveTimer) {
+      clearTimeout(this.viewStateSaveTimer);
+      this.viewStateSaveTimer = null;
+    }
+  }
+  
+  /**
+   * 处理错误
+   */
+  private handleError(userMessage: string, error: unknown): void {
+    const errorStr = error instanceof Error ? error.message : String(error);
+    this.logger.error(`❌ Flow diagram error: ${userMessage}`, error);
+    this.error.set(userMessage);
+    this.toast.error('流程图错误', `${userMessage}。请刷新页面重试。`);
+  }
+}

@@ -3,6 +3,7 @@ import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
 import { StoreService } from '../store.service';
 import { AuthService } from '../auth.service';
 import { ToastService } from '../toast.service';
+import { GUARD_CONFIG } from '../../config/constants';
 
 /**
  * 等待数据初始化完成
@@ -13,11 +14,13 @@ import { ToastService } from '../toast.service';
  */
 async function waitForDataInit(
   store: StoreService, 
-  maxWaitMs: number = 5000
+  toast: ToastService,
+  maxWaitMs: number = GUARD_CONFIG.DATA_INIT_TIMEOUT
 ): Promise<{ loaded: boolean; reason?: string }> {
   const startTime = Date.now();
-  const checkInterval = 100;
+  const checkInterval = GUARD_CONFIG.CHECK_INTERVAL;
   let lastCheckReason = '';
+  let slowNetworkWarningShown = false;
   
   while (Date.now() - startTime < maxWaitMs) {
     // 如果已有项目数据，初始化完成
@@ -29,6 +32,14 @@ async function waitForDataInit(
       return { loaded: true };
     }
     lastCheckReason = '数据正在加载中';
+    
+    // 超过慢网络阈值时显示提示（只显示一次）
+    const elapsed = Date.now() - startTime;
+    if (!slowNetworkWarningShown && elapsed >= GUARD_CONFIG.SLOW_NETWORK_THRESHOLD) {
+      slowNetworkWarningShown = true;
+      toast.info('正在加载', '网络较慢，请稍候...');
+    }
+    
     // 等待一小段时间再检查
     await new Promise(resolve => setTimeout(resolve, checkInterval));
   }
@@ -63,7 +74,7 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
   }
   
   // 等待数据初始化
-  const initResult = await waitForDataInit(store);
+  const initResult = await waitForDataInit(store, toast);
   
   // 如果超时且仍在加载中，重定向到项目列表并显示具体原因
   if (!initResult.loaded && store.isLoadingRemote()) {

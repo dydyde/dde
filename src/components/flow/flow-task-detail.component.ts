@@ -1,4 +1,4 @@
-import { Component, input, output, signal, inject } from '@angular/core';
+import { Component, input, output, signal, inject, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../../services/store.service';
@@ -27,10 +27,12 @@ import { renderMarkdown } from '../../utils/markdown';
          <!-- Content Panel -->
          <div class="w-64 max-h-96 bg-white/95 backdrop-blur-xl border border-stone-200/50 shadow-xl overflow-hidden flex flex-col rounded-xl">
              
-             <!-- 可拖动标题栏 -->
+             <!-- 可拖动标题栏 - 双击重置位置 -->
              <div class="px-3 py-2 border-b border-stone-100 flex justify-between items-center cursor-move select-none bg-gradient-to-r from-stone-50 to-white"
                   (mousedown)="startDrag($event)"
-                  (touchstart)="startDrag($event)">
+                  (touchstart)="startDrag($event)"
+                  (dblclick)="resetPosition()"
+                  title="拖动移动面板，双击重置位置">
                  <div class="flex items-center gap-1.5">
                      <span class="text-[8px] text-stone-400">☰</span>
                      <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
@@ -353,7 +355,7 @@ import { renderMarkdown } from '../../utils/markdown';
     </ng-template>
   `
 })
-export class FlowTaskDetailComponent {
+export class FlowTaskDetailComponent implements OnDestroy {
   readonly store = inject(StoreService);
   
   // 输入
@@ -412,13 +414,20 @@ export class FlowTaskDetailComponent {
     const clientX = event instanceof MouseEvent ? event.clientX : event.touches[0].clientX;
     const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
     
-    // 如果是默认位置，计算当前实际位置
-    let currentX = pos.x;
-    let currentY = pos.y;
-    if (pos.x < 0) {
-      currentX = window.innerWidth - 256 - 8; // 256 = panel width, 8 = right margin
-      currentY = 24;
-    }
+    // 获取面板的实际位置（相对于父容器）
+    const target = event.target as HTMLElement;
+    const panelEl = target.closest('.absolute') as HTMLElement;
+    if (!panelEl) return;
+    
+    const parentEl = panelEl.parentElement;
+    if (!parentEl) return;
+    
+    const parentRect = parentEl.getBoundingClientRect();
+    const panelRect = panelEl.getBoundingClientRect();
+    
+    // 计算面板相对于父容器的当前位置
+    let currentX = panelRect.left - parentRect.left;
+    let currentY = panelRect.top - parentRect.top;
     
     this.dragState = {
       isDragging: true,
@@ -443,8 +452,15 @@ export class FlowTaskDetailComponent {
     const deltaX = clientX - this.dragState.startX;
     const deltaY = clientY - this.dragState.startY;
     
-    const newX = Math.max(0, this.dragState.offsetX + deltaX);
-    const newY = Math.max(0, this.dragState.offsetY + deltaY);
+    // 限制面板不能被拖出可视区域
+    // 面板宽度 256px，高度最大 384px (max-h-96)
+    const panelWidth = 256;
+    const panelHeight = 384;
+    const maxX = Math.max(0, window.innerWidth - panelWidth - 20); // 留 20px 边距
+    const maxY = Math.max(0, window.innerHeight - panelHeight - 20);
+    
+    const newX = Math.max(0, Math.min(maxX, this.dragState.offsetX + deltaX));
+    const newY = Math.max(0, Math.min(maxY, this.dragState.offsetY + deltaY));
     
     this.positionChange.emit({ x: newX, y: newY });
   };
@@ -456,6 +472,13 @@ export class FlowTaskDetailComponent {
     document.removeEventListener('touchmove', this.onDrag);
     document.removeEventListener('touchend', this.stopDrag);
   };
+
+  /**
+   * 重置面板位置到默认位置（右上角）
+   */
+  resetPosition() {
+    this.positionChange.emit({ x: -1, y: -1 });
+  }
   
   // 移动端抽屉高度调整
   startDrawerResize(event: TouchEvent) {
@@ -501,5 +524,16 @@ export class FlowTaskDetailComponent {
       inputEl.value = '';
       inputEl.focus();
     }
+  }
+  
+  // ========== 生命周期管理 ==========
+  
+  ngOnDestroy(): void {
+    // 确保移除所有拖动相关的事件监听器
+    this.stopDrag();
+    
+    // 重置拖动状态
+    this.dragState.isDragging = false;
+    this.isResizingDrawer = false;
   }
 }

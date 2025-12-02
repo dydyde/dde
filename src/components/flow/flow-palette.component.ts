@@ -11,14 +11,20 @@ import { Task } from '../../models';
   selector: 'app-flow-palette',
   standalone: true,
   imports: [CommonModule],
+  styles: [`
+    :host {
+      display: block;
+      flex-shrink: 0;
+    }
+  `],
   template: `
     <!-- Top Palette Area (Resizable) -->
     <div class="flex-none flex flex-col overflow-hidden transition-none" [style.height.px]="height()">
         <!-- 1. 待完成区域 (To-Do) -->
-        <div class="flex-none mx-4 mt-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
+        <div class="flex-none mx-2 sm:mx-4 mt-2 sm:mt-4 px-2 sm:px-4 pb-1 sm:pb-2 transition-all duration-300 overflow-hidden rounded-xl sm:rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
             <div (click)="store.isFlowUnfinishedOpen.set(!store.isFlowUnfinishedOpen())" 
-                 class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
+                 class="py-2 sm:py-3 cursor-pointer flex justify-between items-center group select-none">
+                <span class="font-bold text-stone-700 text-xs sm:text-sm flex items-center gap-2 tracking-tight">
                     <span class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.4)]"></span>
                     待办事项
                 </span>
@@ -26,17 +32,17 @@ import { Task } from '../../models';
             </div>
             
             @if (store.isFlowUnfinishedOpen()) {
-                <div class="pb-4 animate-slide-down max-h-32 overflow-y-auto">
-                    <ul class="space-y-2">
+                <div class="pb-2 sm:pb-4 animate-slide-down max-h-24 sm:max-h-32 overflow-y-auto">
+                    <ul class="space-y-1 sm:space-y-2">
                         @for (item of store.unfinishedItems(); track item.taskId + item.text) {
-                            <li class="text-xs text-stone-600 flex items-center gap-3 bg-white/80 backdrop-blur-sm border border-stone-100/50 p-2 rounded-lg hover:border-orange-200 cursor-pointer group shadow-sm transition-all" (click)="centerOnNode.emit(item.taskId)">
+                            <li class="text-[10px] sm:text-xs text-stone-600 flex items-center gap-2 sm:gap-3 bg-white/80 backdrop-blur-sm border border-stone-100/50 p-1.5 sm:p-2 rounded-lg hover:border-orange-200 cursor-pointer group shadow-sm transition-all" (click)="centerOnNode.emit(item.taskId)">
                                 <span class="w-1 h-1 rounded-full bg-stone-200 group-hover:bg-orange-400 transition-colors ml-1"></span>
-                                <span class="font-bold text-retro-muted text-[9px] tracking-wider">{{store.compressDisplayId(item.taskDisplayId)}}</span>
+                                <span class="font-bold text-retro-muted text-[8px] sm:text-[9px] tracking-wider">{{store.compressDisplayId(item.taskDisplayId)}}</span>
                                 <span class="truncate flex-1 group-hover:text-stone-900 transition-colors">{{item.text}}</span>
                             </li>
                         }
                         @if (store.unfinishedItems().length === 0) {
-                            <li class="text-xs text-stone-400 italic px-2 font-light">暂无待办</li>
+                            <li class="text-[10px] sm:text-xs text-stone-400 italic px-2 font-light">暂无待办</li>
                         }
                     </ul>
                 </div>
@@ -44,10 +50,10 @@ import { Task } from '../../models';
         </div>
 
         <!-- 2. 待分配区域 (To-Assign) - 可拖动到流程图 -->
-        <div class="flex-none mx-4 mt-2 mb-4 px-4 pb-2 transition-all duration-300 overflow-hidden rounded-2xl bg-teal-50/60 border border-teal-100/50 backdrop-blur-sm z-10 relative">
+        <div class="flex-none mx-2 sm:mx-4 mt-1 sm:mt-2 mb-2 sm:mb-4 px-2 sm:px-4 pb-1 sm:pb-2 transition-all duration-300 overflow-hidden rounded-xl sm:rounded-2xl bg-teal-50/60 border border-teal-100/50 backdrop-blur-sm z-10 relative">
             <div (click)="store.isFlowUnassignedOpen.set(!store.isFlowUnassignedOpen())" 
-                 class="py-3 cursor-pointer flex justify-between items-center group select-none">
-                <span class="font-bold text-stone-700 text-sm flex items-center gap-2 tracking-tight">
+                 class="py-2 sm:py-3 cursor-pointer flex justify-between items-center group select-none">
+                <span class="font-bold text-stone-700 text-xs sm:text-sm flex items-center gap-2 tracking-tight">
                     <span class="w-1.5 h-1.5 rounded-full bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]"></span>
                     待分配
                 </span>
@@ -55,8 +61,8 @@ import { Task } from '../../models';
             </div>
 
             @if (store.isFlowUnassignedOpen()) {
-                <div class="pb-4 animate-slide-down max-h-32 overflow-y-auto">
-                    <div class="flex flex-wrap gap-2 unassigned-drag-area" 
+                <div class="pb-2 sm:pb-4 animate-slide-down max-h-24 sm:max-h-32 overflow-y-auto">
+                    <div class="flex flex-wrap gap-1.5 sm:gap-2 unassigned-drag-area" 
                          id="unassignedPalette"
                          (dragover)="onDragOver($event)"
                          (drop)="onDrop($event)">
@@ -68,17 +74,17 @@ import { Task } from '../../models';
                                 (touchmove)="onTouchMove($event)"
                                 (touchend)="onTouchEnd($event)"
                                 (click)="taskClick.emit(task)"
-                                class="px-3 py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500"
+                                class="px-2 sm:px-3 py-1 sm:py-1.5 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-md text-[10px] sm:text-xs font-medium hover:border-teal-300 hover:text-teal-700 cursor-pointer shadow-sm transition-all active:scale-95 text-stone-500"
                                 [class.bg-teal-100]="draggingId() === task.id"
                                 [class.border-teal-400]="draggingId() === task.id">
                                 {{task.title}}
                             </div>
                         }
-                        <button data-testid="create-unassigned-btn" (click)="createUnassigned.emit()" class="px-3 py-1.5 bg-white/50 hover:bg-teal-50 text-stone-400 hover:text-teal-600 rounded-md text-xs font-medium border border-transparent transition-all">+ 新建</button>
+                        <button data-testid="create-unassigned-btn" (click)="createUnassigned.emit()" class="px-2 sm:px-3 py-1 sm:py-1.5 bg-white/50 hover:bg-teal-50 text-stone-400 hover:text-teal-600 rounded-md text-[10px] sm:text-xs font-medium border border-transparent transition-all">+ 新建</button>
                     </div>
                     <!-- 拖回待分配区域的提示 -->
                     @if (isDropTargetActive()) {
-                      <div class="mt-2 p-2 border-2 border-dashed border-teal-300 rounded-lg bg-teal-50/50 text-center text-xs text-teal-600 animate-pulse">
+                      <div class="mt-1 sm:mt-2 p-1.5 sm:p-2 border-2 border-dashed border-teal-300 rounded-lg bg-teal-50/50 text-center text-[10px] sm:text-xs text-teal-600 animate-pulse">
                         拖放到此处解除分配
                       </div>
                     }
@@ -88,14 +94,14 @@ import { Task } from '../../models';
     </div>
 
     <!-- Resizer Handle -->
-    <div class="h-3 bg-transparent hover:bg-stone-200 cursor-row-resize z-20 flex-shrink-0 relative group transition-all flex items-center justify-center touch-none"
+    <div class="h-2 sm:h-3 bg-transparent hover:bg-stone-200 cursor-row-resize z-20 flex-shrink-0 relative group transition-all flex items-center justify-center touch-none"
          [class.h-4]="store.isMobile()"
          [class.bg-stone-100]="store.isMobile()"
          (mousedown)="startResize($event)"
          (touchstart)="startResizeTouch($event)">
-         <div class="w-12 h-1 rounded-full bg-stone-300 group-hover:bg-stone-400 transition-colors"
-              [class.w-16]="store.isMobile()"
-              [class.h-1.5]="store.isMobile()"></div>
+         <div class="w-10 sm:w-12 h-0.5 sm:h-1 rounded-full bg-stone-300 group-hover:bg-stone-400 transition-colors"
+              [class.w-14]="store.isMobile()"
+              [class.h-1]="store.isMobile()"></div>
     </div>
   `
 })

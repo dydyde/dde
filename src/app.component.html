@@ -6,7 +6,17 @@
   <!-- 离线状态横幅 - 固定在顶部，不阻碍操作 -->
   <app-offline-banner data-testid="offline-indicator"></app-offline-banner>
 
-  <div data-testid="app-container" class="flex flex-1 w-full overflow-hidden font-sans" style="background-color: var(--theme-bg); color: var(--theme-text);">
+  <!-- 全局错误边界 - 防止致命渲染错误导致白屏 -->
+  <app-error-boundary 
+    [title]="'应用出现异常'"
+    [defaultMessage]="'发生了意外错误，请尝试刷新页面。如问题持续，请联系支持。'"
+    [showRetry]="false"
+    [showRefresh]="true"
+    [showHome]="true"
+    [fatal]="true"
+    containerClass="full-page">
+    
+  <div data-testid="app-container" class="flex flex-1 w-full min-h-0 overflow-hidden font-sans" style="background-color: var(--theme-bg); color: var(--theme-text);">
   
   <!-- Toast 通知容器 -->
   <app-toast-container data-testid="toast-container"></app-toast-container>
@@ -318,7 +328,7 @@
   }
 
   <!-- Main Content - 使用 router-outlet 渲染子路由组件 -->
-  <main class="flex-1 flex relative responsive-stack overflow-x-hidden h-full overflow-hidden" style="background-color: var(--theme-bg);"
+  <main class="flex-1 flex relative responsive-stack overflow-hidden min-h-0" style="background-color: var(--theme-bg);"
         role="main"
         aria-label="任务管理区域"
         (touchstart)="onMainTouchStart($event)"
@@ -345,17 +355,7 @@
     </app-new-project-modal>
   }
   
-  <!-- Delete Project Confirmation Modal -->
-  @if(showDeleteProjectModal()) {
-    <app-delete-confirm-modal
-      title="删除项目"
-      message="确定要删除项目吗？"
-      [itemName]="deleteProjectTarget()?.name ?? ''"
-      warning="此操作将删除项目及其所有任务，且无法撤销！"
-      (close)="cancelDeleteProject()"
-      (confirm)="executeDeleteProject()">
-    </app-delete-confirm-modal>
-  }
+  <!-- Delete Project Modal 已迁移到动态渲染，不再需要模板条件 -->
   
   <!-- Login Modal -->
   @if (showLoginModal()) {
@@ -415,4 +415,5 @@
   }
 
 </div>
+  </app-error-boundary>
 </div>

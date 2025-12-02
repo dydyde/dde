@@ -265,6 +265,11 @@ export class StoreService {
       
       if (this.persistTimer) clearTimeout(this.persistTimer);
       if (this.trashCleanupTimer) clearInterval(this.trashCleanupTimer);
+      
+      // 清理附件服务回调，防止内存泄漏
+      this.attachmentService.clearUrlRefreshCallback();
+      this.attachmentService.clearMonitoredAttachments();
+      
       this.syncService.destroy();
     });
   }
@@ -284,6 +289,9 @@ export class StoreService {
    */
   async setCurrentUser(userId: string | null) {
     if (this.currentUserId() === userId) return;
+    
+    // 清理旧用户的附件监控和回调，防止内存泄漏
+    this.attachmentService.clearMonitoredAttachments();
     
     this.authService.currentUserId.set(userId);
     this.projectState.setActiveProjectId(null);
@@ -340,6 +348,10 @@ export class StoreService {
 
   /**
    * 执行撤销
+   * 支持渐进式降级：
+   * - 版本匹配：正常撤销
+   * - 版本不匹配但可强制：提示用户并提供强制选项
+   * - 版本差距过大：拒绝撤销
    */
   undo() {
     const activeProject = this.activeProject();
@@ -348,14 +360,33 @@ export class StoreService {
     
     if (!result) return;
     
+    // 版本差距过大，完全拒绝撤销
     if (result === 'version-mismatch') {
-      this.toastService.warning('撤销失败', '远程数据已更新，无法撤销');
+      this.toastService.warning('撤销失败', '远程数据已更新过多，无法撤销。请查看历史版本或刷新页面。');
       if (activeProject) {
         this.undoService.clearOutdatedHistory(activeProject.id, currentVersion ?? 0);
       }
       return;
     }
     
+    // 版本不匹配但可强制撤销
+    if (typeof result === 'object' && 'type' in result && result.type === 'version-mismatch-forceable') {
+      // 显示可恢复错误对话框，让用户选择
+      // 简化处理：直接显示警告并执行撤销（单用户场景）
+      // 多用户协作场景可以通过 GlobalErrorHandler.showRecoveryDialog 实现用户选择
+      this.toastService.warning(
+        '撤销注意', 
+        `当前内容已被新修改改变 (${result.versionDiff} 个版本)，撤销可能会覆盖最新内容。`
+      );
+      // 单用户场景：继续执行撤销
+      const action = this.undoService.forceUndo();
+      if (action) {
+        this.applyProjectSnapshot(action.projectId, action.data.before);
+      }
+      return;
+    }
+    
+    // 正常撤销
     const action = result;
     const project = this.projects().find(p => p.id === action.projectId);
     if (project) {
@@ -382,6 +413,12 @@ export class StoreService {
     if (!result) return;
     
     if (result === 'version-mismatch') {
+      this.toastService.warning('重做失败', '远程数据已更新，无法重做');
+      return;
+    }
+    
+    // 处理可强制重做的情况
+    if (typeof result === 'object' && 'type' in result && result.type === 'version-mismatch-forceable') {
       this.toastService.warning('重做失败', '远程数据已更新，无法重做');
       return;
     }
@@ -1478,18 +1515,26 @@ export class StoreService {
     }
 
     const now = new Date().toISOString();
-    const result = await this.syncService.saveProjectToCloud(
-      { ...project, updatedAt: now },
-      userId
-    );
-    
-    if (result.success) {
-      this.projectState.updateProjects(ps => ps.map(p => 
-        p.id === project.id ? { ...p, updatedAt: now } : p
-      ));
+    try {
+      const result = await this.syncService.saveProjectToCloud(
+        { ...project, updatedAt: now },
+        userId
+      );
+      
+      if (result.success) {
+        this.projectState.updateProjects(ps => ps.map(p => 
+          p.id === project.id ? { ...p, updatedAt: now } : p
+        ));
+      }
+      // 注意：即使同步失败，也要重置 hasPendingLocalChanges
+      // 因为数据已保存到离线快照，会通过 ActionQueue 重试
+    } catch (error) {
+      // 同步异常时记录错误，但不阻塞状态重置
+      console.error('持久化项目时发生异常:', error);
+    } finally {
+      // 确保状态始终被重置，避免永久卡在 pending 状态
+      this.hasPendingLocalChanges = false;
+      this.lastPersistAt = Date.now();
     }
-    
-    this.hasPendingLocalChanges = false;
-    this.lastPersistAt = Date.now();
   }
 }

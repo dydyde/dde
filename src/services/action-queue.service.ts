@@ -5,6 +5,14 @@ import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
 
 /**
+ * 操作重要性级别
+ * Level 1: 日志/埋点类 - 失败后 FIFO 丢弃，无提示
+ * Level 2: 重要但可补救的数据 - 失败进入死信队列，有容量和清理策略
+ * Level 3: 关键操作 - 失败次数超阈值触发用户提示
+ */
+export type OperationPriority = 'low' | 'normal' | 'critical';
+
+/**
  * 操作有效载荷类型
  * 根据实体类型和操作类型定义具体的载荷结构
  */
@@ -53,17 +61,19 @@ export interface QueuedAction<T extends ActionPayload = ActionPayload> {
   lastError?: string;
   /** 错误类型：network=网络错误可重试，business=业务错误不可重试 */
   errorType?: 'network' | 'business';
+  /** 操作优先级：决定失败后的处理策略 */
+  priority?: OperationPriority;
 }
 
 /**
  * 类型安全的操作入队参数
  */
 export type EnqueueParams = 
-  | { type: 'create' | 'update'; entityType: 'project'; entityId: string; payload: ProjectPayload }
-  | { type: 'delete'; entityType: 'project'; entityId: string; payload: ProjectDeletePayload }
-  | { type: 'create' | 'update'; entityType: 'task'; entityId: string; payload: TaskPayload }
-  | { type: 'delete'; entityType: 'task'; entityId: string; payload: TaskDeletePayload }
-  | { type: 'create' | 'update' | 'delete'; entityType: 'preference'; entityId: string; payload: PreferencePayload };
+  | { type: 'create' | 'update'; entityType: 'project'; entityId: string; payload: ProjectPayload; priority?: OperationPriority }
+  | { type: 'delete'; entityType: 'project'; entityId: string; payload: ProjectDeletePayload; priority?: OperationPriority }
+  | { type: 'create' | 'update'; entityType: 'task'; entityId: string; payload: TaskPayload; priority?: OperationPriority }
+  | { type: 'delete'; entityType: 'task'; entityId: string; payload: TaskDeletePayload; priority?: OperationPriority }
+  | { type: 'create' | 'update' | 'delete'; entityType: 'preference'; entityId: string; payload: PreferencePayload; priority?: OperationPriority };
 
 /**
  * 死信队列项 - 永久失败的操作
@@ -107,7 +117,11 @@ const LOCAL_QUEUE_CONFIG = {
     'unique constraint',
     'foreign key',
     'invalid input'
-  ]
+  ],
+  /** 关键操作失败通知阈值：当死信队列中关键操作超过此数量时触发用户通知 */
+  CRITICAL_FAILURE_NOTIFY_THRESHOLD: 3,
+  /** 低优先级队列最大大小（超过后 FIFO 淘汰） */
+  LOW_PRIORITY_MAX_SIZE: 20
 } as const;
 
 /**
@@ -186,21 +200,44 @@ export class ActionQueueService implements OnDestroy {
   
   /**
    * 添加操作到队列 (类型安全版本)
+   * 支持优先级分级：
+   * - low: 日志/埋点类，失败后静默丢弃
+   * - normal: 普通操作（默认），正常重试和死信处理
+   * - critical: 关键操作，失败时通知用户
    */
   enqueue(action: EnqueueParams): string {
+    // 设置默认优先级：项目操作为 critical，任务为 normal，偏好为 low
+    const defaultPriority: OperationPriority = 
+      action.entityType === 'project' ? 'critical' :
+      action.entityType === 'preference' ? 'low' : 'normal';
+    
     const queuedAction: QueuedAction = {
       ...action,
       id: crypto.randomUUID(),
       timestamp: Date.now(),
-      retryCount: 0
+      retryCount: 0,
+      priority: action.priority ?? defaultPriority
     };
     
     this.pendingActions.update(queue => {
-      // 限制队列大小
       let newQueue = [...queue, queuedAction];
+      
+      // 分级队列管理：低优先级操作优先淘汰
       if (newQueue.length > LOCAL_QUEUE_CONFIG.MAX_QUEUE_SIZE) {
-        // 移除最旧的操作
-        newQueue = newQueue.slice(-LOCAL_QUEUE_CONFIG.MAX_QUEUE_SIZE);
+        // 先尝试淘汰低优先级操作
+        const lowPriorityActions = newQueue.filter(a => a.priority === 'low');
+        if (lowPriorityActions.length > LOCAL_QUEUE_CONFIG.LOW_PRIORITY_MAX_SIZE) {
+          // 淘汰最旧的低优先级操作
+          const toRemove = lowPriorityActions.slice(0, lowPriorityActions.length - LOCAL_QUEUE_CONFIG.LOW_PRIORITY_MAX_SIZE);
+          const toRemoveIds = new Set(toRemove.map(a => a.id));
+          newQueue = newQueue.filter(a => !toRemoveIds.has(a.id));
+          this.logger.debug(`淘汰了 ${toRemove.length} 个低优先级操作`);
+        }
+        
+        // 如果仍然超过限制，按 FIFO 淘汰
+        if (newQueue.length > LOCAL_QUEUE_CONFIG.MAX_QUEUE_SIZE) {
+          newQueue = newQueue.slice(-LOCAL_QUEUE_CONFIG.MAX_QUEUE_SIZE);
+        }
       }
       return newQueue;
     });
@@ -408,8 +445,19 @@ export class ActionQueueService implements OnDestroy {
   
   /**
    * 移动操作到死信队列
+   * 根据操作优先级采取不同策略：
+   * - low: 静默丢弃，不进入死信队列
+   * - normal: 正常进入死信队列
+   * - critical: 进入死信队列并检查是否需要通知用户
    */
   private moveToDeadLetter(action: QueuedAction, reason: string) {
+    // 低优先级操作静默丢弃，不进入死信队列
+    if (action.priority === 'low') {
+      this.dequeue(action.id);
+      this.logger.debug('低优先级操作失败，静默丢弃', { actionId: action.id, reason });
+      return;
+    }
+    
     const deadLetterItem: DeadLetterItem = {
       action,
       failedAt: new Date().toISOString(),
@@ -441,11 +489,28 @@ export class ActionQueueService implements OnDestroy {
       }
     });
     
-    console.warn('Action moved to dead letter queue:', {
+    // 关键操作失败时检查是否需要通知用户
+    if (action.priority === 'critical') {
+      const criticalFailures = this.deadLetterQueue().filter(d => d.action.priority === 'critical');
+      if (criticalFailures.length >= LOCAL_QUEUE_CONFIG.CRITICAL_FAILURE_NOTIFY_THRESHOLD) {
+        // 触发用户通知
+        this.toast.error(
+          '同步失败', 
+          `有 ${criticalFailures.length} 个重要操作无法完成同步，请检查网络或稍后重试`
+        );
+        this.logger.warn('关键操作失败超过阈值，已通知用户', { 
+          count: criticalFailures.length,
+          threshold: LOCAL_QUEUE_CONFIG.CRITICAL_FAILURE_NOTIFY_THRESHOLD 
+        });
+      }
+    }
+    
+    this.logger.warn('Action moved to dead letter queue:', {
       actionId: action.id,
       type: action.type,
       entityType: action.entityType,
       entityId: action.entityId,
+      priority: action.priority,
       reason
     });
   }
@@ -617,5 +682,37 @@ export class ActionQueueService implements OnDestroy {
     } catch (e) {
       console.warn('Failed to load dead letter queue from storage', e);
     }
+  }
+  
+  // ========== 显式状态重置（用于测试和 HMR）==========
+  
+  /**
+   * 显式重置服务状态
+   * 用于测试环境的 afterEach 或 HMR 重载
+   * 
+   * 注意：Root 级别的服务在 Angular 设计中不会被销毁，
+   * 使用显式 reset() 方法而非 ngOnDestroy 来清理状态
+   */
+  reset(): void {
+    // 移除网络监听器
+    this.removeNetworkListeners();
+    
+    // 清空队列
+    this.pendingActions.set([]);
+    this.deadLetterQueue.set([]);
+    this.queueSize.set(0);
+    this.deadLetterSize.set(0);
+    this.isProcessing.set(false);
+    
+    // 清空处理器和回调
+    this.processors.clear();
+    this.failureCallbacks.length = 0;
+    
+    // 重置回调
+    this.onQueueProcessStart = null;
+    this.onQueueProcessEnd = null;
+    
+    // 重置网络状态
+    this.isOnline = true;
   }
 }

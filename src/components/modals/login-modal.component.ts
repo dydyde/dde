@@ -1,4 +1,4 @@
-import { Component, signal, computed, Output, EventEmitter, input } from '@angular/core';
+import { Component, signal, computed, Output, EventEmitter, input, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -166,7 +166,7 @@ import { FormsModule } from '@angular/forms';
     </div>
   `
 })
-export class LoginModalComponent {
+export class LoginModalComponent implements OnDestroy {
   @Output() close = new EventEmitter<void>();
   @Output() login = new EventEmitter<{ email: string; password: string }>();
   @Output() signup = new EventEmitter<{ email: string; password: string; confirmPassword: string }>();
@@ -297,5 +297,13 @@ export class LoginModalComponent {
     this.isSignupMode.set(false);
     this.isResetPasswordMode.set(false);
     this.resetPasswordSent.set(false);
+  }
+
+  /**
+   * 组件销毁时自动清理敏感数据
+   * 确保密码等敏感信息不会残留在内存中
+   */
+  ngOnDestroy() {
+    this.resetFormState();
   }
 }

@@ -111,6 +111,7 @@ const mockConflictService = {
 
 const mockAttachmentService = {
   setUrlRefreshCallback: vi.fn(),
+  clearUrlRefreshCallback: vi.fn(),
   clearMonitoredAttachments: vi.fn(),
   monitorAttachment: vi.fn(),
 };

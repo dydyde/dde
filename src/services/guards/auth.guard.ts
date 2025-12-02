@@ -1,74 +1,10 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../auth.service';
+import { ModalService } from '../modal.service';
 
 /** 本地认证缓存 key */
 const AUTH_CACHE_KEY = 'nanoflow.auth-cache';
-
-/** 匿名用户数据隔离 key */
-const ANONYMOUS_DATA_KEY = 'nanoflow.anonymous-session';
-
-/** 内存中的匿名会话 ID 缓存 */
-let memoryAnonymousSessionId: string | null = null;
-
-/**
- * 生成或获取匿名会话 ID
- * 用于隔离不同匿名用户的数据
- * 
- * 优先级：
- * 1. sessionStorage（正常浏览）
- * 2. localStorage（隐私模式 sessionStorage 不可用时的回退）
- * 3. 内存缓存（所有存储都不可用时的最终回退）
- */
-function getOrCreateAnonymousSessionId(): string {
-  // 首先尝试 sessionStorage
-  try {
-    let sessionId = sessionStorage.getItem(ANONYMOUS_DATA_KEY);
-    if (sessionId) {
-      return sessionId;
-    }
-  } catch {
-    // sessionStorage 不可用，继续尝试其他方式
-  }
-  
-  // 尝试 localStorage 作为回退（持久但跨会话）
-  try {
-    let sessionId = localStorage.getItem(ANONYMOUS_DATA_KEY);
-    if (sessionId) {
-      // 检查是否是有效的会话 ID（不超过 24 小时）
-      const match = sessionId.match(/^anon_(\d+)_/);
-      if (match) {
-        const timestamp = parseInt(match[1], 10);
-        const hoursSinceCreation = (Date.now() - timestamp) / (1000 * 60 * 60);
-        if (hoursSinceCreation < 24) {
-          return sessionId;
-        }
-      }
-    }
-    
-    // 创建新的会话 ID
-    sessionId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    localStorage.setItem(ANONYMOUS_DATA_KEY, sessionId);
-    
-    // 同时尝试保存到 sessionStorage
-    try {
-      sessionStorage.setItem(ANONYMOUS_DATA_KEY, sessionId);
-    } catch {
-      // 忽略 sessionStorage 错误
-    }
-    
-    return sessionId;
-  } catch {
-    // localStorage 也不可用，使用内存缓存
-  }
-  
-  // 最终回退：使用内存缓存
-  if (!memoryAnonymousSessionId) {
-    memoryAnonymousSessionId = `anon_mem_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    console.warn('存储不可用，使用内存缓存的匿名会话 ID（刷新后将丢失）');
-  }
-  return memoryAnonymousSessionId;
-}
 
 /**
  * 检查本地缓存的认证状态
@@ -149,64 +85,13 @@ async function waitForSessionCheck(authService: AuthService, maxWaitMs: number =
 }
 
 /**
- * 认证路由守卫（宽松模式 - 已废弃）
- * 
- * ⚠️ 废弃说明：
- * 此守卫允许匿名访问，会导致「幽灵数据」问题。
- * 请使用 requireAuthGuard 替代，确保数据归属权清晰。
- * 
- * 保留此守卫仅用于特殊场景：
- * - 公开只读页面
- * - Landing Page 预览
- * - 无需持久化的功能演示
- * 
- * @deprecated 请使用 requireAuthGuard
- */
-export const authGuard: CanActivateFn = async (route, state) => {
-  const authService = inject(AuthService);
-  const router = inject(Router);
-  
-  // 如果 Supabase 未配置，允许离线模式访问
-  if (!authService.isConfigured) {
-    return true;
-  }
-  
-  // 等待会话检查完成（带超时保护）
-  const authState = authService.authState();
-  if (authState.isCheckingSession) {
-    await waitForSessionCheck(authService);
-  }
-  
-  // 检查是否有会话
-  const userId = authService.currentUserId();
-  if (userId) {
-    // 保存认证状态到本地缓存
-    saveAuthCache(userId);
-    return true;
-  }
-  
-  // 离线模式：检查本地缓存的认证状态
-  const localAuth = checkLocalAuthCache();
-  if (localAuth.userId) {
-    // 有本地缓存的认证信息，允许离线访问
-    console.info('使用本地缓存的认证状态（离线模式）');
-    return true;
-  }
-  
-  // 未登录且无本地缓存：
-  // 生成匿名会话 ID 用于数据隔离，允许访问但功能受限
-  const anonymousId = getOrCreateAnonymousSessionId();
-  // 注意：不要输出会话 ID 到控制台，防止恶意脚本捕获
-  console.warn('匿名用户数据仅保存在当前浏览器会话中，关闭浏览器后将丢失');
-  
-  return true;
-};
-
-/**
  * 获取当前数据隔离 ID
  * 用于确定数据存储的命名空间
+ * 
+ * 注意：此函数现在仅返回已登录用户的 ID
+ * 不再支持匿名会话，符合「强制认证」策略
  */
-export function getDataIsolationId(authService: AuthService): string {
+export function getDataIsolationId(authService: AuthService): string | null {
   const userId = authService.currentUserId();
   if (userId) {
     return userId;
@@ -217,23 +102,23 @@ export function getDataIsolationId(authService: AuthService): string {
     return localAuth.userId;
   }
   
-  return getOrCreateAnonymousSessionId();
+  // 不再返回匿名会话 ID，返回 null 表示无法确定用户身份
+  return null;
 }
 
 /**
  * 强制登录守卫
  * 用于保护需要明确用户身份的路由和功能
  * 
- * 【已启用】此守卫已在核心路由中使用，确保数据归属权清晰。
+ * 【核心策略】所有数据操作都需要 user_id：
+ * - 简化 Supabase RLS 策略 - 所有操作都有明确的数据归属
+ * - 避免「幽灵数据」问题 - 无需处理匿名数据到正式账户的迁移
+ * - 保障数据安全 - 防止未授权访问和垃圾数据注入
  * 
- * 设计理念：
- * - 所有数据操作都需要 user_id，简化 RLS 策略
- * - 避免匿名数据迁移的复杂性（幽灵数据问题）
- * - 保障数据库安全，防止垃圾数据注入
- * 
- * 与 authGuard 的区别：
- * - authGuard：允许匿名访问，为匿名用户生成会话级数据隔离（已废弃）
- * - requireAuthGuard：强制要求登录，拒绝匿名访问（推荐使用）
+ * 开发环境便利：
+ * - 配置 environment.devAutoLogin 后，应用启动时会自动登录
+ * - Guard 仍然存在且生效，只是登录过程被自动化
+ * - 避免"关掉 Guard"的懒惰做法，保持代码路径一致
  * 
  * 使用场景：
  * - 所有核心业务路由（/projects/*）
@@ -243,6 +128,7 @@ export function getDataIsolationId(authService: AuthService): string {
 export const requireAuthGuard: CanActivateFn = async (route, state) => {
   const authService = inject(AuthService);
   const router = inject(Router);
+  const modalService = inject(ModalService);
   
   if (!authService.isConfigured) {
     // Supabase 未配置，允许离线模式访问
@@ -252,6 +138,7 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
   }
   
   // 等待会话检查完成（带超时保护）
+  // 注意：checkSession 现在会自动尝试开发环境自动登录
   const authState = authService.authState();
   if (authState.isCheckingSession) {
     await waitForSessionCheck(authService);
@@ -271,11 +158,37 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
     return true;
   }
   
-  // 未登录，重定向到项目页面并触发登录弹窗
-  // 使用 queryParams 传递信息，让 AppComponent 显示登录模态框
+  // 未登录，直接通过 ModalService 触发登录弹窗
+  // 相比使用 queryParams 更直接，避免 URL 残留参数
   console.info('未登录，需要认证才能访问');
-  void router.navigate(['/'], {
-    queryParams: { authRequired: 'true', returnUrl: state.url }
-  });
+  
+  // 导航到首页并显示登录模态框
+  void router.navigate(['/']);
+  
+  // 使用 setTimeout 确保导航完成后再显示模态框
+  // 这样模态框会在正确的路由上下文中打开
+  setTimeout(() => {
+    modalService.show('login', { returnUrl: state.url, message: '请登录以访问此页面' });
+  }, 0);
+  
   return false;
+};
+
+/**
+ * 认证路由守卫（宽松模式）
+ * 
+ * ⚠️ 已废弃 - 请使用 requireAuthGuard
+ * 
+ * 此守卫允许匿名访问，会导致「幽灵数据」问题：
+ * - 匿名用户数据无法归属到任何账户
+ * - RLS 策略需要特殊处理 auth.uid() is null
+ * - 数据迁移复杂且容易出错
+ * 
+ * 保留此守卫仅用于向后兼容，新路由请使用 requireAuthGuard
+ * 
+ * @deprecated 请使用 requireAuthGuard
+ */
+export const authGuard: CanActivateFn = (route, state) => {
+  console.warn('⚠️ authGuard 已废弃，请迁移到 requireAuthGuard');
+  return requireAuthGuard(route, state);
 };

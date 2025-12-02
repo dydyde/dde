@@ -286,4 +286,5 @@ type ModalDataForType<T extends ModalType> =
   T extends 'conflict' ? ConflictData :
   T extends 'connectionEditor' ? ConnectionEditorData :
   T extends 'linkTypeDialog' ? LinkTypeData :
+  T extends 'login' ? LoginData :
   undefined;

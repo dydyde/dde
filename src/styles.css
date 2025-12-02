@@ -343,3 +343,14 @@ div[class*="diagram"] > div:last-child:not(:first-child) {
   margin-right: 0.5em;
   accent-color: #4f46e5;
 }
+
+/* ========== GoJS 流程图画布触摸手势 ========== */
+/* 显式禁用浏览器默认的触摸手势，避免与 GoJS 画布操作冲突 */
+.flow-canvas-container {
+  touch-action: none;
+  /* 防止长按触发上下文菜单 */
+  -webkit-touch-callout: none;
+  /* 防止文本选择 */
+  -webkit-user-select: none;
+  user-select: none;
+}

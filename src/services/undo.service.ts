@@ -3,6 +3,19 @@ import { UndoAction, Project, Task } from '../models';
 import { UNDO_CONFIG } from '../config/constants';
 
 /**
+ * 撤销操作结果类型
+ * - UndoAction: 撤销成功，返回操作数据
+ * - 'version-mismatch': 版本不匹配，建议不撤销
+ * - 'version-mismatch-forceable': 版本不匹配但可强制撤销，附带 action 数据
+ * - null: 没有可撤销的操作
+ */
+export type UndoResult = 
+  | UndoAction 
+  | null 
+  | 'version-mismatch' 
+  | { type: 'version-mismatch-forceable'; action: UndoAction; versionDiff: number };
+
+/**
  * 撤销/重做服务
  * 实现应用级别的撤销重做功能
  * 
@@ -157,10 +170,14 @@ export class UndoService {
   /**
    * 执行撤销
    * 在撤销前检查快照中的任务是否仍然存在
+   * 支持渐进式降级：
+   * 1. 版本差距小于容差：正常撤销
+   * 2. 版本差距在容差范围内：返回可强制撤销结果
+   * 3. 版本差距过大：拒绝撤销
    * @param currentProjectVersion 当前项目版本号，用于检测远程更新冲突
    * @returns 需要应用的撤销数据，或 null（如果没有可撤销的操作），或 'version-mismatch'（如果版本不匹配）
    */
-  undo(currentProjectVersion?: number): UndoAction | null | 'version-mismatch' {
+  undo(currentProjectVersion?: number): UndoResult {
     const stack = this.undoStack();
     if (stack.length === 0) return null;
     
@@ -174,9 +191,23 @@ export class UndoService {
     if (currentProjectVersion !== undefined && 
         currentProjectVersion !== null &&
         action.projectVersion !== undefined &&
-        action.projectVersion !== null &&
-        currentProjectVersion > action.projectVersion + UNDO_CONFIG.VERSION_TOLERANCE) {
-      return 'version-mismatch';
+        action.projectVersion !== null) {
+      
+      const versionDiff = currentProjectVersion - action.projectVersion;
+      
+      // 版本差距超过容差的 2 倍：完全拒绝撤销
+      if (versionDiff > UNDO_CONFIG.VERSION_TOLERANCE * 2) {
+        return 'version-mismatch';
+      }
+      
+      // 版本差距在容差范围内：返回可强制撤销结果
+      if (versionDiff > UNDO_CONFIG.VERSION_TOLERANCE) {
+        return {
+          type: 'version-mismatch-forceable',
+          action,
+          versionDiff
+        };
+      }
     }
     
     this.isUndoRedoing = true;
@@ -190,13 +221,32 @@ export class UndoService {
     this.isUndoRedoing = false;
     return action;
   }
+  
+  /**
+   * 强制执行撤销（忽略版本检查）
+   * 警告：这可能覆盖远程更新，仅在用户明确确认后使用
+   */
+  forceUndo(): UndoAction | null {
+    const stack = this.undoStack();
+    if (stack.length === 0) return null;
+    
+    const action = stack[stack.length - 1];
+    
+    this.isUndoRedoing = true;
+    
+    this.undoStack.update(s => s.slice(0, -1));
+    this.redoStack.update(s => [...s, action]);
+    
+    this.isUndoRedoing = false;
+    return action;
+  }
 
   /**
    * 执行重做
    * @param currentProjectVersion 当前项目版本号，用于检测远程更新冲突
    * @returns 需要应用的重做数据，或 null（如果没有可重做的操作），或 'version-mismatch'（如果版本不匹配）
    */
-  redo(currentProjectVersion?: number): UndoAction | null | 'version-mismatch' {
+  redo(currentProjectVersion?: number): UndoResult {
     const stack = this.redoStack();
     if (stack.length === 0) return null;
     
@@ -297,5 +347,29 @@ export class UndoService {
    */
   get isProcessing(): boolean {
     return this.isUndoRedoing;
+  }
+  
+  // ========== 显式状态重置（用于测试和 HMR）==========
+  
+  /**
+   * 显式重置服务状态
+   * 用于测试环境的 afterEach 或 HMR 重载
+   * 
+   * 注意：Root 级别的服务在 Angular 设计中不会被销毁，
+   * 使用显式 reset() 方法而非 ngOnDestroy 来清理状态
+   */
+  reset(): void {
+    // 清除待处理的防抖操作
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    
+    // 重置所有状态
+    this.undoStack.set([]);
+    this.redoStack.set([]);
+    this.pendingAction = null;
+    this.lastActionTime = 0;
+    this.isUndoRedoing = false;
   }
 }

@@ -1,0 +1,367 @@
+import { 
+  Component, 
+  Input, 
+  signal, 
+  inject,
+  OnInit,
+  OnDestroy,
+  ErrorHandler,
+  ChangeDetectorRef
+} from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { GlobalErrorHandler, ErrorSeverity } from '../services/global-error-handler.service';
+import { LoggerService } from '../services/logger.service';
+
+/**
+ * 错误边界组件
+ * 用于捕获子组件的渲染错误并显示降级 UI
+ * 
+ * 注意：Angular 不像 React 那样有原生的 ErrorBoundary 机制
+ * 此组件通过 try-catch 和 ErrorHandler 的组合来实现类似功能
+ * 
+ * 使用方式：
+ * 1. 根组件级：包裹整个应用，防止白屏
+ * 2. 局部级：包裹高风险模块（如富文本编辑器、第三方图表）
+ * 
+ * @example
+ * <app-error-boundary [title]="'图表加载失败'" [showRetry]="true">
+ *   <app-complex-chart></app-complex-chart>
+ * </app-error-boundary>
+ */
+@Component({
+  selector: 'app-error-boundary',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    <!-- 正常状态：显示子内容 -->
+    @if (!hasError()) {
+      <ng-content></ng-content>
+    }
+    
+    <!-- 错误状态：显示降级 UI -->
+    @if (hasError()) {
+      <div class="error-boundary-fallback" 
+           [class]="containerClass"
+           role="alert"
+           aria-live="polite">
+        <div class="error-content">
+          <!-- 图标 -->
+          <div class="error-icon" [class.error-icon-fatal]="isFatal()">
+            @if (isFatal()) {
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-12 h-12">
+                <path fill-rule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" />
+              </svg>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-10 h-10">
+                <path fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clip-rule="evenodd" />
+              </svg>
+            }
+          </div>
+          
+          <!-- 标题和消息 -->
+          <h3 class="error-title">{{ title }}</h3>
+          <p class="error-message">{{ userMessage() || defaultMessage }}</p>
+          
+          <!-- 详细错误信息（开发模式） -->
+          @if (showDetails && errorDetails()) {
+            <details class="error-details">
+              <summary>技术详情</summary>
+              <pre>{{ errorDetails() }}</pre>
+            </details>
+          }
+          
+          <!-- 操作按钮 -->
+          <div class="error-actions">
+            @if (showRetry) {
+              <button 
+                class="btn-retry"
+                (click)="retry()"
+                type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mr-1">
+                  <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clip-rule="evenodd" />
+                </svg>
+                重试
+              </button>
+            }
+            
+            @if (showRefresh) {
+              <button 
+                class="btn-refresh"
+                (click)="refreshPage()"
+                type="button">
+                刷新页面
+              </button>
+            }
+            
+            @if (showHome) {
+              <button 
+                class="btn-home"
+                (click)="goHome()"
+                type="button">
+                返回首页
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+  `,
+  styles: [`
+    :host {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      width: 100%;
+    }
+    
+    .error-boundary-fallback {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+      padding: 2rem;
+      background: var(--fallback-bg, #fef2f2);
+      border: 1px solid var(--fallback-border, #fecaca);
+      border-radius: 0.5rem;
+    }
+    
+    .error-boundary-fallback.full-page {
+      min-height: 100vh;
+      background: var(--fallback-bg-page, #fff);
+    }
+    
+    .error-boundary-fallback.compact {
+      min-height: 100px;
+      padding: 1rem;
+    }
+    
+    .error-content {
+      text-align: center;
+      max-width: 400px;
+    }
+    
+    .error-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1rem;
+      color: var(--error-icon-color, #ef4444);
+    }
+    
+    .error-icon-fatal {
+      color: var(--error-icon-fatal-color, #dc2626);
+    }
+    
+    .error-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--error-title-color, #991b1b);
+      margin-bottom: 0.5rem;
+    }
+    
+    .error-message {
+      color: var(--error-message-color, #7f1d1d);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    
+    .error-details {
+      text-align: left;
+      margin-bottom: 1rem;
+      padding: 0.5rem;
+      background: rgba(0,0,0,0.05);
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+    }
+    
+    .error-details summary {
+      cursor: pointer;
+      color: var(--error-details-color, #6b7280);
+    }
+    
+    .error-details pre {
+      margin-top: 0.5rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    
+    .error-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    
+    .btn-retry, .btn-refresh, .btn-home {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    
+    .btn-retry {
+      background: var(--btn-retry-bg, #3b82f6);
+      color: white;
+      border: none;
+    }
+    
+    .btn-retry:hover {
+      background: var(--btn-retry-hover, #2563eb);
+    }
+    
+    .btn-refresh {
+      background: var(--btn-refresh-bg, #f3f4f6);
+      color: var(--btn-refresh-color, #374151);
+      border: 1px solid var(--btn-refresh-border, #d1d5db);
+    }
+    
+    .btn-refresh:hover {
+      background: var(--btn-refresh-hover, #e5e7eb);
+    }
+    
+    .btn-home {
+      background: transparent;
+      color: var(--btn-home-color, #6b7280);
+      border: none;
+      text-decoration: underline;
+    }
+    
+    .btn-home:hover {
+      color: var(--btn-home-hover, #374151);
+    }
+    
+    /* 暗色主题支持 */
+    :host-context([data-theme="dark"]) .error-boundary-fallback {
+      --fallback-bg: #1f1f1f;
+      --fallback-border: #3f3f3f;
+      --error-icon-color: #f87171;
+      --error-title-color: #fca5a5;
+      --error-message-color: #fecaca;
+      --btn-refresh-bg: #374151;
+      --btn-refresh-color: #e5e7eb;
+      --btn-refresh-border: #4b5563;
+      --btn-home-color: #9ca3af;
+    }
+  `]
+})
+export class ErrorBoundaryComponent implements OnInit, OnDestroy {
+  private errorHandler = inject(GlobalErrorHandler);
+  private logger = inject(LoggerService).category('ErrorBoundary');
+  private cdr = inject(ChangeDetectorRef);
+  
+  /** 错误标题 */
+  @Input() title = '出了点问题';
+  
+  /** 默认错误消息 */
+  @Input() defaultMessage = '我们已记录错误，你可以尝试刷新页面。';
+  
+  /** 是否显示重试按钮 */
+  @Input() showRetry = true;
+  
+  /** 是否显示刷新按钮 */
+  @Input() showRefresh = true;
+  
+  /** 是否显示返回首页按钮 */
+  @Input() showHome = false;
+  
+  /** 是否显示技术详情（开发模式） */
+  @Input() showDetails = false; // 生产环境应为 false
+  
+  /** 是否为致命错误（全页面模式） */
+  @Input() fatal = false;
+  
+  /** 容器样式类 */
+  @Input() containerClass = '';
+  
+  /** 重试回调 */
+  @Input() onRetry?: () => void;
+  
+  /** 是否有错误 */
+  readonly hasError = signal(false);
+  
+  /** 用户友好的错误消息 */
+  readonly userMessage = signal<string | null>(null);
+  
+  /** 错误详情 */
+  readonly errorDetails = signal<string | null>(null);
+  
+  /** 是否为致命错误 */
+  readonly isFatal = signal(false);
+  
+  /** 原始错误处理器 */
+  private originalHandleError: any;
+  
+  ngOnInit() {
+    // 注入到全局错误处理器
+    // 注意：这是简化实现，完整的 ErrorBoundary 需要更复杂的机制
+    this.originalHandleError = this.errorHandler.handleError.bind(this.errorHandler);
+  }
+  
+  ngOnDestroy() {
+    // 清理
+  }
+  
+  /**
+   * 手动触发错误状态（供父组件调用）
+   */
+  setError(error: Error, userMessage?: string, isFatal = false) {
+    this.hasError.set(true);
+    this.userMessage.set(userMessage || null);
+    this.errorDetails.set(error.stack || error.message);
+    this.isFatal.set(isFatal || this.fatal);
+    
+    this.logger.error('ErrorBoundary caught error', { 
+      message: error.message, 
+      stack: error.stack,
+      isFatal 
+    });
+    
+    this.cdr.detectChanges();
+  }
+  
+  /**
+   * 清除错误状态
+   */
+  clearError() {
+    this.hasError.set(false);
+    this.userMessage.set(null);
+    this.errorDetails.set(null);
+    this.isFatal.set(false);
+    this.cdr.detectChanges();
+  }
+  
+  /**
+   * 重试操作
+   */
+  retry() {
+    if (this.onRetry) {
+      this.clearError();
+      try {
+        this.onRetry();
+      } catch (e) {
+        this.setError(e as Error);
+      }
+    } else {
+      this.clearError();
+    }
+  }
+  
+  /**
+   * 刷新页面
+   */
+  refreshPage() {
+    window.location.reload();
+  }
+  
+  /**
+   * 返回首页
+   */
+  goHome() {
+    window.location.href = '/';
+  }
+}

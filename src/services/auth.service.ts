@@ -1,5 +1,9 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
+import { 
+  Result, OperationError, ErrorCodes, success, failure 
+} from '../utils/result';
+import { environment } from '../environments/environment';
 
 export interface AuthState {
   isCheckingSession: boolean;
@@ -10,14 +14,33 @@ export interface AuthState {
 }
 
 /**
+ * 认证结果类型
+ */
+export interface AuthResult {
+  userId?: string;
+  email?: string;
+  needsConfirmation?: boolean;
+}
+
+/**
  * 认证服务
  * 负责用户登录、注册、登出
+ * 
+ * 开发环境自动登录：
+ * - 设置 environment.devAutoLogin 后，应用启动时会自动登录
+ * - Guard 仍然存在且生效，只是登录过程被自动化
+ * - 这避免了"关掉 Guard"的懒惰做法，保持代码路径与生产环境一致
+ * 
+ * 所有公共方法返回 Result<T> 类型以保持一致性
  */
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
   private supabase = inject(SupabaseClientService);
+  
+  /** 是否已尝试过开发环境自动登录 */
+  private devAutoLoginAttempted = false;
   
   /** Supabase 是否已配置 */
   get isConfigured(): boolean {
@@ -42,6 +65,8 @@ export class AuthService {
   /**
    * 检查并恢复会话
    * 添加超时保护，防止网络异常时无限阻塞
+   * 
+   * 开发环境：如果没有现有会话且配置了 devAutoLogin，会自动登录
    */
   async checkSession(): Promise<{ userId: string | null; email: string | null }> {
     if (!this.supabase.isConfigured) {
@@ -79,6 +104,12 @@ export class AuthService {
         return { userId, email };
       }
       
+      // 没有现有会话，尝试开发环境自动登录
+      const autoLoginResult = await this.tryDevAutoLogin();
+      if (autoLoginResult) {
+        return autoLoginResult;
+      }
+      
       return { userId: null, email: null };
     } catch (e: any) {
       this.authState.update(s => ({
@@ -92,14 +123,65 @@ export class AuthService {
   }
 
   /**
-   * 登录
+   * 尝试开发环境自动登录
+   * 
+   * 设计理念：
+   * - 保留 Guard 的存在，确保代码路径与生产环境一致
+   * - 只是自动化登录过程，不是跳过登录
+   * - 便于开发调试，同时不污染生产代码
+   * 
+   * @returns 登录成功返回用户信息，否则返回 null
    */
-  async signIn(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+  private async tryDevAutoLogin(): Promise<{ userId: string | null; email: string | null } | null> {
+    // 防止重复尝试
+    if (this.devAutoLoginAttempted) {
+      return null;
+    }
+    this.devAutoLoginAttempted = true;
+    
+    // 检查是否配置了开发环境自动登录
+    const devAutoLogin = (environment as any).devAutoLogin;
+    if (!devAutoLogin || !devAutoLogin.email || !devAutoLogin.password) {
+      return null;
+    }
+    
+    // 仅在非生产环境启用
+    if ((environment as any).production) {
+      console.warn('⚠️ devAutoLogin 不应在生产环境使用，已忽略');
+      return null;
+    }
+    
+    console.log('🔐 开发环境自动登录中...');
+    
+    try {
+      const result = await this.signIn(devAutoLogin.email, devAutoLogin.password);
+      
+      if (result.ok && result.value.userId) {
+        console.log('✅ 开发环境自动登录成功:', devAutoLogin.email);
+        return { 
+          userId: result.value.userId, 
+          email: result.value.email ?? null 
+        };
+      } else {
+        console.warn('❌ 开发环境自动登录失败，请检查凭据配置');
+        return null;
+      }
+    } catch (e) {
+      console.warn('❌ 开发环境自动登录异常:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 登录
+   * @returns Result 类型，成功时包含用户信息
+   */
+  async signIn(email: string, password: string): Promise<Result<AuthResult, OperationError>> {
     if (!this.supabase.isConfigured) {
-      return {
-        success: false,
-        error: 'Supabase 未配置。请设置 NG_APP_SUPABASE_URL 和 NG_APP_SUPABASE_ANON_KEY。'
-      };
+      return failure(
+        ErrorCodes.SYNC_AUTH_EXPIRED,
+        'Supabase 未配置。请设置 NG_APP_SUPABASE_URL 和 NG_APP_SUPABASE_ANON_KEY。'
+      );
     }
     
     this.authState.update(s => ({ ...s, isLoading: true, error: null }));
@@ -108,7 +190,9 @@ export class AuthService {
       const { data, error } = await this.supabase.signInWithPassword(email, password);
       
       if (error || !data.session?.user) {
-        throw new Error(error?.message || '登录失败');
+        const errorMsg = error?.message || '登录失败';
+        this.authState.update(s => ({ ...s, error: errorMsg }));
+        return failure(ErrorCodes.SYNC_AUTH_EXPIRED, errorMsg);
       }
       
       const userId = data.session.user.id;
@@ -123,11 +207,11 @@ export class AuthService {
         error: null
       }));
       
-      return { success: true };
+      return success({ userId, email: userEmail ?? undefined });
     } catch (e: any) {
       const errorMsg = e?.message ?? String(e);
       this.authState.update(s => ({ ...s, error: errorMsg }));
-      return { success: false, error: errorMsg };
+      return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {
       this.authState.update(s => ({ ...s, isLoading: false }));
     }
@@ -135,13 +219,14 @@ export class AuthService {
 
   /**
    * 注册
+   * @returns Result 类型，成功时可能包含 needsConfirmation 标志
    */
-  async signUp(email: string, password: string): Promise<{ success: boolean; error?: string; needsConfirmation?: boolean }> {
+  async signUp(email: string, password: string): Promise<Result<AuthResult, OperationError>> {
     if (!this.supabase.isConfigured) {
-      return {
-        success: false,
-        error: 'Supabase 未配置。请设置 NG_APP_SUPABASE_URL 和 NG_APP_SUPABASE_ANON_KEY。'
-      };
+      return failure(
+        ErrorCodes.SYNC_AUTH_EXPIRED,
+        'Supabase 未配置。请设置 NG_APP_SUPABASE_URL 和 NG_APP_SUPABASE_ANON_KEY。'
+      );
     }
     
     this.authState.update(s => ({ ...s, isLoading: true, error: null }));
@@ -153,12 +238,14 @@ export class AuthService {
       });
       
       if (error) {
-        throw new Error(error.message);
+        const errorMsg = error.message;
+        this.authState.update(s => ({ ...s, error: errorMsg }));
+        return failure(ErrorCodes.UNKNOWN, errorMsg);
       }
       
       // 检查是否需要邮箱确认
       if (data.user && !data.session) {
-        return { success: true, needsConfirmation: true };
+        return success({ needsConfirmation: true });
       }
       
       // 如果直接获得 session（禁用了邮箱确认的情况）
@@ -174,13 +261,15 @@ export class AuthService {
           email: userEmail,
           error: null
         }));
+        
+        return success({ userId, email: userEmail ?? undefined });
       }
       
-      return { success: true };
+      return success({});
     } catch (e: any) {
       const errorMsg = e?.message ?? String(e);
       this.authState.update(s => ({ ...s, error: errorMsg }));
-      return { success: false, error: errorMsg };
+      return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {
       this.authState.update(s => ({ ...s, isLoading: false }));
     }
@@ -188,10 +277,11 @@ export class AuthService {
 
   /**
    * 重置密码（发送重置邮件）
+   * @returns Result 类型
    */
-  async resetPassword(email: string): Promise<{ success: boolean; error?: string }> {
+  async resetPassword(email: string): Promise<Result<void, OperationError>> {
     if (!this.supabase.isConfigured) {
-      return { success: false, error: 'Supabase 未配置' };
+      return failure(ErrorCodes.SYNC_AUTH_EXPIRED, 'Supabase 未配置');
     }
     
     this.authState.update(s => ({ ...s, isLoading: true, error: null }));
@@ -201,13 +291,17 @@ export class AuthService {
         redirectTo: `${window.location.origin}/reset-password`
       });
       
-      if (error) throw new Error(error.message);
+      if (error) {
+        const errorMsg = error.message;
+        this.authState.update(s => ({ ...s, error: errorMsg }));
+        return failure(ErrorCodes.UNKNOWN, errorMsg);
+      }
       
-      return { success: true };
+      return success(undefined);
     } catch (e: any) {
       const errorMsg = e?.message ?? String(e);
       this.authState.update(s => ({ ...s, error: errorMsg }));
-      return { success: false, error: errorMsg };
+      return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {
       this.authState.update(s => ({ ...s, isLoading: false }));
     }
@@ -245,5 +339,40 @@ export class AuthService {
    */
   clearError() {
     this.authState.update(s => ({ ...s, error: null }));
+  }
+  
+  // ========== 显式状态重置（用于测试和 HMR）==========
+  
+  /**
+   * 显式重置服务状态
+   * 用于测试环境的 afterEach 或 HMR 重载
+   */
+  reset(): void {
+    this.currentUserId.set(null);
+    this.sessionEmail.set(null);
+    this.authState.set({
+      isCheckingSession: false,
+      isLoading: false,
+      userId: null,
+      email: null,
+      error: null
+    });
+  }
+  
+  // ========== 向后兼容的属性访问器 ==========
+  // 这些属性用于旧代码的向后兼容，新代码应使用 Result 类型
+  
+  /**
+   * @deprecated 使用 signIn() 返回的 Result 替代
+   */
+  get success(): boolean {
+    return this.authState().userId !== null;
+  }
+  
+  /**
+   * @deprecated 使用 signIn() 返回的 Result 替代
+   */
+  get error(): string | null {
+    return this.authState().error;
   }
 }
