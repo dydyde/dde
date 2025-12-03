@@ -7,8 +7,8 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './src/app.routes';
 import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
-// ============= BUILD ID: 2025-12-03-v5-FULL-DEBUG =============
-const BUILD_ID = '2025-12-03-v5-FULL-DEBUG';
+// ============= BUILD ID: 2025-12-03-v6-NO-GUARDS =============
+const BUILD_ID = '2025-12-03-v6-NO-GUARDS';
 const START_TIME = Date.now();
 
 // 🔥 移动端屏幕日志 - 始终显示（用于调试后移除）
@@ -116,6 +116,13 @@ bootstrapApplication(AppComponent, {
     logError('诊断: 依赖注入错误');
   } else if (errStr.includes('NullInjector')) {
     logError('诊断: 缺少 Provider');
+    // 尝试从堆栈中获取更多信息
+    if (err?.stack) {
+      const stackLines = err.stack.split('\n').slice(0, 5);
+      stackLines.forEach((line: string, i: number) => {
+        logError(`Stack[${i}]: ${line.trim().substring(0, 80)}`);
+      });
+    }
   }
   
   // 显示用户可见的错误界面

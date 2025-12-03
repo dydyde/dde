@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
-import { requireAuthGuard, projectExistsGuard } from './services/guards';
+// 临时禁用 Guard 以排查 NullInjector 问题
+// import { requireAuthGuard, projectExistsGuard } from './services/guards';
 
 /**
  * 应用路由配置
@@ -29,7 +30,7 @@ export const routes: Routes = [
   // 项目列表/主视图 - AppComponent 作为布局容器
   { 
     path: 'projects', 
-    canActivate: [requireAuthGuard],
+    // 临时禁用 Guard: canActivate: [requireAuthGuard],
     children: [
       // 项目列表首页（无选中项目）
       { 
@@ -40,7 +41,7 @@ export const routes: Routes = [
       // 特定项目视图 - ProjectShellComponent 管理 text/flow 视图切换
       { 
         path: ':projectId', 
-        canActivate: [projectExistsGuard],
+        // 临时禁用 Guard: canActivate: [projectExistsGuard],
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent),
         children: [
           // 默认重定向到 text 视图
