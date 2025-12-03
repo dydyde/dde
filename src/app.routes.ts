@@ -1,6 +1,5 @@
 import { Routes } from '@angular/router';
-// 临时禁用 Guard 以排查 NullInjector 问题
-// import { requireAuthGuard, projectExistsGuard } from './services/guards';
+import { requireAuthGuard, projectExistsGuard } from './services/guards';
 
 /**
  * 应用路由配置
@@ -30,7 +29,7 @@ export const routes: Routes = [
   // 项目列表/主视图 - AppComponent 作为布局容器
   { 
     path: 'projects', 
-    // 临时禁用 Guard: canActivate: [requireAuthGuard],
+    canActivate: [requireAuthGuard],
     children: [
       // 项目列表首页（无选中项目）
       { 
@@ -39,20 +38,29 @@ export const routes: Routes = [
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       },
       // 特定项目视图 - ProjectShellComponent 管理 text/flow 视图切换
+      // 所有子路由都由同一个 ProjectShellComponent 处理，组件内部根据 URL 判断视图模式
       { 
         path: ':projectId', 
-        // 临时禁用 Guard: canActivate: [projectExistsGuard],
-        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent),
-        children: [
-          // 默认重定向到 text 视图
-          { path: '', redirectTo: 'text', pathMatch: 'full' },
-          // 文本视图模式
-          { path: 'text', component: undefined },
-          // 流程图模式
-          { path: 'flow', component: undefined },
-          // 定位到特定任务（深度链接）
-          { path: 'task/:taskId', component: undefined }
-        ]
+        canActivate: [projectExistsGuard],
+        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
+      },
+      // 文本视图模式
+      { 
+        path: ':projectId/text',
+        canActivate: [projectExistsGuard],
+        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
+      },
+      // 流程图模式
+      { 
+        path: ':projectId/flow',
+        canActivate: [projectExistsGuard],
+        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
+      },
+      // 定位到特定任务（深度链接）
+      { 
+        path: ':projectId/task/:taskId',
+        canActivate: [projectExistsGuard],
+        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       }
     ]
   },
