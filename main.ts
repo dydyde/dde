@@ -1,6 +1,6 @@
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { provideExperimentalZonelessChangeDetection, isDevMode, ErrorHandler, provideZoneChangeDetection } from '@angular/core';
+import { isDevMode, ErrorHandler } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withHashLocation } from '@angular/router';
 import { AppComponent } from './src/app.component';
 import { provideServiceWorker } from '@angular/service-worker';
@@ -22,17 +22,14 @@ const browserInfo = {
 };
 console.log('[NanoFlow] 📱 浏览器信息:', browserInfo);
 
-// 检查 URL 参数是否强制使用 Zone.js（用于调试）
+// 检查 URL 参数
 const urlParams = new URLSearchParams(window.location.search);
-const forceZoneJs = urlParams.has('zone') || urlParams.has('forceZone');
-const forceZoneless = urlParams.has('zoneless');
 const skipServiceWorker = urlParams.has('nosw') || urlParams.has('skipSw');
 
-// 默认使用 Zone.js 以确保稳定性
-// Zoneless 模式仍然是实验性的，在生产环境可能导致 UI 不更新
-// 只有在开发模式或显式请求时才使用 Zoneless
-const shouldUseZoneless = forceZoneless || (isDevMode() && !forceZoneJs && !browserInfo.isMobile && typeof Proxy !== 'undefined');
-console.log('[NanoFlow] ⚙️ 变更检测模式:', shouldUseZoneless ? 'Zoneless (实验性)' : 'Zone.js (标准)', { forceZoneJs, forceZoneless, isDevMode: isDevMode() });
+// 使用标准的 Zone.js 变更检测（Angular 默认）
+// 注意：Zoneless 模式需要在 angular.json 中配置 polyfills 排除 zone.js
+// 为了稳定性，我们使用默认的 Zone.js 模式
+console.log('[NanoFlow] ⚙️ 变更检测模式: Zone.js (标准)', { isDevMode: isDevMode() });
 
 // 如果请求跳过 Service Worker，先注销现有的
 if (skipServiceWorker && 'serviceWorker' in navigator) {
@@ -45,14 +42,9 @@ if (skipServiceWorker && 'serviceWorker' in navigator) {
   }).catch(e => console.warn('[NanoFlow] 注销 SW 失败:', e));
 }
 
-// 根据环境选择变更检测策略
-const changeDetectionProvider = shouldUseZoneless 
-  ? provideExperimentalZonelessChangeDetection()
-  : provideZoneChangeDetection({ eventCoalescing: true });
-
 bootstrapApplication(AppComponent, {
   providers: [
-    changeDetectionProvider,
+    // 使用 Angular 默认的 Zone.js 变更检测（不需要显式提供 provider）
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
     provideRouter(
       routes,
