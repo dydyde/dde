@@ -15,6 +15,7 @@
             "outputPath": "dist",
             "index": "index.html",
             "browser": "main.ts",
+            "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.json",
             "assets": [
               {
