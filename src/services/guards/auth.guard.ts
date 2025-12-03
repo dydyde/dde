@@ -1,6 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router, NavigationEnd } from '@angular/router';
-import { filter, take } from 'rxjs/operators';
+import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { ModalService } from '../modal.service';
 import { GUARD_CONFIG, AUTH_CONFIG } from '../../config/constants';
@@ -205,21 +204,13 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
   
   // 未登录且无本地缓存，这是阻断性场景：需要用户首次登录
   // 只有这种情况才需要显式的交互提示
-  console.log('[Guard] 需要登录，重定向到首页并显示登录模态框');
+  console.log('[Guard] 需要登录，显示登录模态框（不重定向，避免循环）');
   
-  // 导航到首页并显示登录模态框
-  void router.navigate(['/']);
+  // 直接显示登录模态框，不做导航重定向（避免无限循环）
+  // 用户登录成功后会自动刷新当前路由
+  modalService.show('login', { returnUrl: state.url, message: '请登录以访问此页面' });
   
-  // 使用 router.events 监听 NavigationEnd 事件，确保导航完成后再显示模态框
-  // 这比 setTimeout 更可靠，避免竞态条件
-  router.events.pipe(
-    filter((event): event is NavigationEnd => event instanceof NavigationEnd),
-    take(1)
-  ).subscribe(() => {
-    console.log('[Guard] 导航完成，显示登录模态框');
-    modalService.show('login', { returnUrl: state.url, message: '请登录以访问此页面' });
-  });
-  
+  // 返回 false 阻止导航，但不做重定向
   return false;
 };
 
