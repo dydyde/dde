@@ -1,113 +1,134 @@
 import '@angular/compiler';
 import { bootstrapApplication } from '@angular/platform-browser';
-import { isDevMode, ErrorHandler, VERSION } from '@angular/core';
+import { isDevMode, ErrorHandler, VERSION, NgZone } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withHashLocation } from '@angular/router';
 import { AppComponent } from './src/app.component';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './src/app.routes';
 import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
-// 🔍 调试：记录启动时间点
-// Build version: 2025-12-03-v2-debug-ng0908
-console.log('[NanoFlow] 🚀 开始启动应用...', new Date().toISOString());
-console.log('[NanoFlow] 📦 Angular 版本:', VERSION.full);
-console.log('[NanoFlow] 🔧 Build ID:', 'v2-debug-ng0908');
+// ============= BUILD ID: 2025-12-03-v5-FULL-DEBUG =============
+const BUILD_ID = '2025-12-03-v5-FULL-DEBUG';
+const START_TIME = Date.now();
+
+// 🔥 移动端屏幕日志 - 始终显示（用于调试后移除）
+(function() {
+  const logDiv = document.createElement('div');
+  logDiv.id = 'screen-debug-log';
+  logDiv.style.cssText = 'position:fixed;bottom:0;left:0;right:0;height:150px;background:rgba(0,0,0,0.9);color:#0f0;font-size:11px;overflow:auto;z-index:999999;padding:4px;font-family:monospace;';
+  document.body.appendChild(logDiv);
+
+  const log = (msg: string, color = '#0f0') => {
+    const p = document.createElement('div');
+    p.style.color = color;
+    p.style.marginBottom = '2px';
+    const elapsed = Date.now() - START_TIME;
+    p.textContent = `[+${elapsed}ms] ${msg}`;
+    logDiv.appendChild(p);
+    logDiv.scrollTop = logDiv.scrollHeight;
+    // 同时输出到控制台
+    console.log(`[+${elapsed}ms] ${msg}`);
+  };
+
+  (window as any).__LOG__ = log;
+  (window as any).__LOG_ERROR__ = (msg: string) => log(msg, '#f00');
+  
+  log('Build: ' + BUILD_ID);
+  log('UA: ' + navigator.userAgent.substring(0, 60));
+})();
+
+const log = (window as any).__LOG__ as (msg: string, color?: string) => void;
+const logError = (window as any).__LOG_ERROR__ as (msg: string) => void;
+
+log('🚀 main.ts 开始执行');
+log('Angular 版本: ' + VERSION.full);
 
 // 检查 Zone.js 是否已加载
 const zoneLoaded = typeof (window as any).Zone !== 'undefined';
-console.log('[NanoFlow] 🌐 Zone.js 状态:', {
-  loaded: zoneLoaded,
-  version: zoneLoaded ? (window as any).Zone.__symbol__?.('version') || 'unknown' : 'not loaded',
-  zoneSpec: zoneLoaded ? typeof (window as any).Zone.current : 'N/A'
-});
+log('Zone.js: ' + (zoneLoaded ? '✅已加载' : '❌未加载'));
 
-// 🔍 调试：检测浏览器能力
-const browserInfo = {
-  userAgent: navigator.userAgent,
-  isMobile: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
-  isIOS: /iPhone|iPad|iPod/i.test(navigator.userAgent),
-  isAndroid: /Android/i.test(navigator.userAgent),
-  supportsSignal: typeof AbortController !== 'undefined',
-  supportsProxy: typeof Proxy !== 'undefined',
-  language: navigator.language
-};
-console.log('[NanoFlow] 📱 浏览器信息:', browserInfo);
-
-// 检查 URL 参数
-const urlParams = new URLSearchParams(window.location.search);
-const skipServiceWorker = urlParams.has('nosw') || urlParams.has('skipSw');
-
-// 使用标准的 Zone.js 变更检测（Angular 默认）
-console.log('[NanoFlow] ⚙️ 变更检测模式: Zone.js (标准)', { 
-  isDevMode: isDevMode(),
-  zoneLoaded,
-  skipServiceWorker 
-});
-
-// 如果请求跳过 Service Worker，先注销现有的
-if (skipServiceWorker && 'serviceWorker' in navigator) {
-  console.log('[NanoFlow] 🔧 跳过 Service Worker (URL 参数 nosw)');
-  navigator.serviceWorker.getRegistrations().then(registrations => {
-    registrations.forEach(reg => {
-      console.log('[NanoFlow] 注销 Service Worker:', reg.scope);
-      reg.unregister();
-    });
-  }).catch(e => console.warn('[NanoFlow] 注销 SW 失败:', e));
+if (!zoneLoaded) {
+  logError('Zone.js 未加载！Angular 无法工作！');
 }
 
-console.log('[NanoFlow] 🏗️ 准备启动 Angular 应用...');
+// 检测浏览器能力
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+log('设备: ' + (isMobile ? (isIOS ? 'iOS' : 'Android') : 'Desktop'));
+
+log('🔧 变更检测: Zone.js (标准)');
+
+// 强制注销所有 Service Worker - 避免缓存问题
+if ('serviceWorker' in navigator) {
+  log('🧹 注销所有 Service Worker...');
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    registrations.forEach(reg => {
+      log('注销 SW: ' + reg.scope);
+      reg.unregister();
+    });
+    if (registrations.length === 0) {
+      log('无 Service Worker 需要注销');
+    }
+  }).catch(e => logError('注销 SW 失败: ' + e));
+}
+
+log('🏗️ 准备启动 Angular...');
+
+log('⏳ 开始 bootstrapApplication...');
 
 bootstrapApplication(AppComponent, {
   providers: [
-    // 使用 Angular 默认的 Zone.js 变更检测（不需要显式提供 provider）
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
     provideRouter(
       routes,
       withComponentInputBinding(),
-      withHashLocation() // 使用 hash 路由以兼容静态部署
-    ),
-    // Service Worker 只在生产环境且没有 skipServiceWorker 时启用
-    provideServiceWorker('ngsw-worker.js', {
-      enabled: !isDevMode() && !skipServiceWorker,
-      // 改为更积极的注册策略，避免阻塞应用启动
-      registrationStrategy: 'registerImmediately'
-    })
+      withHashLocation()
+    )
+    // 🚫 完全禁用 Service Worker - 排除缓存干扰
   ]
-}).then(() => {
-  console.log('[NanoFlow] ✅ Angular 应用启动成功', new Date().toISOString());
+}).then((appRef) => {
+  const elapsed = Date.now() - START_TIME;
+  log('✅ Angular 启动成功! 耗时: ' + elapsed + 'ms', '#0f0');
+  
+  // 标记应用就绪
+  (window as any).__NANOFLOW_READY__ = true;
+  
+  // 隐藏初始加载器
+  const loader = document.getElementById('initial-loader');
+  if (loader) loader.style.display = 'none';
+  
+  // 5秒后隐藏调试日志面板（生产环境）
+  setTimeout(() => {
+    const debugLog = document.getElementById('screen-debug-log');
+    if (debugLog) debugLog.style.display = 'none';
+  }, 5000);
+  
+  log('🎉 应用完全就绪');
 }).catch(err => {
-  console.error('[NanoFlow] ❌ Angular 应用启动失败:', err);
-  console.error('[NanoFlow] ❌ 错误名称:', err?.name);
-  console.error('[NanoFlow] ❌ 错误代码:', err?.code);
-  console.error('[NanoFlow] ❌ Zone.js 加载状态:', typeof (window as any).Zone !== 'undefined');
+  logError('❌ 启动失败: ' + (err?.message || err));
+  logError('错误类型: ' + (err?.name || 'Unknown'));
   
-  // 检查是否是 NG0908 错误
-  const isNG0908 = err?.message?.includes('NG0908') || err?.toString()?.includes('NG0908');
+  // 检查常见错误类型
+  const errStr = String(err?.message || err);
+  if (errStr.includes('NG0908')) {
+    logError('诊断: Zone.js 冲突 (NG0908)');
+  } else if (errStr.includes('inject')) {
+    logError('诊断: 依赖注入错误');
+  } else if (errStr.includes('NullInjector')) {
+    logError('诊断: 缺少 Provider');
+  }
   
-  // 显示用户可见的错误信息
+  // 显示用户可见的错误界面
   const errorDiv = document.createElement('div');
-  errorDiv.style.cssText = 'position:fixed;inset:0;background:#fff;color:#333;padding:2rem;font-family:sans-serif;z-index:99999;overflow:auto;';
+  errorDiv.style.cssText = 'position:fixed;inset:0;background:#fff;color:#333;padding:2rem;font-family:sans-serif;z-index:99998;overflow:auto;';
   errorDiv.innerHTML = `
     <h1 style="color:#dc2626;margin-bottom:1rem;">应用启动失败</h1>
-    <p style="margin-bottom:1rem;">抱歉，应用加载时遇到问题。</p>
-    ${isNG0908 ? `
-      <div style="background:#fef3c7;border:1px solid #f59e0b;padding:1rem;border-radius:4px;margin-bottom:1rem;">
-        <strong>NG0908 错误说明：</strong><br>
-        这是 Angular 变更检测配置冲突。<br>
-        Zone.js 加载状态: ${typeof (window as any).Zone !== 'undefined' ? '✅ 已加载' : '❌ 未加载'}<br>
-        Build ID: v2-debug-ng0908
-      </div>
-    ` : ''}
-    <pre style="background:#f5f5f5;padding:1rem;overflow:auto;font-size:12px;max-height:200px;margin-bottom:1rem;">${err?.message || err}\n\n${err?.stack || ''}</pre>
+    <p style="margin-bottom:1rem;">Build: ${BUILD_ID}</p>
+    <pre style="background:#f5f5f5;padding:1rem;overflow:auto;font-size:11px;max-height:150px;margin-bottom:1rem;white-space:pre-wrap;word-break:break-all;">${err?.message || err}</pre>
     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-      <button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新页面</button>
-      <button onclick="caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n)))).then(()=>location.reload())" style="padding:0.5rem 1rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;">清除缓存并刷新</button>
+      <button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新</button>
+      <button onclick="caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n)))).then(()=>location.reload())" style="padding:0.5rem 1rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;">清缓存刷新</button>
     </div>
-    <p style="margin-top:1rem;color:#666;font-size:12px;">
-      浏览器: ${navigator.userAgent}<br>
-      Angular: ${VERSION.full}<br>
-      Zone.js: ${typeof (window as any).Zone !== 'undefined' ? '已加载' : '未加载'}
-    </p>
   `;
   document.body.appendChild(errorDiv);
 });

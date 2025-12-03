@@ -150,62 +150,18 @@
 <body class="bg-slate-50 text-slate-900 h-screen w-screen overflow-hidden">
   <!-- 最早执行的调试脚本 - 在任何其他 JS 之前 -->
   <script>
+    // Build: 2025-12-03-v5 - 强制可见调试
+    console.log('[HTML] 页面加载开始');
+    
     // 强制注销所有 Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) {
-          console.log('[DEBUG] 注销 Service Worker:', registration.scope);
-          registration.unregister();
+        for(var i = 0; i < registrations.length; i++) {
+          console.log('[HTML] 注销 SW:', registrations[i].scope);
+          registrations[i].unregister();
         }
       });
     }
-
-    console.log('%c[DEBUG] HTML 开始加载 - Build: 2025-12-03-v4-NO-SW', 'background:#dc2626;color:white;padding:2px 6px;border-radius:3px;');
-    console.log('[DEBUG] 时间:', new Date().toISOString());
-    
-    // 移动端调试辅助：将日志输出到屏幕上
-    (function() {
-      var logDiv = document.createElement('div');
-      logDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;height:100px;background:rgba(0,0,0,0.8);color:#0f0;font-size:10px;overflow:auto;z-index:999999;pointer-events:none;padding:4px;';
-      logDiv.id = 'mobile-debug-log';
-      // 默认隐藏，除非有错误或特定参数
-      if (location.search.includes('debug') || location.hash.includes('debug')) {
-        document.body.appendChild(logDiv);
-      }
-
-      var originalLog = console.log;
-      var originalError = console.error;
-
-      function appendLog(msg, color) {
-        if (!document.getElementById('mobile-debug-log')) return;
-        var p = document.createElement('div');
-        p.style.color = color || '#0f0';
-        p.style.marginBottom = '2px';
-        p.textContent = '> ' + msg;
-        logDiv.appendChild(p);
-        logDiv.scrollTop = logDiv.scrollHeight;
-      }
-
-      console.log = function() {
-        var args = Array.from(arguments);
-        appendLog(args.join(' '), '#0f0');
-        originalLog.apply(console, args);
-      };
-
-      console.error = function() {
-        var args = Array.from(arguments);
-        appendLog(args.join(' '), '#f00');
-        originalError.apply(console, args);
-      };
-      
-      window.onerror = function(msg, url, line) {
-        appendLog('ERROR: ' + msg + ' (' + line + ')', '#f00');
-        // 如果发生错误，强制显示日志面板
-        if (!document.getElementById('mobile-debug-log')) {
-          document.body.appendChild(logDiv);
-        }
-      };
-    })();
   </script>
   
   <!-- 初始加载指示器 - Angular 加载完成后会被隐藏 -->
@@ -224,19 +180,9 @@
   </noscript>
   
   <script>
-    // 隐藏初始加载指示器的逻辑
-    // 当 Angular 应用初始化完成后，会设置 window.__NANOFLOW_READY__ = true
+    // 简化加载检测 - Build v5
     (function() {
       var startTime = Date.now();
-      var loadingSteps = [];
-      
-      // 记录加载步骤（用于调试）
-      window.__NANOFLOW_LOG__ = function(step) {
-        loadingSteps.push({ time: Date.now() - startTime, step: step });
-        console.log('[NanoFlow Loader] ' + step + ' @ ' + (Date.now() - startTime) + 'ms');
-      };
-      
-      window.__NANOFLOW_LOG__('初始脚本执行');
       
       var checkReady = function() {
         var appRoot = document.querySelector('app-root');
@@ -244,69 +190,26 @@
         var isReady = window.__NANOFLOW_READY__ === true;
         
         if (isReady || hasContent) {
-          window.__NANOFLOW_LOG__('应用已就绪: ready=' + isReady + ', hasContent=' + hasContent);
           var loader = document.getElementById('initial-loader');
-          if (loader) loader.classList.add('hidden');
+          if (loader) loader.style.display = 'none';
           return;
         }
         
         var elapsed = Date.now() - startTime;
         
-        // 15秒时显示详细状态
-        if (elapsed > 15000 && elapsed < 15500) {
-          window.__NANOFLOW_LOG__('等待超过15秒，显示调试信息');
-          var textEl = document.querySelector('#initial-loader .text');
-          if (textEl) {
-            textEl.innerHTML = '加载时间较长...<br><small style="color:#a3a3a3;">检查控制台了解详情</small>';
-          }
-        }
-        
-        // 最多等待 30 秒
-        if (elapsed < 30000) {
-          setTimeout(checkReady, 200);
+        // 最多等待 20 秒
+        if (elapsed < 20000) {
+          setTimeout(checkReady, 300);
         } else {
-          // 超时处理
-          window.__NANOFLOW_LOG__('加载超时，显示错误界面');
+          // 超时 - 显示简单提示
           var loader = document.getElementById('initial-loader');
           if (loader) {
-            var debugInfo = 'Steps: ' + loadingSteps.map(function(s) { return s.step + '(' + s.time + 'ms)'; }).join(' → ');
-            loader.innerHTML = '<div style="text-align:center;padding:2rem;max-width:400px;">' +
-              '<h2 style="color:#dc2626;margin-bottom:1rem;">加载超时</h2>' +
-              '<p style="color:#57534e;margin-bottom:1rem;">应用加载时间过长。这可能是由于：</p>' +
-              '<ul style="text-align:left;color:#78716c;margin-bottom:1rem;padding-left:1.5rem;font-size:14px;">' +
-              '<li>网络连接缓慢或不稳定</li>' +
-              '<li>浏览器缓存了旧版本</li>' +
-              '<li>JavaScript 执行被阻止</li>' +
-              '</ul>' +
-              '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">' +
-              '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新页面</button>' +
-              '<button onclick="clearCacheAndReload()" style="padding:0.5rem 1rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;">清除缓存</button>' +
-              '</div>' +
-              '<details style="margin-top:1rem;text-align:left;font-size:11px;color:#a3a3a3;">' +
-              '<summary style="cursor:pointer;">调试信息</summary>' +
-              '<pre style="white-space:pre-wrap;word-break:break-all;margin-top:0.5rem;">' + debugInfo + '</pre>' +
-              '</details>' +
+            loader.innerHTML = '<div style="text-align:center;padding:2rem;">' +
+              '<h2 style="color:#dc2626;">加载超时</h2>' +
+              '<p style="color:#666;margin:1rem 0;">请检查底部的调试日志</p>' +
+              '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;">刷新</button>' +
               '</div>';
           }
-        }
-      };
-      
-      // 清除缓存并重新加载
-      window.clearCacheAndReload = function() {
-        if ('caches' in window) {
-          caches.keys().then(function(names) {
-            return Promise.all(names.map(function(name) { return caches.delete(name); }));
-          }).then(function() {
-            // 也尝试注销 Service Worker
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then(function(regs) {
-                regs.forEach(function(reg) { reg.unregister(); });
-              });
-            }
-            location.reload(true);
-          });
-        } else {
-          location.reload(true);
         }
       };
       
