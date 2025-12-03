@@ -1,0 +1,24 @@
+# NanoFlow 浏览器兼容性配置
+# 确保移动端和桌面端的兼容性
+
+# 支持全球使用率 > 0.5% 的浏览器
+> 0.5%
+
+# 支持最近 2 个版本
+last 2 versions
+
+# 支持 iOS Safari 14+（覆盖大多数仍在使用的 iPhone）
+iOS >= 14
+
+# 支持 Android WebView 和 Chrome for Android
+Android >= 7
+
+# 不支持已停止更新的浏览器
+not dead
+
+# 不支持 IE
+not ie <= 11
+not ie_mob <= 11
+
+# 支持 Firefox ESR（企业版）
+Firefox ESR

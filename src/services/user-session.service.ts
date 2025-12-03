@@ -121,6 +121,8 @@ export class UserSessionService {
    * 加载项目列表
    * 支持离线模式和在线模式
    * 即使云端加载失败，也会尝试从本地缓存恢复
+   * 
+   * 【超时保护】云端加载有 15 秒超时，超时后自动降级到本地缓存
    */
   async loadProjects(): Promise<void> {
     const userId = this.currentUserId();
@@ -134,12 +136,20 @@ export class UserSessionService {
     
     let projects: Project[] = [];
     try {
-      projects = await this.syncCoordinator.loadProjectsFromCloud(userId);
+      // 添加超时保护：15 秒后自动降级到本地缓存
+      const LOAD_TIMEOUT = 15000;
+      const loadPromise = this.syncCoordinator.loadProjectsFromCloud(userId);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('云端数据加载超时')), LOAD_TIMEOUT);
+      });
+      
+      projects = await Promise.race([loadPromise, timeoutPromise]);
     } catch (e) {
       console.error('云端数据加载失败:', e);
       // 加载失败时使用本地缓存
       this.loadFromCacheOrSeed();
-      this.toastService.warning('网络问题', '无法连接云端，已加载本地缓存数据');
+      const errorMsg = e instanceof Error ? e.message : '未知错误';
+      this.toastService.warning('网络问题', `${errorMsg}，已加载本地缓存数据`);
       return;
     }
 

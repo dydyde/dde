@@ -5,11 +5,45 @@
   <meta charset="utf-8">
   <title>NanoFlow</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- Tailwind CDN removed in favor of local build -->
   <!-- GoJS is now imported via npm package -->
   <style>
+    /* 初始加载状态 - 防止白屏 */
+    #initial-loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f4;
+      z-index: 99999;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    #initial-loader.hidden {
+      display: none;
+    }
+    #initial-loader .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e7e5e4;
+      border-top-color: #4f46e5;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    #initial-loader .text {
+      margin-top: 1rem;
+      color: #57534e;
+      font-size: 14px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     /* Custom Scrollbar */
     ::-webkit-scrollbar {
       width: 6px;
@@ -111,9 +145,52 @@
   </style>
   <!-- 注意: importmap 已移除，Angular CLI 构建使用 npm 依赖 -->
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen w-screen overflow-hidden">
+  <!-- 初始加载指示器 - Angular 加载完成后会被隐藏 -->
+  <div id="initial-loader">
+    <div class="spinner"></div>
+    <div class="text">正在加载 NanoFlow...</div>
+  </div>
+  
   <app-root></app-root>
-  <noscript>Please enable JavaScript to continue using this application.</noscript>
+  
+  <noscript>
+    <div style="padding:2rem;text-align:center;font-family:sans-serif;">
+      <h1 style="color:#dc2626;">请启用 JavaScript</h1>
+      <p style="color:#57534e;">NanoFlow 需要 JavaScript 才能运行。请在浏览器设置中启用 JavaScript，然后刷新页面。</p>
+    </div>
+  </noscript>
+  
+  <script>
+    // 隐藏初始加载指示器的逻辑
+    // 当 Angular 应用初始化完成后，会设置 window.__NANOFLOW_READY__ = true
+    (function() {
+      var checkReady = function() {
+        if (window.__NANOFLOW_READY__ || document.querySelector('app-root > *')) {
+          var loader = document.getElementById('initial-loader');
+          if (loader) loader.classList.add('hidden');
+        } else {
+          // 最多等待 30 秒
+          if (Date.now() - startTime < 30000) {
+            setTimeout(checkReady, 200);
+          } else {
+            // 超时处理
+            var loader = document.getElementById('initial-loader');
+            if (loader) {
+              loader.innerHTML = '<div style="text-align:center;padding:2rem;">' +
+                '<h2 style="color:#dc2626;margin-bottom:1rem;">加载超时</h2>' +
+                '<p style="color:#57534e;margin-bottom:1rem;">应用加载时间过长，可能是网络问题。</p>' +
+                '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新页面</button>' +
+                '</div>';
+            }
+          }
+        }
+      };
+      var startTime = Date.now();
+      setTimeout(checkReady, 500);
+    })();
+  </script>
 </body>
 </html>
