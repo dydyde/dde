@@ -38,7 +38,7 @@
               "outputHashing": "all",
               "serviceWorker": false,
               "optimization": {
-                "scripts": false,
+                "scripts": true,
                 "styles": true,
                 "fonts": true
               }
