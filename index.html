@@ -167,28 +167,89 @@
     // 隐藏初始加载指示器的逻辑
     // 当 Angular 应用初始化完成后，会设置 window.__NANOFLOW_READY__ = true
     (function() {
+      var startTime = Date.now();
+      var loadingSteps = [];
+      
+      // 记录加载步骤（用于调试）
+      window.__NANOFLOW_LOG__ = function(step) {
+        loadingSteps.push({ time: Date.now() - startTime, step: step });
+        console.log('[NanoFlow Loader] ' + step + ' @ ' + (Date.now() - startTime) + 'ms');
+      };
+      
+      window.__NANOFLOW_LOG__('初始脚本执行');
+      
       var checkReady = function() {
-        if (window.__NANOFLOW_READY__ || document.querySelector('app-root > *')) {
+        var appRoot = document.querySelector('app-root');
+        var hasContent = appRoot && appRoot.children.length > 0;
+        var isReady = window.__NANOFLOW_READY__ === true;
+        
+        if (isReady || hasContent) {
+          window.__NANOFLOW_LOG__('应用已就绪: ready=' + isReady + ', hasContent=' + hasContent);
           var loader = document.getElementById('initial-loader');
           if (loader) loader.classList.add('hidden');
+          return;
+        }
+        
+        var elapsed = Date.now() - startTime;
+        
+        // 15秒时显示详细状态
+        if (elapsed > 15000 && elapsed < 15500) {
+          window.__NANOFLOW_LOG__('等待超过15秒，显示调试信息');
+          var textEl = document.querySelector('#initial-loader .text');
+          if (textEl) {
+            textEl.innerHTML = '加载时间较长...<br><small style="color:#a3a3a3;">检查控制台了解详情</small>';
+          }
+        }
+        
+        // 最多等待 30 秒
+        if (elapsed < 30000) {
+          setTimeout(checkReady, 200);
         } else {
-          // 最多等待 30 秒
-          if (Date.now() - startTime < 30000) {
-            setTimeout(checkReady, 200);
-          } else {
-            // 超时处理
-            var loader = document.getElementById('initial-loader');
-            if (loader) {
-              loader.innerHTML = '<div style="text-align:center;padding:2rem;">' +
-                '<h2 style="color:#dc2626;margin-bottom:1rem;">加载超时</h2>' +
-                '<p style="color:#57534e;margin-bottom:1rem;">应用加载时间过长，可能是网络问题。</p>' +
-                '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新页面</button>' +
-                '</div>';
-            }
+          // 超时处理
+          window.__NANOFLOW_LOG__('加载超时，显示错误界面');
+          var loader = document.getElementById('initial-loader');
+          if (loader) {
+            var debugInfo = 'Steps: ' + loadingSteps.map(function(s) { return s.step + '(' + s.time + 'ms)'; }).join(' → ');
+            loader.innerHTML = '<div style="text-align:center;padding:2rem;max-width:400px;">' +
+              '<h2 style="color:#dc2626;margin-bottom:1rem;">加载超时</h2>' +
+              '<p style="color:#57534e;margin-bottom:1rem;">应用加载时间过长。这可能是由于：</p>' +
+              '<ul style="text-align:left;color:#78716c;margin-bottom:1rem;padding-left:1.5rem;font-size:14px;">' +
+              '<li>网络连接缓慢或不稳定</li>' +
+              '<li>浏览器缓存了旧版本</li>' +
+              '<li>JavaScript 执行被阻止</li>' +
+              '</ul>' +
+              '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">' +
+              '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新页面</button>' +
+              '<button onclick="clearCacheAndReload()" style="padding:0.5rem 1rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;">清除缓存</button>' +
+              '</div>' +
+              '<details style="margin-top:1rem;text-align:left;font-size:11px;color:#a3a3a3;">' +
+              '<summary style="cursor:pointer;">调试信息</summary>' +
+              '<pre style="white-space:pre-wrap;word-break:break-all;margin-top:0.5rem;">' + debugInfo + '</pre>' +
+              '</details>' +
+              '</div>';
           }
         }
       };
-      var startTime = Date.now();
+      
+      // 清除缓存并重新加载
+      window.clearCacheAndReload = function() {
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            return Promise.all(names.map(function(name) { return caches.delete(name); }));
+          }).then(function() {
+            // 也尝试注销 Service Worker
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(reg) { reg.unregister(); });
+              });
+            }
+            location.reload(true);
+          });
+        } else {
+          location.reload(true);
+        }
+      };
+      
       setTimeout(checkReady, 500);
     })();
   </script>

@@ -81,28 +81,32 @@ export class AuthService {
     
     // 超时保护：10秒后自动放弃
     const SESSION_TIMEOUT = 10000;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let isSettled = false; // 用于防止超时后的 rejection
-    
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        if (!isSettled) {
-          console.warn('[Auth] 会话检查超时');
-          reject(new Error('会话检查超时'));
-        }
-      }, SESSION_TIMEOUT);
-    });
     
     try {
       console.log('[Auth] 正在获取 Supabase 会话...');
-      const sessionPromise = this.supabase.getSession();
-      const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
       
-      // 标记已完成，防止超时回调执行
-      isSettled = true;
+      // 使用 AbortController 实现超时（如果支持）
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = setTimeout(() => {
+        console.warn('[Auth] 会话检查超时');
+        if (controller) controller.abort();
+      }, SESSION_TIMEOUT);
       
-      // 清理超时计时器
-      if (timeoutId) clearTimeout(timeoutId);
+      let sessionResult: { data: { session: any } | null; error: any };
+      
+      try {
+        // 创建一个带超时的 Promise
+        const sessionPromise = this.supabase.getSession();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('会话检查超时')), SESSION_TIMEOUT);
+        });
+        
+        sessionResult = await Promise.race([sessionPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      
+      const { data, error } = sessionResult;
       
       if (error) {
         console.error('[Auth] 获取会话出错:', error);
@@ -137,18 +141,16 @@ export class AuthService {
       
       return { userId: null, email: null };
     } catch (e: any) {
-      // 标记已完成，确保超时回调被忽略
-      isSettled = true;
-      
-      // 确保超时计时器被清理
-      if (timeoutId) clearTimeout(timeoutId);
-      
       console.error('[Auth] checkSession 异常:', e?.message ?? e);
       
-      this.authState.update(s => ({
-        ...s,
-        error: e?.message ?? String(e)
-      }));
+      // 超时不是致命错误，只是记录并继续
+      const isTimeout = e?.message?.includes('超时');
+      if (!isTimeout) {
+        this.authState.update(s => ({
+          ...s,
+          error: e?.message ?? String(e)
+        }));
+      }
       return { userId: null, email: null };
     } finally {
       console.log('[Auth] checkSession 完成，设置 isCheckingSession = false');

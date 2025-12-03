@@ -22,10 +22,28 @@ const browserInfo = {
 };
 console.log('[NanoFlow] 📱 浏览器信息:', browserInfo);
 
-// 检测是否应该使用 Zoneless 模式
-// 在某些移动端浏览器上可能有兼容性问题，所以我们保守地禁用
-const shouldUseZoneless = !browserInfo.isMobile && typeof Proxy !== 'undefined';
-console.log('[NanoFlow] ⚙️ 变更检测模式:', shouldUseZoneless ? 'Zoneless (实验性)' : 'Zone.js (标准)');
+// 检查 URL 参数是否强制使用 Zone.js（用于调试）
+const urlParams = new URLSearchParams(window.location.search);
+const forceZoneJs = urlParams.has('zone') || urlParams.has('forceZone');
+const forceZoneless = urlParams.has('zoneless');
+const skipServiceWorker = urlParams.has('nosw') || urlParams.has('skipSw');
+
+// 默认使用 Zone.js 以确保稳定性
+// Zoneless 模式仍然是实验性的，在生产环境可能导致 UI 不更新
+// 只有在开发模式或显式请求时才使用 Zoneless
+const shouldUseZoneless = forceZoneless || (isDevMode() && !forceZoneJs && !browserInfo.isMobile && typeof Proxy !== 'undefined');
+console.log('[NanoFlow] ⚙️ 变更检测模式:', shouldUseZoneless ? 'Zoneless (实验性)' : 'Zone.js (标准)', { forceZoneJs, forceZoneless, isDevMode: isDevMode() });
+
+// 如果请求跳过 Service Worker，先注销现有的
+if (skipServiceWorker && 'serviceWorker' in navigator) {
+  console.log('[NanoFlow] 🔧 跳过 Service Worker (URL 参数 nosw)');
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    registrations.forEach(reg => {
+      console.log('[NanoFlow] 注销 Service Worker:', reg.scope);
+      reg.unregister();
+    });
+  }).catch(e => console.warn('[NanoFlow] 注销 SW 失败:', e));
+}
 
 // 根据环境选择变更检测策略
 const changeDetectionProvider = shouldUseZoneless 
@@ -41,8 +59,9 @@ bootstrapApplication(AppComponent, {
       withComponentInputBinding(),
       withHashLocation() // 使用 hash 路由以兼容静态部署
     ),
+    // Service Worker 只在生产环境且没有 skipServiceWorker 时启用
     provideServiceWorker('ngsw-worker.js', {
-      enabled: !isDevMode(),
+      enabled: !isDevMode() && !skipServiceWorker,
       // 改为更积极的注册策略，避免阻塞应用启动
       registrationStrategy: 'registerImmediately'
     })
