@@ -36,7 +36,12 @@
           "configurations": {
             "production": {
               "outputHashing": "all",
-              "serviceWorker": false
+              "serviceWorker": false,
+              "optimization": {
+                "scripts": false,
+                "styles": true,
+                "fonts": true
+              }
             },
             "development": {
               "optimization": false,

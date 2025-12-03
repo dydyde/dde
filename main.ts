@@ -7,8 +7,8 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './src/app.routes';
 import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
-// ============= BUILD ID: 2025-12-03-v6-NO-GUARDS =============
-const BUILD_ID = '2025-12-03-v6-NO-GUARDS';
+// ============= BUILD ID: 2025-12-03-v7-NO-MINIFY =============
+const BUILD_ID = '2025-12-03-v7-NO-MINIFY';
 const START_TIME = Date.now();
 
 // 🔥 移动端屏幕日志 - 始终显示（用于调试后移除）
