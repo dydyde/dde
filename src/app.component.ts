@@ -281,6 +281,14 @@ export class AppComponent implements OnInit, OnDestroy {
     // 标记应用已加载完成，用于隐藏初始加载指示器
     (window as any).__NANOFLOW_READY__ = true;
     console.log('[NanoFlow] ✅ ngOnInit 完成，应用已就绪');
+    
+    // 🔍 调试：输出关键状态
+    console.log('[NanoFlow] 📊 初始状态:', {
+      isCheckingSession: this.isCheckingSession(),
+      bootstrapFailed: this.bootstrapFailed(),
+      currentUserId: this.store.currentUserId(),
+      authConfigured: this.auth.isConfigured
+    });
   }
   
   ngOnDestroy() {

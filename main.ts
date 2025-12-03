@@ -7,8 +7,8 @@ import { AppComponent } from './src/app.component';
 import { routes } from './src/app.routes';
 import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
-// ============= BUILD ID: 2025-12-03-v9-FIX-SWUPDATE =============
-const BUILD_ID = '2025-12-03-v9-FIX-SWUPDATE';
+// ============= BUILD ID: 2025-12-03-v10-DEBUG-STATE =============
+const BUILD_ID = '2025-12-03-v10-DEBUG-STATE';
 const START_TIME = Date.now();
 
 // 🔥 移动端屏幕日志 - 始终显示（用于调试后移除）
@@ -101,11 +101,30 @@ bootstrapApplication(AppComponent, {
   const loader = document.getElementById('initial-loader');
   if (loader) loader.style.display = 'none';
   
-  // 5秒后隐藏调试日志面板（生产环境）
+  // 检查应用状态
+  setTimeout(() => {
+    const appRoot = document.querySelector('app-root');
+    log('📊 app-root children: ' + (appRoot?.children.length ?? 0));
+    log('📊 body innerHTML length: ' + document.body.innerHTML.length);
+    
+    // 检测是否有遮挡层
+    const overlays = document.querySelectorAll('[style*="position:fixed"], [style*="position: fixed"]');
+    log('📊 Fixed overlays: ' + overlays.length);
+    
+    // 检测是否有 pointer-events:none
+    const appContainer = document.querySelector('[data-testid="app-container"]');
+    if (appContainer) {
+      const style = getComputedStyle(appContainer);
+      log('📊 app-container pointer-events: ' + style.pointerEvents);
+      log('📊 app-container display: ' + style.display);
+    }
+  }, 500);
+  
+  // 10秒后隐藏调试日志面板（生产环境）
   setTimeout(() => {
     const debugLog = document.getElementById('screen-debug-log');
     if (debugLog) debugLog.style.display = 'none';
-  }, 5000);
+  }, 10000);
   
   log('🎉 应用完全就绪');
 }).catch(err => {
