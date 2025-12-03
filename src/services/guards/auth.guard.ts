@@ -3,6 +3,7 @@ import { CanActivateFn, Router, NavigationEnd } from '@angular/router';
 import { filter, take } from 'rxjs/operators';
 import { AuthService } from '../auth.service';
 import { ModalService } from '../modal.service';
+import { GUARD_CONFIG, AUTH_CONFIG } from '../../config/constants';
 
 /** 本地认证缓存 key */
 const AUTH_CACHE_KEY = 'nanoflow.auth-cache';
@@ -34,7 +35,7 @@ function checkLocalAuthCache(): { userId: string | null; expiredAt: number | nul
 export function saveAuthCache(userId: string | null): void {
   try {
     if (userId) {
-      const expiredAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 天
+      const expiredAt = Date.now() + AUTH_CONFIG.REMEMBER_ME_EXPIRY;
       localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ userId, expiredAt }));
     } else {
       localStorage.removeItem(AUTH_CACHE_KEY);
@@ -50,7 +51,10 @@ export function saveAuthCache(userId: string | null): void {
  * 使用递归 setTimeout 代替 setInterval，更可靠且避免内存泄漏
  * 添加明确的超时错误处理
  */
-async function waitForSessionCheck(authService: AuthService, maxWaitMs: number = 10000): Promise<void> {
+async function waitForSessionCheck(
+  authService: AuthService, 
+  maxWaitMs: number = GUARD_CONFIG.SESSION_CHECK_TIMEOUT
+): Promise<void> {
   // 如果已经完成检查，直接返回
   if (!authService.authState().isCheckingSession) {
     return;
@@ -88,8 +92,11 @@ async function waitForSessionCheck(authService: AuthService, maxWaitMs: number =
         return;
       }
       
-      // 继续等待，使用指数退避（50ms -> 100ms -> 150ms...）
-      const nextDelay = Math.min(50 + Math.floor(elapsed / 200) * 50, 200);
+      // 继续等待，使用指数退避（使用集中配置）
+      const nextDelay = Math.min(
+        GUARD_CONFIG.SESSION_CHECK_POLL_INTERVAL + Math.floor(elapsed / 200) * 50, 
+        GUARD_CONFIG.SESSION_CHECK_POLL_MAX_INTERVAL
+      );
       setTimeout(checkSession, nextDelay);
     };
     

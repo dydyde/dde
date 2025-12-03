@@ -5,6 +5,7 @@ import { StoreService } from './services/store.service';
 import { AuthService } from './services/auth.service';
 import { UndoService } from './services/undo.service';
 import { ToastService } from './services/toast.service';
+import { ActionQueueService } from './services/action-queue.service';
 import { SupabaseClientService } from './services/supabase-client.service';
 import { MigrationService } from './services/migration.service';
 import { GlobalErrorHandler } from './services/global-error-handler.service';
@@ -21,7 +22,9 @@ import {
   ConfigHelpModalComponent,
   TrashModalComponent,
   MigrationModalComponent,
-  ErrorRecoveryModalComponent
+  ErrorRecoveryModalComponent,
+  StorageEscapeModalComponent,
+  StorageEscapeData
 } from './components/modals';
 import { ErrorBoundaryComponent } from './components/error-boundary.component';
 import { FormsModule } from '@angular/forms';
@@ -30,7 +33,30 @@ import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { getErrorMessage, isFailure, isSuccess } from './utils/result';
 import { ThemeType, Project } from './models';
+import { UI_CONFIG } from './config/constants';
 
+/**
+ * 应用根组件
+ * 
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ 技术债务说明：模态框静态导入                                                  │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ 当前 AppComponent 直接导入了 10+ 个模态框组件，这是有意为之的设计取舍：       │
+ * │                                                                             │
+ * │ 为什么不立即重构为动态加载？                                                 │
+ * │ - 把它拆分成动态加载会引入显著的复杂度（Injector 层级、生命周期销毁等）       │
+ * │ - 除非 main.js 体积大到影响首屏加载速度（对于个人工具几乎不可能），          │
+ * │   或者代码行数已超过鼠标滚轮舒适区，否则现在重构就是"磨洋工"                 │
+ * │ - AppComponent 本就是合法的"全局容器"，在应用初期完全可以接受                │
+ * │                                                                             │
+ * │ 后续迭代触发条件：                                                           │
+ * │ 1. main.js 体积 > 500KB 且影响首屏 LCP                                       │
+ * │ 2. 本文件行数 > 1000 行                                                      │
+ * │ 3. 需要支持模态框插件化/第三方扩展                                           │
+ * │                                                                             │
+ * │ 先让功能跑起来，代码丑一点没关系，它是你的私有领地。                          │
+ * └─────────────────────────────────────────────────────────────────────────────┘
+ */
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -49,7 +75,8 @@ import { ThemeType, Project } from './models';
     ConfigHelpModalComponent,
     TrashModalComponent,
     MigrationModalComponent,
-    ErrorRecoveryModalComponent
+    ErrorRecoveryModalComponent,
+    StorageEscapeModalComponent
   ],
   templateUrl: './app.component.html',
 })
@@ -59,6 +86,7 @@ export class AppComponent implements OnInit, OnDestroy {
   undoService = inject(UndoService);
   swUpdate = inject(SwUpdate);
   toast = inject(ToastService);
+  actionQueue = inject(ActionQueueService);
   supabaseClient = inject(SupabaseClientService);
   migrationService = inject(MigrationService);
   errorHandler = inject(GlobalErrorHandler);
@@ -85,6 +113,10 @@ export class AppComponent implements OnInit, OnDestroy {
   bootstrapErrorMessage = signal<string | null>(null);
   sessionEmail = signal<string | null>(null);
   isReloginMode = signal(false);
+  
+  /** 存储失败逃生数据 */
+  storageEscapeData = signal<StorageEscapeData | null>(null);
+  showStorageEscapeModal = signal(false);
   
   // 注册模式
   isSignupMode = signal(false);
@@ -121,8 +153,8 @@ export class AppComponent implements OnInit, OnDestroy {
     const deltaX = e.touches[0].clientX - this.sidebarTouchStartX;
     const deltaY = Math.abs(e.touches[0].clientY - this.sidebarTouchStartY);
     
-    // 向左滑动且水平距离大于垂直距离
-    if (deltaX < -30 && Math.abs(deltaX) > deltaY * 1.5) {
+    // 向左滑动且水平距离大于垂直距离（使用配置常量）
+    if (deltaX < -UI_CONFIG.GESTURE_MIN_DISTANCE && Math.abs(deltaX) > deltaY * UI_CONFIG.GESTURE_DIRECTION_RATIO) {
       this.isSidebarSwiping = true;
     }
   }
@@ -159,8 +191,8 @@ export class AppComponent implements OnInit, OnDestroy {
     const deltaX = e.touches[0].clientX - this.touchStartX;
     const deltaY = Math.abs(e.touches[0].clientY - this.touchStartY);
     
-    // 只有水平滑动距离大于垂直滑动时才认为是切换手势
-    if (Math.abs(deltaX) > 30 && Math.abs(deltaX) > deltaY * 1.5) {
+    // 只有水平滑动距离大于垂直滑动时才认为是切换手势（使用配置常量）
+    if (Math.abs(deltaX) > UI_CONFIG.GESTURE_MIN_DISTANCE && Math.abs(deltaX) > deltaY * UI_CONFIG.GESTURE_DIRECTION_RATIO) {
       this.isSwiping = true;
     }
   }
@@ -226,16 +258,21 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly SEARCH_DEBOUNCE_DELAY = 300; // 300ms 搜索防抖
 
   constructor() {
-    this.bootstrapSession().catch(e => {
-      // 错误已在 bootstrapSession 内部处理并设置 bootstrapFailed 状态
-      // 不再静默处理，确保用户感知启动失败
-    });
+    // 启动流程：先执行必要的同步初始化，再异步恢复会话
+    // 关键：bootstrapSession 失败不应阻止基础 UI 运行，但应阻止某些功能
     this.checkMobile();
     this.setupSwUpdateListener();
     // 主题初始化在 StoreService 构造函数中完成
     // 不再在此重复应用主题
     this.setupConflictHandler();
     this.setupSidebarToggleListener();
+    this.setupStorageFailureHandler();
+    
+    // 异步恢复会话 - 失败会设置 bootstrapFailed 状态，模板层负责显示错误 UI
+    this.bootstrapSession().catch(e => {
+      // 错误已在 bootstrapSession 内部处理并设置 bootstrapFailed 状态
+      // 不再静默处理，确保用户感知启动失败
+    });
   }
   
   ngOnInit() {
@@ -261,23 +298,52 @@ export class AppComponent implements OnInit, OnDestroy {
   
   /**
    * 监听子组件发出的 toggle-sidebar 事件
-   * 使用 WeakMap 防止 HMR 时累积多个监听器
+   * 箭头函数确保 this 绑定正确
    */
   private handleToggleSidebar = () => {
     this.isSidebarOpen.update(v => !v);
   };
   
-  /** 用于追踪是否已添加监听器（HMR 安全） */
-  private static sidebarListenerAdded = false;
+  /**
+   * 全局 WeakMap 用于追踪监听器实例，避免 HMR 时累积多个监听器
+   * 使用 WeakMap 以实例为键，确保每个组件实例独立追踪
+   */
+  private static listenerRegistry = new WeakMap<AppComponent, boolean>();
   
   private setupSidebarToggleListener() {
-    // 防止 HMR 时累积监听器
-    if (AppComponent.sidebarListenerAdded) {
-      // 先移除旧的监听器
-      window.removeEventListener('toggle-sidebar', this.handleToggleSidebar);
-    }
+    // 防止 HMR 时累积监听器：先移除可能存在的旧监听器
+    // 由于箭头函数是实例级别的，直接移除不会有问题
+    window.removeEventListener('toggle-sidebar', this.handleToggleSidebar);
     window.addEventListener('toggle-sidebar', this.handleToggleSidebar);
-    AppComponent.sidebarListenerAdded = true;
+    AppComponent.listenerRegistry.set(this, true);
+  }
+  
+  /**
+   * 设置存储失败处理器
+   * 
+   * 当 localStorage 和 IndexedDB 都失败时，显示逃生模态框
+   * 让用户手动复制数据进行备份
+   */
+  private setupStorageFailureHandler(): void {
+    this.actionQueue.onStorageFailure((data) => {
+      // 构造逃生数据
+      const escapeData: StorageEscapeData = {
+        queue: data.queue,
+        deadLetter: data.deadLetter,
+        projects: this.store.projects(), // 附加当前项目数据
+        timestamp: new Date().toISOString()
+      };
+      
+      this.storageEscapeData.set(escapeData);
+      this.showStorageEscapeModal.set(true);
+    });
+  }
+  
+  /**
+   * 关闭存储逃生模态框
+   */
+  closeStorageEscapeModal(): void {
+    this.showStorageEscapeModal.set(false);
   }
   
   /**
@@ -899,6 +965,8 @@ async signOut() {
       const deleteResult = await this.store.deleteProject(projectId);
       if (deleteResult.success) {
         this.expandedProjectId.set(null);
+        // 破坏性操作的成功反馈：让用户明确知道删除已完成
+        this.toast.success('项目已删除', `「${projectName}」已永久删除`);
       }
     }
   }
@@ -908,10 +976,13 @@ async signOut() {
   async executeDeleteProject() {
     const target = this.deleteProjectTarget();
     if (target) {
+      const projectName = target.name;
       const result = await this.store.deleteProject(target.id);
       if (result.success) {
         this.expandedProjectId.set(null);
         this.modal.closeByType('deleteProject', { confirmed: true });
+        // 破坏性操作的成功反馈：让用户明确知道删除已完成
+        this.toast.success('项目已删除', `「${projectName}」已永久删除`);
       }
       // 如果失败，模态框保持打开，错误消息由 store 通过 toast 显示
     } else {

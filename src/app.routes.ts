@@ -46,11 +46,11 @@ export const routes: Routes = [
           // 默认重定向到 text 视图
           { path: '', redirectTo: 'text', pathMatch: 'full' },
           // 文本视图模式
-          { path: 'text', children: [] },
+          { path: 'text', component: undefined },
           // 流程图模式
-          { path: 'flow', children: [] },
+          { path: 'flow', component: undefined },
           // 定位到特定任务（深度链接）
-          { path: 'task/:taskId', children: [] }
+          { path: 'task/:taskId', component: undefined }
         ]
       }
     ]

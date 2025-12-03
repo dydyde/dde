@@ -115,6 +115,61 @@ export const GUARD_CONFIG = {
   CHECK_INTERVAL: 100,
   /** 慢网络警告阈值（毫秒）- 超过此时间显示网络警告 */
   SLOW_NETWORK_THRESHOLD: 3000,
+  /** 会话检查最大等待时间（毫秒） */
+  SESSION_CHECK_TIMEOUT: 10000,
+  /** 会话检查轮询初始间隔（毫秒） */
+  SESSION_CHECK_POLL_INTERVAL: 50,
+  /** 会话检查轮询最大间隔（毫秒） */
+  SESSION_CHECK_POLL_MAX_INTERVAL: 200,
+} as const;
+
+/**
+ * 乐观更新配置
+ * 快照管理和 ID 漂移相关配置
+ */
+export const OPTIMISTIC_CONFIG = {
+  /** 快照最大保留时间（毫秒）- 5 分钟 */
+  SNAPSHOT_MAX_AGE_MS: 5 * 60 * 1000,
+  /** 最大快照数量 */
+  MAX_SNAPSHOTS: 20,
+  /** 清理检查间隔（毫秒） */
+  CLEANUP_INTERVAL_MS: 60 * 1000,
+  /** ID 映射最大保留时间（毫秒）- 1 小时 */
+  ID_MAPPING_MAX_AGE_MS: 60 * 60 * 1000,
+  /** 临时 ID 前缀 */
+  TEMP_ID_PREFIX: 'temp-',
+} as const;
+
+/**
+ * 流程图配置
+ * 图表初始化和重试相关配置
+ */
+export const FLOW_VIEW_CONFIG = {
+  /** 最大图表初始化重试次数 */
+  MAX_DIAGRAM_RETRIES: 3,
+  /** 图表初始化重试基础延迟（毫秒） */
+  DIAGRAM_RETRY_BASE_DELAY: 100,
+} as const;
+
+/**
+ * 搜索配置
+ */
+export const SEARCH_CONFIG = {
+  /** 搜索防抖延迟（毫秒） */
+  DEBOUNCE_DELAY: 300,
+} as const;
+
+/**
+ * 深链接配置
+ * 任务深链接定位相关配置
+ */
+export const DEEP_LINK_CONFIG = {
+  /** 最大重试次数 */
+  MAX_RETRIES: 20,
+  /** 基础延迟（毫秒） */
+  BASE_DELAY: 100,
+  /** 最大延迟（毫秒） */
+  MAX_DELAY: 500,
 } as const;
 
 /**
@@ -229,6 +284,10 @@ export const UI_CONFIG = {
   MAX_SCROLL_SPEED: 15,
   /** 滑动切换阈值（像素） */
   SWIPE_THRESHOLD: 50,
+  /** 手势识别最小移动距离（像素） */
+  GESTURE_MIN_DISTANCE: 30,
+  /** 手势方向比率（水平距离/垂直距离超过此值认为是水平手势） */
+  GESTURE_DIRECTION_RATIO: 1.5,
   /** 提示自动消失时间（毫秒） */
   HINT_AUTO_DISMISS: 3000,
   /** 视图状态保存防抖延迟（毫秒） */

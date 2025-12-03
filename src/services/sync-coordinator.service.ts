@@ -131,6 +131,7 @@ export class SyncCoordinatorService {
   constructor() {
     this.setupQueueSyncCoordination();
     this.setupActionQueueProcessors();
+    this.validateRequiredProcessors();
     
     this.destroyRef.onDestroy(() => {
       if (this.persistTimer) {
@@ -140,6 +141,33 @@ export class SyncCoordinatorService {
   }
   
   // ========== 公共方法 ==========
+  
+  /**
+   * 验证必需的处理器是否已注册
+   * 在构造函数中调用，确保启动时就能发现配置问题
+   */
+  private validateRequiredProcessors(): void {
+    const requiredProcessors = [
+      'project:create',
+      'project:update',
+      'project:delete',
+      'task:create',
+      'task:update',
+      'task:delete',
+      'preference:update'
+    ];
+    
+    const missing = this.actionQueue.validateProcessors(requiredProcessors);
+    if (missing.length > 0) {
+      // 开发环境下抛出错误，便于早期发现问题
+      if (typeof ngDevMode !== 'undefined' && ngDevMode) {
+        console.error(
+          `[SyncCoordinator] 缺少必需的 ActionQueue 处理器: ${missing.join(', ')}`,
+          '\n已注册的处理器:', this.actionQueue.getRegisteredProcessorTypes()
+        );
+      }
+    }
+  }
   
   /**
    * 标记有本地变更待同步

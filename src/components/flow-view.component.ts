@@ -10,7 +10,7 @@ import { FlowTouchService } from '../services/flow-touch.service';
 import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
 import { Task } from '../models';
-import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
+import { GOJS_CONFIG, UI_CONFIG, FLOW_VIEW_CONFIG } from '../config/constants';
 import { 
   FlowToolbarComponent, 
   FlowPaletteComponent, 
@@ -94,20 +94,32 @@ import * as go from 'gojs';
             <h3 class="text-lg font-semibold text-stone-800 mb-2">流程图加载失败</h3>
             <p class="text-sm text-stone-500 text-center mb-4">{{ diagram.error() }}</p>
             <div class="flex gap-3">
-              <button 
-                (click)="retryInitDiagram()"
-                [disabled]="isRetryingDiagram()"
-                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
-                @if (isRetryingDiagram()) {
-                  <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              @if (hasReachedRetryLimit()) {
+                <!-- 达到重试上限后显示完全重置按钮 -->
+                <button 
+                  (click)="resetAndRetryDiagram()"
+                  class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium flex items-center gap-2">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                   </svg>
-                  <span>加载中...</span>
-                } @else {
-                  重试加载
-                }
-              </button>
+                  完全重置
+                </button>
+              } @else {
+                <button 
+                  (click)="retryInitDiagram()"
+                  [disabled]="isRetryingDiagram()"
+                  class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                  @if (isRetryingDiagram()) {
+                    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>加载中...</span>
+                  } @else {
+                    重试加载
+                  }
+                </button>
+              }
               <button 
                 (click)="goBackToText.emit()"
                 class="px-4 py-2 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium">
@@ -246,8 +258,8 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   /** 图表初始化重试次数 */
   private diagramRetryCount = 0;
   
-  /** 最大重试次数 */
-  private static readonly MAX_DIAGRAM_RETRIES = 3;
+  /** 是否已达到重试上限（用于 UI 显示不同按钮） */
+  readonly hasReachedRetryLimit = signal(false);
   
   /** 计算属性: 获取选中的任务对象 */
   readonly selectedTask = computed(() => {
@@ -437,28 +449,30 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   retryInitDiagram(): void {
     // 检查是否超过最大重试次数
-    if (this.diagramRetryCount >= FlowViewComponent.MAX_DIAGRAM_RETRIES) {
+    if (this.diagramRetryCount >= FLOW_VIEW_CONFIG.MAX_DIAGRAM_RETRIES) {
       this.toast.error(
         '初始化失败', 
-        `流程图加载失败已重试 ${FlowViewComponent.MAX_DIAGRAM_RETRIES} 次，请尝试刷新页面或切换到文本视图`
+        `流程图加载失败已重试 ${FLOW_VIEW_CONFIG.MAX_DIAGRAM_RETRIES} 次，请尝试刷新页面或切换到文本视图`
       );
       this.isRetryingDiagram.set(false);
+      this.hasReachedRetryLimit.set(true);
       return;
     }
     
     this.diagramRetryCount++;
     this.isRetryingDiagram.set(true);
+    this.hasReachedRetryLimit.set(false);
     
     // 显示重试进度反馈
-    const remaining = FlowViewComponent.MAX_DIAGRAM_RETRIES - this.diagramRetryCount;
+    const remaining = FLOW_VIEW_CONFIG.MAX_DIAGRAM_RETRIES - this.diagramRetryCount;
     this.toast.info(
       `重试加载中...`,
       `第 ${this.diagramRetryCount} 次尝试（剩余 ${remaining} 次）`,
       { duration: 2000 }
     );
     
-    // 使用指数退避：100ms, 200ms, 400ms
-    const delay = 100 * Math.pow(2, this.diagramRetryCount - 1);
+    // 使用指数退避：使用集中配置的基础延迟
+    const delay = FLOW_VIEW_CONFIG.DIAGRAM_RETRY_BASE_DELAY * Math.pow(2, this.diagramRetryCount - 1);
     
     this.scheduleTimer(() => {
       this.initDiagram();
@@ -466,10 +480,36 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         this.diagram.updateDiagram(this.store.tasks());
         // 成功后重置重试计数
         this.diagramRetryCount = 0;
+        this.hasReachedRetryLimit.set(false);
         this.toast.success('加载成功', '流程图已就绪');
       }
       this.isRetryingDiagram.set(false);
     }, delay);
+  }
+  
+  /**
+   * 完全重置图表状态并重新初始化
+   * 用于用户手动触发的"完全重置"操作
+   */
+  resetAndRetryDiagram(): void {
+    // 重置所有状态
+    this.diagramRetryCount = 0;
+    this.hasReachedRetryLimit.set(false);
+    this.diagram.dispose();
+    
+    // 重新初始化
+    this.toast.info('重置中...', '正在完全重置流程图');
+    
+    this.scheduleTimer(() => {
+      this.initDiagram();
+      if (this.diagram.isInitialized) {
+        this.diagram.updateDiagram(this.store.tasks());
+        this.toast.success('重置成功', '流程图已就绪');
+      } else {
+        // 重置后仍然失败，显示错误但允许再次重试
+        this.toast.error('重置失败', '流程图初始化失败，请尝试刷新页面');
+      }
+    }, 200);
   }
   
   // ========== 图表操作 ==========

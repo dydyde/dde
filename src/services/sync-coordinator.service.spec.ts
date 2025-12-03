@@ -62,6 +62,8 @@ const mockActionQueueService = {
   queueSize: signal(0),
   setQueueProcessCallbacks: vi.fn(),
   registerProcessor: vi.fn(),
+  validateProcessors: vi.fn().mockReturnValue([]),
+  getRegisteredProcessorTypes: vi.fn().mockReturnValue([]),
   enqueue: vi.fn().mockResolvedValue(true),
   processQueue: vi.fn().mockResolvedValue(undefined),
 };

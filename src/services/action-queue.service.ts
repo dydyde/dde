@@ -207,6 +207,29 @@ export class ActionQueueService {
    */
   registerProcessor(type: string, processor: (action: QueuedAction) => Promise<boolean>) {
     this.processors.set(type, processor);
+    this.logger.debug('处理器已注册', { type });
+  }
+  
+  /**
+   * 验证所有必需的处理器是否已注册
+   * 在应用启动后调用，用于早期发现配置问题
+   * 
+   * @param requiredProcessors 必需的处理器类型列表
+   * @returns 缺失的处理器类型列表，空数组表示全部已注册
+   */
+  validateProcessors(requiredProcessors: string[]): string[] {
+    const missing = requiredProcessors.filter(type => !this.processors.has(type));
+    if (missing.length > 0) {
+      this.logger.error('缺少必需的处理器', { missing });
+    }
+    return missing;
+  }
+  
+  /**
+   * 获取已注册的处理器类型列表（用于调试）
+   */
+  getRegisteredProcessorTypes(): string[] {
+    return Array.from(this.processors.keys());
   }
   
   /**
@@ -528,8 +551,20 @@ export class ActionQueueService {
     // 关键操作失败时检查是否需要通知用户
     if (action.priority === 'critical') {
       const criticalFailures = this.deadLetterQueue().filter(d => d.action.priority === 'critical');
-      if (criticalFailures.length >= LOCAL_QUEUE_CONFIG.CRITICAL_FAILURE_NOTIFY_THRESHOLD) {
-        // 触发用户通知
+      // 改进：首次关键操作失败也通知用户，不再等待累积到阈值
+      if (criticalFailures.length === 1) {
+        // 首次关键操作失败 - 单独提示
+        this.toast.warning(
+          '操作未能同步',
+          `"${this.getActionDescription(action)}" 同步失败，稍后将自动重试`
+        );
+        this.logger.warn('首次关键操作失败，已通知用户', { 
+          actionId: action.id,
+          entityType: action.entityType,
+          type: action.type
+        });
+      } else if (criticalFailures.length >= LOCAL_QUEUE_CONFIG.CRITICAL_FAILURE_NOTIFY_THRESHOLD) {
+        // 多个关键操作失败 - 批量提示
         this.toast.error(
           '同步失败', 
           `有 ${criticalFailures.length} 个重要操作无法完成同步，请检查网络或稍后重试`
@@ -549,6 +584,28 @@ export class ActionQueueService {
       priority: action.priority,
       reason
     });
+  }
+  
+  /**
+   * 获取操作的可读描述
+   * 用于用户通知
+   */
+  private getActionDescription(action: QueuedAction): string {
+    const typeMap: Record<string, string> = {
+      'create': '创建',
+      'update': '更新',
+      'delete': '删除'
+    };
+    const entityMap: Record<string, string> = {
+      'project': '项目',
+      'task': '任务',
+      'preference': '设置'
+    };
+    
+    const actionType = typeMap[action.type] || action.type;
+    const entityType = entityMap[action.entityType] || action.entityType;
+    
+    return `${actionType}${entityType}`;
   }
   
   /**

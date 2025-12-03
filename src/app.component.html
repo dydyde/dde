@@ -476,6 +476,13 @@
       (close)="errorHandler.dismissRecoveryDialog()">
     </app-error-recovery-modal>
   }
+  
+  <!-- 存储失败逃生模态框 -->
+  <app-storage-escape-modal
+    [show]="showStorageEscapeModal()"
+    [data]="storageEscapeData()"
+    (close)="closeStorageEscapeModal()">
+  </app-storage-escape-modal>
 
 </div>
   </app-error-boundary>

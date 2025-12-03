@@ -62,6 +62,7 @@ import { ProjectStateService } from './project-state.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
 import { Project, Task } from '../models';
+import { OPTIMISTIC_CONFIG } from '../config/constants';
 
 /**
  * 快照类型
@@ -112,22 +113,43 @@ export interface IdMapping {
 }
 
 /**
- * 临时 ID 前缀
+ * 乐观操作配置选项
  */
-const TEMP_ID_PREFIX = 'temp-';
+export interface OptimisticActionOptions {
+  /** 快照类型 */
+  type: SnapshotType;
+  /** 操作描述（用于失败时的 toast） */
+  label?: string;
+  /** 关联的临时 ID（用于创建操作） */
+  tempId?: string;
+  /** 失败时是否显示 toast（默认 true） */
+  showToastOnError?: boolean;
+}
 
 /**
- * 快照配置
+ * 乐观操作结果类型
+ */
+export type OptimisticActionResult<T> = 
+  | { success: true; value: T; rolledBack: false }
+  | { success: false; error: Error; rolledBack: boolean };
+
+/**
+ * 临时 ID 前缀
+ */
+const TEMP_ID_PREFIX = OPTIMISTIC_CONFIG.TEMP_ID_PREFIX;
+
+/**
+ * 快照配置 - 使用集中化常量
  */
 const SNAPSHOT_CONFIG = {
   /** 快照最大保留时间（毫秒） - 5 分钟 */
-  MAX_AGE_MS: 5 * 60 * 1000,
+  MAX_AGE_MS: OPTIMISTIC_CONFIG.SNAPSHOT_MAX_AGE_MS,
   /** 最大快照数量 */
-  MAX_SNAPSHOTS: 20,
+  MAX_SNAPSHOTS: OPTIMISTIC_CONFIG.MAX_SNAPSHOTS,
   /** 清理检查间隔（毫秒） */
-  CLEANUP_INTERVAL_MS: 60 * 1000,
+  CLEANUP_INTERVAL_MS: OPTIMISTIC_CONFIG.CLEANUP_INTERVAL_MS,
   /** ID 映射最大保留时间（毫秒） - 1 小时 */
-  ID_MAPPING_MAX_AGE_MS: 60 * 60 * 1000
+  ID_MAPPING_MAX_AGE_MS: OPTIMISTIC_CONFIG.ID_MAPPING_MAX_AGE_MS
 };
 
 @Injectable({
@@ -590,7 +612,7 @@ export class OptimisticStateService {
     this.startCleanupTimer();
   }
   
-  /**
+/**
    * 获取当前所有待处理的临时 ID（用于调试）
    */
   getPendingTempIds(): string[] {
@@ -601,5 +623,145 @@ export class OptimisticStateService {
       }
     }
     return pending;
+  }
+  
+  // ========== 乐观操作高阶函数 ==========
+  
+  /**
+   * 运行乐观操作 - 防呆设计的高阶函数
+   * 
+   * 【设计理念】
+   * 这是一个"机制保证配对"的函数，使用 try-finally 强制执行：
+   * 1. 操作前自动创建快照
+   * 2. 执行乐观更新
+   * 3. 执行异步操作
+   * 4. 成功时自动 commit，失败时自动 rollback
+   * 
+   * 业务代码只需关注"做什么"，不再需要关心"怎么保护现场"。
+   * 
+   * 【使用示例】
+   * ```typescript
+   * // 旧写法（容易遗漏 commit/rollback）：
+   * const snapshot = this.optimisticState.createSnapshot('task-update', '更新任务');
+   * this.projectState.updateProjects(mutator);
+   * try {
+   *   await this.syncService.saveToCloud(data);
+   *   this.optimisticState.commitSnapshot(snapshot.id);  // 容易忘记！
+   * } catch (error) {
+   *   this.optimisticState.rollbackSnapshot(snapshot.id); // 容易忘记！
+   *   throw error;
+   * }
+   * 
+   * // 新写法（机制保证配对）：
+   * await this.optimisticState.runOptimisticAction(
+   *   { type: 'task-update', label: '更新任务' },
+   *   () => this.projectState.updateProjects(mutator),
+   *   () => this.syncService.saveToCloud(data)
+   * );
+   * ```
+   * 
+   * @param options 配置选项
+   * @param optimisticUpdate 同步的乐观更新函数
+   * @param asyncAction 异步操作函数（网络请求等）
+   * @returns 包含成功/失败状态和结果的对象
+   */
+  async runOptimisticAction<T>(
+    options: OptimisticActionOptions,
+    optimisticUpdate: () => void,
+    asyncAction: () => Promise<T>
+  ): Promise<{ success: true; value: T; rolledBack: false } | { success: false; error: Error; rolledBack: boolean }> {
+    const { type, label, tempId, showToastOnError = true } = options;
+    
+    // 1. 创建快照（操作前）
+    const snapshot = this.createSnapshot(type, label, tempId);
+    
+    // 2. 执行乐观更新（同步）
+    try {
+      optimisticUpdate();
+    } catch (updateError) {
+      // 乐观更新本身失败，丢弃快照（因为状态未改变）
+      this.discardSnapshot(snapshot.id);
+      const error = updateError instanceof Error ? updateError : new Error(String(updateError));
+      this.logger.error('乐观更新执行失败', { type, error: error.message });
+      return { success: false, error, rolledBack: false };
+    }
+    
+    // 3. 执行异步操作，使用 try-finally 保证配对
+    try {
+      const result = await asyncAction();
+      // 成功：提交快照（丢弃）
+      this.commitSnapshot(snapshot.id);
+      this.logger.debug('乐观操作成功', { type, label });
+      return { success: true, value: result, rolledBack: false };
+    } catch (asyncError) {
+      // 失败：回滚快照
+      const rolledBack = this.rollbackSnapshot(snapshot.id, showToastOnError);
+      const error = asyncError instanceof Error ? asyncError : new Error(String(asyncError));
+      this.logger.warn('乐观操作失败，已回滚', { type, label, error: error.message, rolledBack });
+      return { success: false, error, rolledBack };
+    }
+  }
+  
+  /**
+   * 运行乐观任务操作 - 针对任务操作的便捷包装
+   * 
+   * @param taskId 任务 ID
+   * @param operationType 操作类型
+   * @param optimisticUpdate 同步的乐观更新函数
+   * @param asyncAction 异步操作函数
+   */
+  async runOptimisticTaskAction<T>(
+    taskId: string,
+    operationType: '创建' | '更新' | '删除' | '移动',
+    optimisticUpdate: () => void,
+    asyncAction: () => Promise<T>
+  ): Promise<{ success: true; value: T; rolledBack: false } | { success: false; error: Error; rolledBack: boolean }> {
+    const typeMap: Record<string, SnapshotType> = {
+      '创建': 'task-create',
+      '更新': 'task-update',
+      '删除': 'task-delete',
+      '移动': 'task-move'
+    };
+    
+    return this.runOptimisticAction(
+      {
+        type: typeMap[operationType] || 'task-update',
+        label: `${operationType}任务`,
+        tempId: this.isTempId(taskId) ? taskId : undefined
+      },
+      optimisticUpdate,
+      asyncAction
+    );
+  }
+  
+  /**
+   * 运行乐观项目操作 - 针对项目操作的便捷包装
+   * 
+   * @param projectId 项目 ID
+   * @param operationType 操作类型
+   * @param optimisticUpdate 同步的乐观更新函数
+   * @param asyncAction 异步操作函数
+   */
+  async runOptimisticProjectAction<T>(
+    projectId: string,
+    operationType: '创建' | '更新' | '删除',
+    optimisticUpdate: () => void,
+    asyncAction: () => Promise<T>
+  ): Promise<{ success: true; value: T; rolledBack: false } | { success: false; error: Error; rolledBack: boolean }> {
+    const typeMap: Record<string, SnapshotType> = {
+      '创建': 'project-create',
+      '更新': 'project-update',
+      '删除': 'project-delete'
+    };
+    
+    return this.runOptimisticAction(
+      {
+        type: typeMap[operationType] || 'project-update',
+        label: `${operationType}项目`,
+        tempId: this.isTempId(projectId) ? projectId : undefined
+      },
+      optimisticUpdate,
+      asyncAction
+    );
   }
 }

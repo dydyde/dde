@@ -418,7 +418,8 @@ export class TextViewComponent implements OnDestroy {
       const result = this.store.moveTaskToStage(task.id, stageNumber, dropInfo?.beforeTaskId ?? null);
       
       if (isFailure(result)) {
-        this.toast.error('移动任务失败', getErrorMessage(result.error));
+        const errorDetail = getErrorMessage(result.error);
+        this.toast.error('移动任务失败', `无法将任务移动到阶段 ${stageNumber}：${errorDetail}`);
       } else {
         this.stagesRef?.expandStage(stageNumber);
       }
@@ -521,7 +522,8 @@ export class TextViewComponent implements OnDestroy {
     if (wasDragging && targetStage) {
       const result = this.store.moveTaskToStage(task.id, targetStage, targetBeforeId);
       if (isFailure(result)) {
-        this.toast.error('移动任务失败', getErrorMessage(result.error));
+        const errorDetail = getErrorMessage(result.error);
+        this.toast.error('移动任务失败', `无法将任务移动到阶段 ${targetStage}：${errorDetail}`);
       } else {
         this.stagesRef?.expandStage(targetStage);
       }

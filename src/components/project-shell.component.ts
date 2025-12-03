@@ -13,6 +13,7 @@ import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
+import { TabSyncService } from '../services/tab-sync.service';
 import { TextViewComponent } from './text-view/text-view.component';
 import { FlowViewComponent } from './flow-view.component';
 import { ErrorBoundaryComponent } from './error-boundary.component';
@@ -213,6 +214,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
 export class ProjectShellComponent implements OnInit, OnDestroy {
   store = inject(StoreService);
   private toast = inject(ToastService);
+  private tabSync = inject(TabSyncService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private destroy$ = new Subject<void>();
@@ -261,6 +263,11 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
           const projectExists = this.store.projects().some(p => p.id === projectId);
           if (projectExists) {
             this.store.activeProjectId.set(projectId);
+            // 通知其他标签页当前项目已打开
+            const project = this.store.projects().find(p => p.id === projectId);
+            if (project) {
+              this.tabSync.notifyProjectOpen(projectId, project.name);
+            }
           } else {
             // 项目不存在，显示提示并重定向到项目列表
             this.toast.warning('项目不存在', '请求的项目可能已被删除或您没有访问权限');
