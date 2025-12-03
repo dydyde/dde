@@ -1,7 +1,8 @@
-import { Component, inject, output } from '@angular/core';
+import { Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MigrationService, MigrationStrategy } from '../../services/migration.service';
 import { AuthService } from '../../services/auth.service';
+import { ToastService } from '../../services/toast.service';
 
 /**
  * 数据迁移对话框组件
@@ -144,6 +145,24 @@ import { AuthService } from '../../services/auth.service';
           </button>
         </div>
         
+        <!-- 错误状态显示 -->
+        @if (errorMessage()) {
+          <div class="px-6 py-3 bg-red-50 border-t border-red-100">
+            <div class="flex items-start gap-3">
+              <div class="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-red-800">迁移失败</p>
+                <p class="text-xs text-red-600 mt-0.5">{{ errorMessage() }}</p>
+                <p class="text-xs text-red-500 mt-2">您可以重新选择策略并重试，或稍后再处理。</p>
+              </div>
+            </div>
+          </div>
+        }
+        
         <!-- 操作按钮 -->
         <div class="px-6 py-4 border-t border-stone-100 bg-stone-50 flex justify-end gap-3">
           <button 
@@ -185,12 +204,14 @@ import { AuthService } from '../../services/auth.service';
 export class MigrationModalComponent {
   private migrationService = inject(MigrationService);
   private authService = inject(AuthService);
+  private toast = inject(ToastService);
   
   close = output<void>();
   migrated = output<void>();
   
   selectedStrategy: MigrationStrategy | null = null;
   isProcessing = this.migrationService.showMigrationDialog; // 复用loading状态
+  readonly errorMessage = signal<string | null>(null);
   
   readonly summary = this.migrationService.getMigrationSummary.bind(this.migrationService);
   
@@ -201,18 +222,36 @@ export class MigrationModalComponent {
   async executeMigration() {
     if (!this.selectedStrategy) return;
     
+    // 清除之前的错误消息
+    this.errorMessage.set(null);
+    
     // 从 AuthService 获取当前用户 ID（安全的方式）
     const userId = this.authService.currentUserId();
     if (!userId) {
-      console.error('无法获取用户ID：用户未登录');
+      const msg = '无法获取用户ID：用户未登录';
+      this.errorMessage.set(msg);
+      this.toast.error('迁移失败', msg);
       return;
     }
     
-    const result = await this.migrationService.executeMigration(this.selectedStrategy, userId);
-    
-    if (result.success) {
-      this.migrated.emit();
-      this.close.emit();
+    try {
+      const result = await this.migrationService.executeMigration(this.selectedStrategy, userId);
+      
+      if (result.success) {
+        this.migrated.emit();
+        this.close.emit();
+      } else {
+        // 处理迁移服务返回的失败结果
+        const msg = '数据迁移失败，请稍后重试';
+        this.errorMessage.set(msg);
+        this.toast.error('迁移失败', msg);
+      }
+    } catch (error) {
+      // 捕获并处理未预期的异常
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      this.errorMessage.set(errorMsg);
+      this.toast.error('迁移失败', errorMsg);
+      console.error('数据迁移异常:', error);
     }
   }
 }

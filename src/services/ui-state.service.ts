@@ -90,6 +90,12 @@ export class UiStateService {
   /** 编辑状态定时器 */
   private editingTimer: ReturnType<typeof setTimeout> | null = null;
   
+  /** 
+   * 编辑版本号 - 用于解决定时器回调竞态条件
+   * 每次 markEditing() 调用都会递增，定时器只有在版本号匹配时才清除编辑状态
+   */
+  private _editingVersion = 0;
+  
   /** 编辑超时时间（毫秒） */
   private static readonly EDITING_TIMEOUT = 2000;
   
@@ -221,16 +227,24 @@ export class UiStateService {
   /**
    * 标记正在编辑
    * 用于防止远程更新覆盖用户正在编辑的内容
+   * 使用版本号机制解决定时器回调与新调用之间的竞态条件
    */
   markEditing(): void {
     this._isEditing = true;
+    
+    // 递增版本号，标记这是一个新的编辑会话
+    const currentVersion = ++this._editingVersion;
     
     if (this.editingTimer) {
       clearTimeout(this.editingTimer);
     }
     
     this.editingTimer = setTimeout(() => {
-      this._isEditing = false;
+      // 只有当版本号仍匹配时才清除编辑状态
+      // 如果在超时期间又调用了 markEditing()，版本号会不匹配，此回调将被忽略
+      if (this._editingVersion === currentVersion) {
+        this._isEditing = false;
+      }
       this.editingTimer = null;
     }, UiStateService.EDITING_TIMEOUT);
   }
@@ -255,12 +269,16 @@ export class UiStateService {
   
   /**
    * 清空所有 UI 状态
+   * 包括重置编辑版本号，防止版本号无限增长
    */
   clearAllState(): void {
     this.clearSearch();
     this.resetFilters();
     this.clearEditingState();
     this.isFlowDetailOpen.set(false);
+    
+    // 重置编辑版本号（防止跨会话的版本号无限增长）
+    this._editingVersion = 0;
   }
   
   // ========== 私有方法 ==========

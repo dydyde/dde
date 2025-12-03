@@ -6,6 +6,7 @@
  * - 统一的关闭逻辑
  * - 遮罩层点击关闭支持
  * - 键盘快捷键支持
+ * - 脏数据检测与自动保存支持
  * 
  * 使用方式：
  * ```typescript
@@ -16,6 +17,20 @@
  *   }
  * }
  * ```
+ * 
+ * 带脏检查的使用方式：
+ * ```typescript
+ * @Component({...})
+ * export class EditModalComponent extends EditableModalComponent<MyData, MyResult> {
+ *   protected override isDirty(): boolean {
+ *     return this.originalValue !== this.currentValue;
+ *   }
+ *   
+ *   protected override autoSave(): void {
+ *     this.store.updateData(this.currentValue);
+ *   }
+ * }
+ * ```
  */
 import { 
   Directive, 
@@ -23,7 +38,8 @@ import {
   Output, 
   EventEmitter,
   HostListener,
-  OnInit
+  OnInit,
+  signal
 } from '@angular/core';
 import { MODAL_DATA, MODAL_REF } from './dynamic-modal.service';
 
@@ -126,5 +142,120 @@ export abstract class ConfirmModalComponent<TData = unknown, TResult = { confirm
   protected handleCancel(): void {
     const cancelResult = { confirmed: false } as TResult;
     this.closeWithResult(cancelResult);
+  }
+}
+
+/**
+ * 可编辑模态框基类
+ * 
+ * 提供脏数据检测和自动保存支持：
+ * - 精准的脏检查（基于实际数据变化，而非 focus 事件）
+ * - 关闭时自动保存（默认行为，可覆盖）
+ * - 仅对破坏性操作（如删除）弹出确认
+ * 
+ * 【设计理念】
+ * 作为个人工具，采用"默认保存"策略替代"总是确认"：
+ * - 当模态框关闭时，如果检测到脏数据，直接触发保存逻辑
+ * - 不弹窗询问"是否保存"，减少心智负担
+ * - 除非是破坏性操作，否则默认保存用户的改动
+ */
+@Directive()
+export abstract class EditableModalComponent<TData = unknown, TResult = void> 
+  extends BaseModalComponent<TData, TResult> {
+  
+  /** 是否正在提交（防止重复提交） */
+  protected isSubmitting = signal(false);
+  
+  /**
+   * 检查数据是否已修改（脏检查）
+   * 
+   * 【实现建议】
+   * 子类应实现精准的脏检查逻辑：
+   * - 对比原始数据和当前数据
+   * - 使用深比较或 Hash 值比较
+   * - 避免基于 focus/blur 事件的误判
+   * 
+   * @returns 如果数据已修改返回 true
+   */
+  protected isDirty(): boolean {
+    // 默认实现：不脏
+    // 子类应覆盖此方法实现精准的脏检查
+    return false;
+  }
+  
+  /**
+   * 自动保存数据
+   * 
+   * 【实现建议】
+   * 子类应实现此方法来保存修改：
+   * - 调用相应的 store 方法
+   * - 不需要显示额外的 toast（除非失败）
+   * 
+   * @returns 返回 Promise 以支持异步保存
+   */
+  protected async autoSave(): Promise<void> {
+    // 默认实现：什么都不做
+    // 子类应覆盖此方法实现自动保存逻辑
+  }
+  
+  /**
+   * 是否应该在关闭前确认
+   * 
+   * 仅用于破坏性操作（如删除）
+   * 普通编辑操作应使用自动保存，不需要确认
+   * 
+   * @returns 如果需要确认返回 true
+   */
+  protected shouldConfirmBeforeClose(): boolean {
+    // 默认：不需要确认（使用自动保存）
+    return false;
+  }
+  
+  /**
+   * 增强的关闭逻辑
+   * 
+   * 关闭前检查脏数据：
+   * 1. 如果有脏数据且启用自动保存，则自动保存
+   * 2. 如果需要确认（破坏性操作），则提示用户
+   * 3. 否则直接关闭
+   */
+  protected override dismiss(): void {
+    this.handleClose();
+  }
+  
+  /**
+   * 处理关闭逻辑
+   */
+  protected async handleClose(): Promise<void> {
+    // 如果正在提交，忽略关闭请求
+    if (this.isSubmitting()) return;
+    
+    // 检查是否有脏数据
+    if (this.isDirty()) {
+      // 如果需要确认（破坏性操作场景），子类应覆盖处理
+      if (this.shouldConfirmBeforeClose()) {
+        // 子类应覆盖此方法显示确认对话框
+        return;
+      }
+      
+      // 默认行为：自动保存
+      this.isSubmitting.set(true);
+      try {
+        await this.autoSave();
+      } finally {
+        this.isSubmitting.set(false);
+      }
+    }
+    
+    // 执行关闭
+    super.dismiss();
+  }
+  
+  /**
+   * 强制关闭（不保存）
+   * 用于用户明确选择"放弃修改"的场景
+   */
+  protected forceClose(): void {
+    super.dismiss();
   }
 }

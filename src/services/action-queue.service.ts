@@ -1,8 +1,14 @@
-import { Injectable, inject, signal, OnDestroy } from '@angular/core';
+import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { CACHE_CONFIG, QUEUE_CONFIG } from '../config/constants';
 import { Project, Task, UserPreferences } from '../models';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
+import { extractErrorMessage } from '../utils/result';
+
+// ========== IndexedDB 备份支持 ==========
+const QUEUE_BACKUP_DB_NAME = 'nanoflow-queue-backup';
+const QUEUE_BACKUP_DB_VERSION = 1;
+const QUEUE_BACKUP_STORE_NAME = 'queue-backup';
 
 /**
  * 操作重要性级别
@@ -137,9 +143,10 @@ const LOCAL_QUEUE_CONFIG = {
 @Injectable({
   providedIn: 'root'
 })
-export class ActionQueueService implements OnDestroy {
-  private logger = inject(LoggerService).category('ActionQueue');
-  private toast = inject(ToastService);
+export class ActionQueueService {
+  private readonly logger = inject(LoggerService).category('ActionQueue');
+  private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
   
   /** 待处理队列 */
   readonly pendingActions = signal<QueuedAction[]>([]);
@@ -155,6 +162,19 @@ export class ActionQueueService implements OnDestroy {
   
   /** 死信队列大小 */
   readonly deadLetterSize = signal(0);
+  
+  /** 
+   * 存储失败状态 - 用于触发逃生模式
+   * 当 localStorage 和 IndexedDB 都失败时设置为 true
+   * UI 层应监听此信号并显示数据备份模态框
+   */
+  readonly storageFailure = signal(false);
+  
+  /** 
+   * 存储失败回调 - 用于通知 UI 层进入逃生模式
+   * 传递当前内存中的数据供用户手动备份
+   */
+  private storageFailureCallback: ((data: { queue: QueuedAction[]; deadLetter: DeadLetterItem[] }) => void) | null = null;
   
   /** 网络状态 */
   private isOnline = true;
@@ -173,10 +193,9 @@ export class ActionQueueService implements OnDestroy {
     this.loadQueueFromStorage();
     this.loadDeadLetterFromStorage();
     this.setupNetworkListeners();
-  }
-  
-  ngOnDestroy(): void {
-    this.removeNetworkListeners();
+    
+    // 注册 DestroyRef 清理
+    this.destroyRef.onDestroy(() => this.removeNetworkListeners());
   }
   
   // ========== 公共方法 ==========
@@ -196,6 +215,23 @@ export class ActionQueueService implements OnDestroy {
    */
   onFailure(callback: (item: DeadLetterItem) => void) {
     this.failureCallbacks.push(callback);
+  }
+  
+  /**
+   * 注册存储失败回调 - 用于逃生模式
+   * 
+   * 当 localStorage 和 IndexedDB 都失败时触发
+   * UI 层应监听此回调并显示数据备份模态框，让用户手动复制数据
+   * 
+   * 设计理念（来自用户反馈）：
+   * - 不尝试降级到其他存储方案（会导致数据一致性问题）
+   * - 用户可见的强提示是唯一的正道
+   * - 应用进入"只读/逃生模式"，防止数据丢失
+   * 
+   * @param callback 接收当前内存中的队列数据，供用户手动备份
+   */
+  onStorageFailure(callback: (data: { queue: QueuedAction[]; deadLetter: DeadLetterItem[] }) => void) {
+    this.storageFailureCallback = callback;
   }
   
   /**
@@ -326,15 +362,15 @@ export class ActionQueueService implements OnDestroy {
             this.dequeue(action.id);
             processed++;
           } else {
-            const result = await this.handleRetry(action, 'Operation returned false');
+            const result = this.handleRetry(action, 'Operation returned false');
             if (result === 'dead-letter') {
               movedToDeadLetter++;
             }
             failed++;
           }
-        } catch (error: any) {
-          const errorMessage = error?.message ?? String(error);
-          const result = await this.handleRetry(action, errorMessage);
+        } catch (error: unknown) {
+          const errorMessage = extractErrorMessage(error);
+          const result = this.handleRetry(action, errorMessage);
           if (result === 'dead-letter') {
             movedToDeadLetter++;
           }
@@ -518,8 +554,11 @@ export class ActionQueueService implements OnDestroy {
   /**
    * 处理重试逻辑
    * @returns 'retry' | 'dead-letter' 表示操作后续状态
+   * 
+   * 改进：移除同步延迟等待，改为异步调度重试
+   * 这样不会阻塞后续操作的处理
    */
-  private async handleRetry(action: QueuedAction, error: string): Promise<'retry' | 'dead-letter'> {
+  private handleRetry(action: QueuedAction, error: string): 'retry' | 'dead-letter' {
     // 检测错误类型
     const isBusinessErr = this.isBusinessError(error);
     
@@ -552,11 +591,32 @@ export class ActionQueueService implements OnDestroy {
     );
     this.saveQueueToStorage();
     
-    // 指数退避
+    // 异步调度重试：使用 setTimeout 延迟后重新触发处理
+    // 这样不会阻塞当前处理循环
     const delay = QUEUE_CONFIG.RETRY_BASE_DELAY * Math.pow(2, action.retryCount);
-    await new Promise(resolve => setTimeout(resolve, delay));
+    this.scheduleRetry(delay);
     
     return 'retry';
+  }
+  
+  /** 重试调度定时器 */
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  /**
+   * 调度异步重试
+   * 使用单一定时器避免多个重试同时触发
+   */
+  private scheduleRetry(delay: number): void {
+    // 如果已有定时器在等待，不重复调度
+    if (this.retryTimer) return;
+    
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      // 只有在线时才重试
+      if (this.isOnline) {
+        void this.processQueue();
+      }
+    }, delay);
   }
   
   /**
@@ -600,6 +660,7 @@ export class ActionQueueService implements OnDestroy {
   
   /**
    * 保存队列到本地存储
+   * 处理 QuotaExceededError：先尝试 IndexedDB 备份，再清理旧数据
    */
   private saveQueueToStorage() {
     if (typeof localStorage === 'undefined') return;
@@ -609,13 +670,181 @@ export class ActionQueueService implements OnDestroy {
         LOCAL_QUEUE_CONFIG.QUEUE_STORAGE_KEY,
         JSON.stringify(this.pendingActions())
       );
-    } catch (e) {
-      console.warn('Failed to save action queue to storage', e);
+    } catch (e: unknown) {
+      // 处理 QuotaExceededError - 检查错误类型
+      const isQuotaError = 
+        (e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22)) ||
+        (e instanceof Error && e.name === 'QuotaExceededError');
+      
+      if (isQuotaError) {
+        this.logger.warn('LocalStorage 配额不足，尝试清理旧数据...');
+        
+        // 策略 1: 清理死信队列
+        this.clearDeadLetterQueue();
+        
+        // 策略 2: 只保留最新的50%操作
+        const currentQueue = this.pendingActions();
+        if (currentQueue.length > 10) {
+          const reducedQueue = currentQueue.slice(-Math.ceil(currentQueue.length / 2));
+          try {
+            localStorage.setItem(
+              LOCAL_QUEUE_CONFIG.QUEUE_STORAGE_KEY,
+              JSON.stringify(reducedQueue)
+            );
+            this.pendingActions.set(reducedQueue);
+            this.queueSize.set(reducedQueue.length);
+            this.toast.warning('存储空间不足', `已清理 ${currentQueue.length - reducedQueue.length} 个较早的操作记录`);
+            return;
+          } catch {
+            // 仍然失败，继续降级策略
+          }
+        }
+        
+        // 策略 3: 尝试备份到 IndexedDB 后再清空 localStorage
+        this.logger.warn('LocalStorage 配额严重不足，尝试 IndexedDB 备份...');
+        void this.backupQueueToIndexedDB(currentQueue).then(success => {
+          if (success) {
+            // 备份成功，可以安全地清空 localStorage 队列
+            localStorage.removeItem(LOCAL_QUEUE_CONFIG.QUEUE_STORAGE_KEY);
+            this.logger.info('队列已备份到 IndexedDB，localStorage 已清理');
+            this.toast.info('存储空间不足', '操作队列已转移到备用存储，数据安全');
+          } else {
+            // IndexedDB 也失败，触发逃生模式
+            this.triggerStorageFailureEscapeMode();
+          }
+        });
+      } else {
+        this.logger.warn('Failed to save action queue to storage', e);
+      }
     }
   }
   
   /**
+   * 触发存储失败逃生模式
+   * 
+   * 当 localStorage 和 IndexedDB 都失败时调用
+   * 设置 storageFailure 标志并通知 UI 层显示数据备份模态框
+   */
+  private triggerStorageFailureEscapeMode(): void {
+    this.logger.error('【存储灾难】localStorage 和 IndexedDB 均不可用，进入逃生模式');
+    
+    // 设置存储失败标志
+    this.storageFailure.set(true);
+    
+    // 显示严重错误 toast
+    this.toast.error(
+      '🚨 存储失败 - 数据可能丢失', 
+      '浏览器存储不可用。请立即复制下方数据进行备份！',
+      { duration: 0 } // 不自动关闭
+    );
+    
+    // 通知 UI 层进入逃生模式
+    if (this.storageFailureCallback) {
+      try {
+        this.storageFailureCallback({
+          queue: this.pendingActions(),
+          deadLetter: this.deadLetterQueue()
+        });
+      } catch (e) {
+        this.logger.error('存储失败回调执行异常', e);
+      }
+    }
+  }
+  
+  /**
+   * 备份队列到 IndexedDB
+   * 当 localStorage 配额不足时的降级方案
+   */
+  private async backupQueueToIndexedDB(queue: QueuedAction[]): Promise<boolean> {
+    if (typeof indexedDB === 'undefined') return false;
+    
+    try {
+      const db = await this.openQueueBackupDb();
+      
+      return new Promise((resolve) => {
+        const transaction = db.transaction([QUEUE_BACKUP_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(QUEUE_BACKUP_STORE_NAME);
+        
+        // 清空旧数据后写入新数据
+        const clearRequest = store.clear();
+        clearRequest.onsuccess = () => {
+          const putRequest = store.put({ id: 'queue', actions: queue, savedAt: new Date().toISOString() });
+          putRequest.onsuccess = () => {
+            this.logger.info('队列已备份到 IndexedDB', { count: queue.length });
+            resolve(true);
+          };
+          putRequest.onerror = () => {
+            this.logger.error('IndexedDB 写入失败', putRequest.error);
+            resolve(false);
+          };
+        };
+        clearRequest.onerror = () => {
+          this.logger.error('IndexedDB 清空失败', clearRequest.error);
+          resolve(false);
+        };
+      });
+    } catch (e) {
+      this.logger.error('IndexedDB 备份异常', e);
+      return false;
+    }
+  }
+  
+  /**
+   * 从 IndexedDB 恢复队列备份
+   */
+  private async restoreQueueFromIndexedDB(): Promise<QueuedAction[] | null> {
+    if (typeof indexedDB === 'undefined') return null;
+    
+    try {
+      const db = await this.openQueueBackupDb();
+      
+      return new Promise((resolve) => {
+        const transaction = db.transaction([QUEUE_BACKUP_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(QUEUE_BACKUP_STORE_NAME);
+        
+        const request = store.get('queue');
+        request.onsuccess = () => {
+          const data = request.result as { id: string; actions: QueuedAction[]; savedAt: string } | undefined;
+          if (data?.actions) {
+            this.logger.info('从 IndexedDB 恢复队列备份', { count: data.actions.length, savedAt: data.savedAt });
+            resolve(data.actions);
+          } else {
+            resolve(null);
+          }
+        };
+        request.onerror = () => {
+          this.logger.warn('从 IndexedDB 读取备份失败', request.error);
+          resolve(null);
+        };
+      });
+    } catch (e) {
+      this.logger.warn('IndexedDB 恢复异常', e);
+      return null;
+    }
+  }
+  
+  /**
+   * 打开队列备份数据库
+   */
+  private openQueueBackupDb(): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(QUEUE_BACKUP_DB_NAME, QUEUE_BACKUP_DB_VERSION);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(QUEUE_BACKUP_STORE_NAME)) {
+          db.createObjectStore(QUEUE_BACKUP_STORE_NAME, { keyPath: 'id' });
+        }
+      };
+    });
+  }
+  
+  /**
    * 从本地存储加载队列
+   * 优先从 localStorage 加载，失败时尝试 IndexedDB 备份
    */
   private loadQueueFromStorage() {
     if (typeof localStorage === 'undefined') return;
@@ -627,8 +856,20 @@ export class ActionQueueService implements OnDestroy {
         if (Array.isArray(queue)) {
           this.pendingActions.set(queue);
           this.queueSize.set(queue.length);
+          return;
         }
       }
+      
+      // localStorage 为空，尝试从 IndexedDB 恢复
+      void this.restoreQueueFromIndexedDB().then(backupQueue => {
+        if (backupQueue && backupQueue.length > 0) {
+          this.pendingActions.set(backupQueue);
+          this.queueSize.set(backupQueue.length);
+          this.toast.info('队列恢复', `从备用存储恢复了 ${backupQueue.length} 个待处理操作`);
+          // 恢复后尝试保存回 localStorage
+          this.saveQueueToStorage();
+        }
+      });
     } catch (e) {
       console.warn('Failed to load action queue from storage', e);
     }
@@ -697,6 +938,12 @@ export class ActionQueueService implements OnDestroy {
     // 移除网络监听器
     this.removeNetworkListeners();
     
+    // 清理重试定时器
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    
     // 清空队列
     this.pendingActions.set([]);
     this.deadLetterQueue.set([]);
@@ -711,6 +958,10 @@ export class ActionQueueService implements OnDestroy {
     // 重置回调
     this.onQueueProcessStart = null;
     this.onQueueProcessEnd = null;
+    this.storageFailureCallback = null;
+    
+    // 重置存储失败状态
+    this.storageFailure.set(false);
     
     // 重置网络状态
     this.isOnline = true;

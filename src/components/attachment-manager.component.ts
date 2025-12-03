@@ -1,6 +1,7 @@
-import { Component, input, Output, EventEmitter, inject, signal, computed, effect, OnInit, OnDestroy } from '@angular/core';
+import { Component, input, Output, EventEmitter, inject, signal, computed, effect, OnInit, OnDestroy, Injector } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AttachmentService, UploadProgress } from '../services/attachment.service';
+import { ToastService } from '../services/toast.service';
 import { Attachment } from '../models';
 
 /**
@@ -104,22 +105,32 @@ import { Attachment } from '../models';
               
               <!-- 操作按钮 -->
               <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
-                  (click)="downloadAttachment(attachment, $event)"
-                  class="p-1 hover:bg-white rounded transition-colors"
-                  title="下载">
-                  <svg class="w-3 h-3 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                </button>
-                <button 
-                  (click)="deleteAttachment(attachment, $event)"
-                  class="p-1 hover:bg-red-50 rounded transition-colors"
-                  title="删除">
-                  <svg class="w-3 h-3 text-stone-400 hover:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                @if (isProcessing(attachment.id)) {
+                  <!-- 处理中 Spinner -->
+                  <div class="p-1">
+                    <svg class="w-3 h-3 text-indigo-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                } @else {
+                  <button 
+                    (click)="downloadAttachment(attachment, $event)"
+                    class="p-1 hover:bg-white rounded transition-colors"
+                    title="下载">
+                    <svg class="w-3 h-3 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </button>
+                  <button 
+                    (click)="deleteAttachment(attachment, $event)"
+                    class="p-1 hover:bg-red-50 rounded transition-colors"
+                    title="删除">
+                    <svg class="w-3 h-3 text-stone-400 hover:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                }
               </div>
             </div>
           }
@@ -158,6 +169,8 @@ import { Attachment } from '../models';
 })
 export class AttachmentManagerComponent implements OnInit, OnDestroy {
   private attachmentService = inject(AttachmentService);
+  private toastService = inject(ToastService);
+  private injector = inject(Injector);
   
   /** 用户 ID（必需） */
   readonly userId = input.required<string>();
@@ -189,6 +202,27 @@ export class AttachmentManagerComponent implements OnInit, OnDestroy {
   // 内部状态
   readonly attachments = signal<Attachment[]>([]);
   readonly previewingImage = signal<Attachment | null>(null);
+  /** 正在处理中的附件 ID 集合（下载/删除操作） */
+  readonly processingIds = signal<Set<string>>(new Set());
+  
+  /** 检查附件是否正在处理中 */
+  isProcessing(attachmentId: string): boolean {
+    return this.processingIds().has(attachmentId);
+  }
+  
+  /** 标记附件为处理中 */
+  private markProcessing(attachmentId: string): void {
+    this.processingIds.update(set => new Set(set).add(attachmentId));
+  }
+  
+  /** 取消附件的处理中状态 */
+  private unmarkProcessing(attachmentId: string): void {
+    this.processingIds.update(set => {
+      const newSet = new Set(set);
+      newSet.delete(attachmentId);
+      return newSet;
+    });
+  }
   
   // 追踪已监控的附件 ID
   private monitoredAttachmentIds = new Set<string>();
@@ -200,7 +234,7 @@ export class AttachmentManagerComponent implements OnInit, OnDestroy {
     
     // 更新附件监控
     this.updateAttachmentMonitoring(current || []);
-  });
+  }, { injector: this.injector });
   
   // 代理服务状态
   readonly uploadProgress = this.attachmentService.uploadProgress;
@@ -346,7 +380,11 @@ export class AttachmentManagerComponent implements OnInit, OnDestroy {
     }
     
     if (result.errors.length > 0) {
-      this.error.emit(result.errors.join('\n'));
+      const errorMessage = result.errors.join('\n');
+      // 内部 toast 提示，确保用户感知错误
+      this.toastService.error('附件上传失败', errorMessage);
+      // 同时发出事件供父组件处理（向后兼容）
+      this.error.emit(errorMessage);
     }
     
     // 重置 input
@@ -359,29 +397,41 @@ export class AttachmentManagerComponent implements OnInit, OnDestroy {
   async downloadAttachment(attachment: Attachment, event: Event) {
     event.stopPropagation();
     
-    // 如果有签名 URL，直接打开
+    // 防止重复点击
+    if (this.isProcessing(attachment.id)) return;
+    
+    // 如果有签名 URL，直接打开（无需 loading）
     if (attachment.url) {
       window.open(attachment.url, '_blank');
       return;
     }
     
-    // 否则尝试下载
-    const blob = await this.attachmentService.downloadFile(
-      this.userId(),
-      this.projectId(),
-      this.taskId(),
-      attachment
-    );
+    // 标记为处理中
+    this.markProcessing(attachment.id);
     
-    if (blob) {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = attachment.name;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else {
-      this.error.emit(`下载失败: ${attachment.name}`);
+    try {
+      // 尝试下载
+      const blob = await this.attachmentService.downloadFile(
+        this.userId(),
+        this.projectId(),
+        this.taskId(),
+        attachment
+      );
+      
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = attachment.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const errorMessage = `下载失败: ${attachment.name}`;
+        this.toastService.error('下载失败', errorMessage);
+        this.error.emit(errorMessage);
+      }
+    } finally {
+      this.unmarkProcessing(attachment.id);
     }
   }
   
@@ -391,25 +441,38 @@ export class AttachmentManagerComponent implements OnInit, OnDestroy {
   async deleteAttachment(attachment: Attachment, event: Event) {
     event.stopPropagation();
     
-    const fileExt = attachment.name.split('.').pop() || '';
-    const result = await this.attachmentService.deleteFile(
-      this.userId(),
-      this.projectId(),
-      this.taskId(),
-      attachment.id,
-      fileExt
-    );
+    // 防止重复点击
+    if (this.isProcessing(attachment.id)) return;
     
-    if (result.success) {
-      // 发出原子移除事件
-      this.attachmentRemove.emit(attachment.id);
-      // 更新本地状态
-      const newAttachments = this.attachments().filter(a => a.id !== attachment.id);
-      this.attachments.set(newAttachments);
-      // 也发出全量事件（向后兼容）
-      this.attachmentsChange.emit(newAttachments);
-    } else {
-      this.error.emit(result.error || '删除失败');
+    // 标记为处理中
+    this.markProcessing(attachment.id);
+    
+    try {
+      const fileExt = attachment.name.split('.').pop() || '';
+      const result = await this.attachmentService.deleteFile(
+        this.userId(),
+        this.projectId(),
+        this.taskId(),
+        attachment.id,
+        fileExt
+      );
+      
+      if (result.success) {
+        // 发出原子移除事件
+        this.attachmentRemove.emit(attachment.id);
+        // 更新本地状态
+        const newAttachments = this.attachments().filter(a => a.id !== attachment.id);
+        this.attachments.set(newAttachments);
+        // 也发出全量事件（向后兼容）
+        this.attachmentsChange.emit(newAttachments);
+        this.toastService.success('删除成功', `已删除 ${attachment.name}`);
+      } else {
+        const errorMessage = result.error || '删除失败';
+        this.toastService.error('删除失败', errorMessage);
+        this.error.emit(errorMessage);
+      }
+    } finally {
+      this.unmarkProcessing(attachment.id);
     }
   }
   

@@ -1,4 +1,4 @@
-import { Component, inject, signal, Output, EventEmitter, OnDestroy, ElementRef, ViewChild, NgZone, AfterViewInit, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, signal, Output, EventEmitter, OnDestroy, ElementRef, ViewChild, NgZone, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { ToastService } from '../../services/toast.service';
@@ -102,7 +102,7 @@ import { DropTargetInfo } from './text-view.types';
     </div>
   `
 })
-export class TextViewComponent implements OnDestroy, AfterViewInit {
+export class TextViewComponent implements OnDestroy {
   readonly store = inject(StoreService);
   private readonly toast = inject(ToastService);
   readonly dragDropService = inject(TextViewDragDropService);
@@ -120,15 +120,17 @@ export class TextViewComponent implements OnDestroy, AfterViewInit {
   readonly deleteConfirmTask = signal<Task | null>(null);
   readonly deleteKeepChildren = signal(false);
   
+  /** 待清理的定时器列表（防止内存泄漏） */
+  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
+  
   // 计算属性
   readonly isMobile = this.store.isMobile;
   
-  ngAfterViewInit() {
-    // 初始化完成
-  }
-  
   ngOnDestroy() {
     this.dragDropService.cleanup();
+    // 清理所有待处理的定时器，防止内存泄漏
+    this.pendingTimers.forEach(timer => clearTimeout(timer));
+    this.pendingTimers = [];
   }
   
   // ========== DOM 辅助方法 ==========
@@ -149,42 +151,84 @@ export class TextViewComponent implements OnDestroy, AfterViewInit {
     });
   }
   
-  private scrollToTaskAndFocus(taskId: string, inputSelector?: string, delay = 100): void {
+  private scrollToTaskAndFocus(taskId: string, inputSelector?: string): void {
     this.ngZone.runOutsideAngular(() => {
+      // 使用双重 rAF 确保 DOM 已完成渲染
+      // 第一个 rAF：等待 Angular 变更检测完成
+      // 第二个 rAF：等待浏览器完成布局和绘制
       requestAnimationFrame(() => {
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           const el = this.elementRef.nativeElement.querySelector(`[data-task-id="${taskId}"]`) 
             ?? this.elementRef.nativeElement.querySelector(`[data-unassigned-task="${taskId}"]`);
           if (el) {
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             if (inputSelector) {
-              setTimeout(() => {
+              // 滚动动画完成后聚焦输入框
+              const focusTimer = setTimeout(() => {
                 const input = el.querySelector(inputSelector) as HTMLInputElement;
                 input?.focus();
                 input?.select?.();
-              }, delay);
+                this.removeTimer(focusTimer);
+              }, 100);
+              this.pendingTimers.push(focusTimer);
             }
           }
-        }, 50);
+        });
       });
     });
   }
   
+  /** 移除已执行的定时器 */
+  private removeTimer(timer: ReturnType<typeof setTimeout>): void {
+    const index = this.pendingTimers.indexOf(timer);
+    if (index > -1) {
+      this.pendingTimers.splice(index, 1);
+    }
+  }
+  
   // ========== 待办事项处理 ==========
   
-  onJumpToTask(taskId: string) {
+  async onJumpToTask(taskId: string) {
     const task = this.store.tasks().find(t => t.id === taskId);
     if (!task) return;
     
     if (task.stage) {
+      // 有阶段的任务：跳转到阶段区域
       this.stagesRef?.expandStage(task.stage);
       if (this.store.stageFilter() !== 'all' && this.store.stageFilter() !== task.stage) {
         this.store.setStageFilter('all');
       }
+      this.selectedTaskId.set(taskId);
+      this.scrollToElementById(`[data-task-id="${taskId}"]`);
+    } else {
+      // 待分配的任务：跳转到待分配区域并展开任务卡片
+      // 1. 确保待分配区域展开
+      if (!this.store.isTextUnassignedOpen()) {
+        this.store.isTextUnassignedOpen.set(true);
+      }
+      
+      // 2. 等待待分配区域渲染完成（确保 unassignedRef 可用）
+      await new Promise<void>(resolve => {
+        setTimeout(() => resolve(), 50);
+      });
+      
+      // 3. 设置编辑任务（预览模式）并等待 DOM 更新
+      if (this.unassignedRef) {
+        await this.unassignedRef.setEditingTask(taskId, false);
+      }
+      
+      // 4. 滚动到任务
+      this.ngZone.runOutsideAngular(() => {
+        const timer = setTimeout(() => {
+          const el = this.elementRef.nativeElement.querySelector(`[data-unassigned-task="${taskId}"]`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          this.removeTimer(timer);
+        }, 100);
+        this.pendingTimers.push(timer);
+      });
     }
-    
-    this.selectedTaskId.set(taskId);
-    this.scrollToElementById(`[data-task-id="${taskId}"]`);
   }
   
   // ========== 待分配区处理 ==========
@@ -198,7 +242,7 @@ export class TextViewComponent implements OnDestroy, AfterViewInit {
     if (isFailure(result)) {
       this.toast.error('创建任务失败', getErrorMessage(result.error));
     } else {
-      this.unassignedRef?.setEditingTask(result.value);
+      this.unassignedRef?.setEditingTask(result.value, true);  // 新建任务直接进入编辑模式
       this.scrollToTaskAndFocus(result.value, 'input');
     }
   }

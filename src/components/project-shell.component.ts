@@ -15,6 +15,7 @@ import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
 import { TextViewComponent } from './text-view/text-view.component';
 import { FlowViewComponent } from './flow-view.component';
+import { ErrorBoundaryComponent } from './error-boundary.component';
 
 /**
  * 项目视图外壳组件
@@ -24,7 +25,7 @@ import { FlowViewComponent } from './flow-view.component';
 @Component({
   selector: 'app-project-shell',
   standalone: true,
-  imports: [CommonModule, TextViewComponent, FlowViewComponent],
+  imports: [CommonModule, TextViewComponent, FlowViewComponent, ErrorBoundaryComponent],
   styles: [`
     :host {
       display: flex;
@@ -152,7 +153,14 @@ import { FlowViewComponent } from './flow-view.component';
              }
           </div>
           
-          <app-text-view class="flex-1 min-h-0 overflow-hidden" (focusFlowNode)="onFocusFlowNode($event)"></app-text-view>
+          <app-error-boundary 
+            [title]="'文本视图加载失败'" 
+            [defaultMessage]="'您可以切换到流程图视图或刷新页面重试'"
+            [showRetry]="true"
+            [onRetry]="retryTextView.bind(this)"
+            [containerClass]="'compact'">
+            <app-text-view class="flex-1 min-h-0 overflow-hidden" (focusFlowNode)="onFocusFlowNode($event)"></app-text-view>
+          </app-error-boundary>
         </div>
 
         <!-- Content Resizer -->
@@ -179,7 +187,14 @@ import { FlowViewComponent } from './flow-view.component';
                   </button>
               }
            </div>
-           <app-flow-view class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
+           <app-error-boundary 
+              [title]="'流程图加载失败'" 
+              [defaultMessage]="'您可以切换到文本视图或刷新页面重试'"
+              [showRetry]="true"
+              [onRetry]="retryFlowView.bind(this)"
+              [containerClass]="'compact'">
+              <app-flow-view class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
+           </app-error-boundary>
         </div>
       } @else {
         <!-- 无活动项目时的占位 -->
@@ -323,9 +338,37 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
         if (projectId) {
           void this.router.navigate(['/projects', projectId, 'flow'], { replaceUrl: true });
           
-          // 如果任务确实不存在（而不是加载超时），显示提示
+          // 根据情况显示不同提示，并提供明确的下一步操作
           if (!isLoading && !task) {
-            this.toast.warning('任务不存在', '请求的任务可能已被删除或您没有访问权限');
+            // 任务确实不存在 - 提供创建新任务的选项
+            this.toast.warning(
+              '任务不存在', 
+              '请求的任务可能已被删除或您没有访问权限',
+              {
+                duration: 10000,
+                action: {
+                  label: '新建任务',
+                  onClick: () => {
+                    // 触发创建新任务
+                    this.store.addFloatingTask('新任务', '', 100, 100);
+                    this.toast.success('已创建新任务');
+                  }
+                }
+              }
+            );
+          } else if (isLoading) {
+            // 加载超时 - 提供重试选项
+            this.toast.info(
+              '加载超时', 
+              '数据仍在加载中',
+              {
+                duration: 8000,
+                action: {
+                  label: '刷新页面',
+                  onClick: () => window.location.reload()
+                }
+              }
+            );
           }
         }
       }
@@ -470,5 +513,26 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
     }
     
     this.textViewSwipeState.isSwiping = false;
+  }
+  
+  // ========== 错误边界重试回调 ==========
+  
+  /**
+   * 重试加载文本视图
+   */
+  retryTextView(): void {
+    // 强制刷新当前视图
+    this.store.activeView.set('text');
+  }
+  
+  /**
+   * 重试加载流程图视图
+   */
+  retryFlowView(): void {
+    // 触发流程图重新初始化
+    this.store.activeView.set('flow');
+    if (this.flowView) {
+      this.flowView.retryInitDiagram();
+    }
   }
 }

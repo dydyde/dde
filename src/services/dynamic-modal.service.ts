@@ -32,6 +32,7 @@ import {
   DestroyRef
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
+import { Subscription } from 'rxjs';
 
 /** 模态框配置接口 */
 export interface ModalConfig<T = unknown> {
@@ -68,6 +69,8 @@ interface ModalStackItem {
   resolve: (result: unknown) => void;
   config: ModalConfig;
   escapeListener?: (e: KeyboardEvent) => void;
+  /** 订阅清理数组 */
+  subscriptions: Subscription[];
 }
 
 /** 默认配置 */
@@ -222,18 +225,23 @@ export class DynamicModalService {
     // 更新 modalRefToken 的 componentRef
     modalRefToken.componentRef = componentRef;
     
+    // 订阅收集器
+    const subscriptions: Subscription[] = [];
+    
     // 监听组件的 close 事件（如果存在）
     const instance = componentRef.instance as any;
     if (instance.close && typeof instance.close.subscribe === 'function') {
-      instance.close.subscribe((result: R) => {
+      const sub = instance.close.subscribe((result: R) => {
         closeModal(result);
       });
+      subscriptions.push(sub);
     }
     // 也支持 confirm/cancel 事件模式
     if (instance.confirm && typeof instance.confirm.subscribe === 'function') {
-      instance.confirm.subscribe((data: any) => {
+      const sub = instance.confirm.subscribe((data: any) => {
         closeModal(data as R);
       });
+      subscriptions.push(sub);
     }
     
     // 附加到 Angular 应用
@@ -262,7 +270,8 @@ export class DynamicModalService {
       containerElement: modalContainer,
       resolve: resolvePromise! as (result: unknown) => void,
       config: mergedConfig,
-      escapeListener
+      escapeListener,
+      subscriptions
     }]);
     
     // 焦点管理：聚焦到模态框内第一个可聚焦元素
@@ -290,6 +299,11 @@ export class DynamicModalService {
     if (index === -1) return;
     
     const item = stack[index];
+    
+    // 清理所有订阅
+    for (const sub of item.subscriptions) {
+      sub.unsubscribe();
+    }
     
     // 清理 ESC 监听器
     if (item.escapeListener) {

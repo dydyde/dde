@@ -9,7 +9,7 @@ import { FlowDragDropService, InsertPositionInfo } from '../services/flow-drag-d
 import { FlowTouchService } from '../services/flow-touch.service';
 import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
-import { Task, Attachment } from '../models';
+import { Task } from '../models';
 import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
 import { 
   FlowToolbarComponent, 
@@ -96,8 +96,17 @@ import * as go from 'gojs';
             <div class="flex gap-3">
               <button 
                 (click)="retryInitDiagram()"
-                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium">
-                重试加载
+                [disabled]="isRetryingDiagram()"
+                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                @if (isRetryingDiagram()) {
+                  <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>加载中...</span>
+                } @else {
+                  重试加载
+                }
               </button>
               <button 
                 (click)="goBackToText.emit()"
@@ -231,6 +240,15 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   readonly drawerHeight = signal(35);
   readonly isResizingDrawerSignal = signal(false);
   
+  /** 是否正在重试加载图表 */
+  readonly isRetryingDiagram = signal(false);
+  
+  /** 图表初始化重试次数 */
+  private diagramRetryCount = 0;
+  
+  /** 最大重试次数 */
+  private static readonly MAX_DIAGRAM_RETRIES = 3;
+  
   /** 计算属性: 获取选中的任务对象 */
   readonly selectedTask = computed(() => {
     const id = this.selectedTaskId();
@@ -241,33 +259,43 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // ========== 私有状态 ==========
   private isDestroyed = false;
   
+  /** 待清理的定时器（防止内存泄漏） */
+  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
+  
+  /** rAF 调度 ID（用于取消） */
+  private pendingRafId: number | null = null;
+  
+  /** 是否有待处理的图表更新（用于 rAF 合并） */
+  private diagramUpdatePending = false;
+  
   // ========== 调色板拖动状态 ==========
   private isResizingPalette = false;
   private startY = 0;
   private startHeight = 0;
   
   constructor() {
-    // 监听任务数据变化，更新图表
+    // 监听任务数据变化，使用 rAF 对齐渲染帧更新图表
+    // 核心原则：眼睛看到的（UI）用 rAF，硬盘存的（Data）用 debounce
     effect(() => {
       const tasks = this.store.tasks();
       if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(tasks);
+        this.scheduleRafDiagramUpdate(tasks, false);
       }
     }, { injector: this.injector });
     
-    // 监听搜索查询变化，更新图表高亮
+    // 监听搜索查询变化，使用 rAF 更新图表高亮
     effect(() => {
       const query = this.store.searchQuery();
       if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks(), true);
+        this.scheduleRafDiagramUpdate(this.store.tasks(), true);
       }
     }, { injector: this.injector });
     
-    // 监听主题变化，更新图表节点颜色
+    // 监听主题变化，使用 rAF 更新图表节点颜色
     effect(() => {
       const theme = this.store.theme();
       if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks(), true);
+        this.scheduleRafDiagramUpdate(this.store.tasks(), true);
       }
     }, { injector: this.injector });
     
@@ -280,14 +308,42 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     }, { injector: this.injector });
   }
   
+  /**
+   * 使用 requestAnimationFrame 调度图表更新
+   * 将多个 signal 变化合并到同一帧，避免过度渲染
+   * 
+   * 注意：rAF 的作用是"对齐"而非"延迟"
+   * 它把更新逻辑和浏览器刷新频率（60Hz）对齐，确保不会在一帧里做两次无用渲染
+   */
+  private scheduleRafDiagramUpdate(tasks: Task[], forceUpdate: boolean): void {
+    // 标记需要完整更新
+    if (forceUpdate) {
+      this.diagramUpdatePending = true;
+    }
+    
+    // 如果已有 rAF 调度，复用它
+    if (this.pendingRafId !== null) {
+      return;
+    }
+    
+    this.pendingRafId = requestAnimationFrame(() => {
+      this.pendingRafId = null;
+      
+      if (this.isDestroyed || !this.diagram.isInitialized) return;
+      
+      // 执行图表更新，使用合并后的 forceUpdate 标志
+      this.diagram.updateDiagram(this.store.tasks(), this.diagramUpdatePending);
+      this.diagramUpdatePending = false;
+    });
+  }
+  
   // ========== 生命周期 ==========
   
   ngAfterViewInit() {
     this.initDiagram();
     
     // 初始化完成后立即加载图表数据
-    setTimeout(() => {
-      if (this.isDestroyed) return;
+    this.scheduleTimer(() => {
       if (this.diagram.isInitialized) {
         this.diagram.updateDiagram(this.store.tasks());
       }
@@ -297,10 +353,22 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy() {
     this.isDestroyed = true;
     
+    // 清理所有待处理的定时器
+    this.pendingTimers.forEach(clearTimeout);
+    this.pendingTimers = [];
+    
+    // 清理 rAF
+    if (this.pendingRafId !== null) {
+      cancelAnimationFrame(this.pendingRafId);
+      this.pendingRafId = null;
+    }
+    
     // 清理服务
     this.diagram.dispose();
     this.touch.dispose();
     this.link.dispose();
+    this.dragDrop.dispose();
+    this.taskOps.dispose();
   }
   
   // ========== 图表初始化 ==========
@@ -368,13 +436,40 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   retryInitDiagram(): void {
-    setTimeout(() => {
-      if (this.isDestroyed) return;
+    // 检查是否超过最大重试次数
+    if (this.diagramRetryCount >= FlowViewComponent.MAX_DIAGRAM_RETRIES) {
+      this.toast.error(
+        '初始化失败', 
+        `流程图加载失败已重试 ${FlowViewComponent.MAX_DIAGRAM_RETRIES} 次，请尝试刷新页面或切换到文本视图`
+      );
+      this.isRetryingDiagram.set(false);
+      return;
+    }
+    
+    this.diagramRetryCount++;
+    this.isRetryingDiagram.set(true);
+    
+    // 显示重试进度反馈
+    const remaining = FlowViewComponent.MAX_DIAGRAM_RETRIES - this.diagramRetryCount;
+    this.toast.info(
+      `重试加载中...`,
+      `第 ${this.diagramRetryCount} 次尝试（剩余 ${remaining} 次）`,
+      { duration: 2000 }
+    );
+    
+    // 使用指数退避：100ms, 200ms, 400ms
+    const delay = 100 * Math.pow(2, this.diagramRetryCount - 1);
+    
+    this.scheduleTimer(() => {
       this.initDiagram();
       if (this.diagram.isInitialized) {
         this.diagram.updateDiagram(this.store.tasks());
+        // 成功后重置重试计数
+        this.diagramRetryCount = 0;
+        this.toast.success('加载成功', '流程图已就绪');
       }
-    }, 100);
+      this.isRetryingDiagram.set(false);
+    }, delay);
   }
   
   // ========== 图表操作 ==========
@@ -404,8 +499,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   private refreshDiagram(): void {
-    setTimeout(() => {
-      if (this.isDestroyed) return;
+    this.scheduleTimer(() => {
       this.diagram.updateDiagram(this.store.tasks());
     }, 50);
   }
@@ -437,8 +531,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (parentTask) {
         const newStage = (parentTask.stage || 1) + 1;
         this.store.moveTaskToStage(taskData.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
-        setTimeout(() => {
-          if (this.isDestroyed) return;
+        this.scheduleTimer(() => {
           this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
         }, 100);
       }
@@ -455,8 +548,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         } else {
           this.store.moveTaskToStage(taskData.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
         }
-        setTimeout(() => {
-          if (this.isDestroyed) return;
+        this.scheduleTimer(() => {
           this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
         }, 100);
       }
@@ -499,8 +591,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (parentTask) {
         const newStage = (parentTask.stage || 1) + 1;
         this.store.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
-        setTimeout(() => {
-          if (this.isDestroyed) return;
+        this.scheduleTimer(() => {
           this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
         }, UI_CONFIG.MEDIUM_DELAY);
       }
@@ -508,8 +599,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       const refTask = this.store.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
       if (refTask?.stage) {
         this.store.moveTaskToStage(task.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
-        setTimeout(() => {
-          if (this.isDestroyed) return;
+        this.scheduleTimer(() => {
           this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
         }, UI_CONFIG.MEDIUM_DELAY);
       }
@@ -708,5 +798,29 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   emitToggleSidebar(): void {
     window.dispatchEvent(new CustomEvent('toggle-sidebar'));
+  }
+  
+  // ========== 私有辅助方法 ==========
+  
+  /**
+   * 安全调度定时器，自动追踪并在组件销毁时清理
+   * @param callback 回调函数
+   * @param delay 延迟毫秒数
+   * @returns 定时器 ID
+   */
+  private scheduleTimer(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
+    const timerId = setTimeout(() => {
+      // 从列表中移除已执行的定时器
+      const index = this.pendingTimers.indexOf(timerId);
+      if (index > -1) {
+        this.pendingTimers.splice(index, 1);
+      }
+      // 如果组件已销毁，不执行回调
+      if (this.isDestroyed) return;
+      callback();
+    }, delay);
+    
+    this.pendingTimers.push(timerId);
+    return timerId;
   }
 }

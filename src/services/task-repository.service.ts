@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Task, Connection, Project } from '../models';
+import { sanitizeTask, sanitizeAttachment } from '../utils/validation';
 
 /**
  * 数据库行类型定义
@@ -584,7 +585,9 @@ export class TaskRepositoryService {
   // ========== 映射函数 ==========
 
   private mapRowToTask(row: TaskRow): Task {
-    return {
+    // 使用 sanitizeTask 进行数据清洗，确保从数据库读取的数据符合预期格式
+    // 这是数据入口的第一道防线，防止脏数据进入模板层
+    return sanitizeTask({
       id: row.id,
       title: row.title ?? '',
       content: row.content ?? '',
@@ -605,7 +608,7 @@ export class TaskRepositoryService {
       tags: row.tags ?? [],
       priority: row.priority ?? undefined,
       dueDate: row.due_date
-    };
+    });
   }
 
   private mapTaskToRow(projectId: string, task: Task): Partial<TaskRow> {

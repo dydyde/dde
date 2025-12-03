@@ -1,5 +1,6 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { CanActivateFn, Router, NavigationEnd } from '@angular/router';
+import { filter, take } from 'rxjs/operators';
 import { AuthService } from '../auth.service';
 import { ModalService } from '../modal.service';
 
@@ -46,7 +47,8 @@ export function saveAuthCache(userId: string | null): void {
 
 /**
  * 等待会话检查完成
- * 使用 Promise 和信号量代替轮询，更可靠
+ * 使用递归 setTimeout 代替 setInterval，更可靠且避免内存泄漏
+ * 添加明确的超时错误处理
  */
 async function waitForSessionCheck(authService: AuthService, maxWaitMs: number = 10000): Promise<void> {
   // 如果已经完成检查，直接返回
@@ -54,33 +56,45 @@ async function waitForSessionCheck(authService: AuthService, maxWaitMs: number =
     return;
   }
   
-  // 使用 Promise.race 实现超时控制
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     const startTime = Date.now();
+    let resolved = false;
     
-    // 创建一个间隔检查器
-    const checkInterval = setInterval(() => {
+    const doResolve = (timeout = false) => {
+      if (resolved) return;
+      resolved = true;
+      
+      if (timeout) {
+        // 超时但仍允许继续，记录警告
+        console.warn('会话检查超时，继续处理（可能导致短暂的权限检查不准确）');
+      }
+      resolve();
+    };
+    
+    // 使用递归 setTimeout 代替 setInterval，避免内存泄漏
+    const checkSession = () => {
+      if (resolved) return;
+      
       // 检查是否完成
       if (!authService.authState().isCheckingSession) {
-        clearInterval(checkInterval);
-        resolve();
+        doResolve();
         return;
       }
       
       // 检查是否超时
-      if (Date.now() - startTime >= maxWaitMs) {
-        clearInterval(checkInterval);
-        console.warn('会话检查超时，继续处理');
-        resolve();
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= maxWaitMs) {
+        doResolve(true);
         return;
       }
-    }, 50);
+      
+      // 继续等待，使用指数退避（50ms -> 100ms -> 150ms...）
+      const nextDelay = Math.min(50 + Math.floor(elapsed / 200) * 50, 200);
+      setTimeout(checkSession, nextDelay);
+    };
     
-    // 额外的超时保护
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      resolve();
-    }, maxWaitMs + 100);
+    // 开始检查
+    checkSession();
   });
 }
 
@@ -115,6 +129,13 @@ export function getDataIsolationId(authService: AuthService): string | null {
  * - 避免「幽灵数据」问题 - 无需处理匿名数据到正式账户的迁移
  * - 保障数据安全 - 防止未授权访问和垃圾数据注入
  * 
+ * 【离线模式策略】守卫数据流，而非 UI：
+ * - 离线时允许完全的读写访问，用户体验不受阻断
+ * - 本地缓存的认证状态用于确定数据命名空间
+ * - 写操作通过 ActionQueueService 进入离线队列
+ * - 网络恢复后，SyncCoordinator 统一处理队列同步
+ * - 冲突处理和 ID 生成由 sync 层负责，守卫不介入
+ * 
  * 开发环境便利：
  * - 配置 environment.devAutoLogin 后，应用启动时会自动登录
  * - Guard 仍然存在且生效，只是登录过程被自动化
@@ -131,9 +152,10 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
   const modalService = inject(ModalService);
   
   if (!authService.isConfigured) {
-    // Supabase 未配置，允许离线模式访问
-    // 数据仅保存在本地 IndexedDB 中，不会同步到云端
-    console.info('Supabase 未配置，以离线模式运行。数据仅保存在本地。');
+    // Supabase 未配置，允许完全离线模式访问
+    // 数据存储在本地 IndexedDB，用户可以正常进行所有操作
+    // 这不是"限制功能"的降级模式，而是完整的本地优先体验
+    console.info('离线模式：Supabase 未配置，数据仅保存在本地');
     return true;
   }
   
@@ -152,24 +174,28 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
   }
   
   // 检查本地缓存的认证状态（离线模式支持）
+  // 这允许用户在网络恢复前继续使用应用的全部功能
   const localAuth = checkLocalAuthCache();
   if (localAuth.userId) {
-    console.info('使用本地缓存的认证状态（离线模式）');
+    console.info('离线模式：使用本地缓存的认证状态，允许完全读写访问');
     return true;
   }
   
-  // 未登录，直接通过 ModalService 触发登录弹窗
-  // 相比使用 queryParams 更直接，避免 URL 残留参数
-  console.info('未登录，需要认证才能访问');
+  // 未登录且无本地缓存，这是阻断性场景：需要用户首次登录
+  // 只有这种情况才需要显式的交互提示
+  console.info('首次访问：需要认证才能使用');
   
   // 导航到首页并显示登录模态框
   void router.navigate(['/']);
   
-  // 使用 setTimeout 确保导航完成后再显示模态框
-  // 这样模态框会在正确的路由上下文中打开
-  setTimeout(() => {
+  // 使用 router.events 监听 NavigationEnd 事件，确保导航完成后再显示模态框
+  // 这比 setTimeout 更可靠，避免竞态条件
+  router.events.pipe(
+    filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+    take(1)
+  ).subscribe(() => {
     modalService.show('login', { returnUrl: state.url, message: '请登录以访问此页面' });
-  }, 0);
+  });
   
   return false;
 };
@@ -177,18 +203,15 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
 /**
  * 认证路由守卫（宽松模式）
  * 
- * ⚠️ 已废弃 - 请使用 requireAuthGuard
+ * ⚠️ 已移除 - 请使用 requireAuthGuard
  * 
  * 此守卫允许匿名访问，会导致「幽灵数据」问题：
  * - 匿名用户数据无法归属到任何账户
  * - RLS 策略需要特殊处理 auth.uid() is null
  * - 数据迁移复杂且容易出错
  * 
- * 保留此守卫仅用于向后兼容，新路由请使用 requireAuthGuard
+ * 如果您的代码仍在使用 authGuard，请立即迁移到 requireAuthGuard
  * 
- * @deprecated 请使用 requireAuthGuard
+ * @deprecated 已移除，请使用 requireAuthGuard
+ * @see requireAuthGuard
  */
-export const authGuard: CanActivateFn = (route, state) => {
-  console.warn('⚠️ authGuard 已废弃，请迁移到 requireAuthGuard');
-  return requireAuthGuard(route, state);
-};

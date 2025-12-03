@@ -31,7 +31,7 @@ import { FormsModule } from '@angular/forms';
         
         <!-- 密码重置表单 -->
         @if (isResetPasswordMode()) {
-          @if (resetPasswordSentInput() || resetPasswordSent()) {
+          @if (isResetPasswordSent()) {
             <div class="text-center py-4">
               <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
                 <svg class="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -77,36 +77,6 @@ import { FormsModule } from '@angular/forms';
                      [ngModelOptions]="{standalone: true}" name="signupPassword" 
                      class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
                      autocomplete="new-password" required minlength="8">
-              
-              <!-- 密码强度指示器 -->
-              @if (password().length > 0) {
-                <div class="space-y-1">
-                  <div class="flex gap-1">
-                    @for (i of [0, 1, 2, 3]; track i) {
-                      <div class="h-1 flex-1 rounded-full transition-all"
-                           [class.bg-red-400]="passwordStrength() >= 1 && i === 0 && passwordStrength() < 2"
-                           [class.bg-amber-400]="passwordStrength() >= 2 && i <= 1 && passwordStrength() < 3"
-                           [class.bg-lime-400]="passwordStrength() >= 3 && i <= 2 && passwordStrength() < 4"
-                           [class.bg-green-500]="passwordStrength() === 4 && i <= 3"
-                           [class.bg-stone-200]="(passwordStrength() < 1) || 
-                                                 (passwordStrength() === 1 && i > 0) ||
-                                                 (passwordStrength() === 2 && i > 1) ||
-                                                 (passwordStrength() === 3 && i > 2)">
-                      </div>
-                    }
-                  </div>
-                  <div class="text-[10px] flex justify-between">
-                    <span [class.text-red-500]="passwordStrength() < 2"
-                          [class.text-amber-500]="passwordStrength() === 2"
-                          [class.text-lime-600]="passwordStrength() === 3"
-                          [class.text-green-600]="passwordStrength() === 4">
-                      {{ passwordStrengthText() }}
-                    </span>
-                    <span class="text-stone-400">{{ passwordHint() }}</span>
-                  </div>
-                </div>
-              }
-              
               <input type="password" placeholder="确认密码" 
                      [ngModel]="confirmPassword()" (ngModelChange)="confirmPassword.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="signupConfirmPassword" 
@@ -188,7 +158,9 @@ export class LoginModalComponent implements OnDestroy {
   confirmPassword = signal('');
   isSignupMode = signal(false);
   isResetPasswordMode = signal(false);
-  resetPasswordSent = signal(false);
+  
+  /** 统一的重置密码发送状态（合并外部和内部状态） */
+  readonly isResetPasswordSent = computed(() => this.resetPasswordSentInput());
   
   /**
    * 计算密码强度 (0-4)
@@ -245,14 +217,12 @@ export class LoginModalComponent implements OnDestroy {
   switchToLogin() {
     this.isSignupMode.set(false);
     this.isResetPasswordMode.set(false);
-    this.resetPasswordSent.set(false);
     this._internalError.set(null);
   }
   
   switchToResetPassword() {
     this.isResetPasswordMode.set(true);
     this.isSignupMode.set(false);
-    this.resetPasswordSent.set(false);
     this._internalError.set(null);
   }
   
@@ -280,9 +250,10 @@ export class LoginModalComponent implements OnDestroy {
     this.resetPassword.emit(this.email());
   }
   
-  // 设置重置密码已发送状态（供父组件调用）
+  // 设置重置密码已发送状态（保留接口兼容性，现在由父组件控制）
   setResetPasswordSent(sent: boolean) {
-    this.resetPasswordSent.set(sent);
+    // 状态现在由父组件通过 input 控制
+    // 此方法保留用于向后兼容
   }
   
   /**
@@ -296,7 +267,6 @@ export class LoginModalComponent implements OnDestroy {
     this._internalError.set(null);
     this.isSignupMode.set(false);
     this.isResetPasswordMode.set(false);
-    this.resetPasswordSent.set(false);
   }
 
   /**

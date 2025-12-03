@@ -9,6 +9,12 @@ export { ProjectStateService } from './project-state.service';
 export { TaskRepositoryService } from './task-repository.service';
 export { TaskOperationService, type CreateTaskParams, type MoveTaskParams, type InsertBetweenParams } from './task-operation.service';
 
+// 新拆分服务（从 StoreService 提取）
+export { UserSessionService } from './user-session.service';
+export { PreferenceService } from './preference.service';
+export { TaskOperationAdapterService } from './task-operation-adapter.service';
+export { RemoteChangeHandlerService, type RemoteProjectChangePayload as RemoteProjectPayload, type RemoteTaskChangePayload as RemoteTaskPayload } from './remote-change-handler.service';
+
 // 同步相关服务
 export { SyncService, type RemoteProjectChangePayload, type RemoteTaskChangePayload } from './sync.service';
 export { SyncCoordinatorService } from './sync-coordinator.service';
@@ -64,4 +70,4 @@ export { FlowTaskOperationsService } from './flow-task-operations.service';
 
 // Guards
 export { authGuard, saveAuthCache, getDataIsolationId } from './guards/auth.guard';
-export { projectExistsGuard, projectAccessGuard } from './guards/project.guard';
+export { projectExistsGuard } from './guards/project.guard';

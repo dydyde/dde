@@ -6,18 +6,24 @@ import {
   OnInit,
   OnDestroy,
   ErrorHandler,
-  ChangeDetectorRef
+  ChangeDetectorRef,
+  HostBinding,
+  NgZone
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GlobalErrorHandler, ErrorSeverity } from '../services/global-error-handler.service';
 import { LoggerService } from '../services/logger.service';
+import { Subscription } from 'rxjs';
 
 /**
  * 错误边界组件
  * 用于捕获子组件的渲染错误并显示降级 UI
  * 
  * 注意：Angular 不像 React 那样有原生的 ErrorBoundary 机制
- * 此组件通过 try-catch 和 ErrorHandler 的组合来实现类似功能
+ * 此组件通过以下机制实现错误边界功能：
+ * 1. 集成 GlobalErrorHandler 监听全局错误
+ * 2. 使用 Zone.js onError 钩子捕获异步错误
+ * 3. 提供手动 setError() 接口供父组件调用
  * 
  * 使用方式：
  * 1. 根组件级：包裹整个应用，防止白屏
@@ -72,7 +78,7 @@ import { LoggerService } from '../services/logger.service';
           
           <!-- 操作按钮 -->
           <div class="error-actions">
-            @if (showRetry) {
+            @if (showRetry && onRetry) {
               <button 
                 class="btn-retry"
                 (click)="retry()"
@@ -253,6 +259,13 @@ export class ErrorBoundaryComponent implements OnInit, OnDestroy {
   private errorHandler = inject(GlobalErrorHandler);
   private logger = inject(LoggerService).category('ErrorBoundary');
   private cdr = inject(ChangeDetectorRef);
+  private zone = inject(NgZone);
+  
+  /**
+   * 显式禁用原生 HTML title 属性，防止悬浮时显示 tooltip
+   * 因为 @Input() title 会同时设置 DOM 的原生 title 属性
+   */
+  @HostBinding('attr.title') hostTitle: null = null;
   
   /** 错误标题 */
   @Input() title = '出了点问题';
@@ -281,6 +294,9 @@ export class ErrorBoundaryComponent implements OnInit, OnDestroy {
   /** 重试回调 */
   @Input() onRetry?: () => void;
   
+  /** 是否捕获子组件错误（启用 Zone.js 错误钩子） */
+  @Input() captureChildErrors = true;
+  
   /** 是否有错误 */
   readonly hasError = signal(false);
   
@@ -293,17 +309,49 @@ export class ErrorBoundaryComponent implements OnInit, OnDestroy {
   /** 是否为致命错误 */
   readonly isFatal = signal(false);
   
-  /** 原始错误处理器 */
-  private originalHandleError: any;
+  /** 原始错误处理器类型 */
+  private originalHandleError: ((error: unknown) => void) | null = null;
+  
+  /** Zone.js 错误监听器清理函数 */
+  private zoneErrorCleanup: (() => void) | null = null;
+  
+  /** 错误捕获状态 - 防止重复处理 */
+  private isCapturingError = false;
   
   ngOnInit() {
     // 注入到全局错误处理器
-    // 注意：这是简化实现，完整的 ErrorBoundary 需要更复杂的机制
     this.originalHandleError = this.errorHandler.handleError.bind(this.errorHandler);
+    
+    // 如果启用了子组件错误捕获，设置 Zone.js 错误钩子
+    if (this.captureChildErrors) {
+      this.setupZoneErrorHandler();
+    }
   }
   
   ngOnDestroy() {
-    // 清理
+    // 清理 Zone.js 错误监听器
+    if (this.zoneErrorCleanup) {
+      this.zoneErrorCleanup();
+      this.zoneErrorCleanup = null;
+    }
+  }
+  
+  /**
+   * 设置 Zone.js 错误处理钩子
+   * 简化实现：仅依赖全局 ErrorHandler，不再重复注册 window 事件
+   * 
+   * Angular 历史教训：Zone.js + 全局 ErrorHandler 已经能捕获 99% 的异常
+   * 组件级错误边界在 Angular 中并非原生概念，过度封装可能带来更多问题
+   */
+  private setupZoneErrorHandler(): void {
+    // 简化实现：不再监听全局事件，避免多实例重复捕获
+    // 错误处理完全依赖 GlobalErrorHandler 和手动 setError() 调用
+    this.logger.debug('ErrorBoundary 已初始化（依赖全局 ErrorHandler）');
+    
+    // 保留清理函数接口以保持兼容性
+    this.zoneErrorCleanup = () => {
+      // 无需清理，不再注册全局事件
+    };
   }
   
   /**

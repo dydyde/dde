@@ -231,4 +231,12 @@ export class FlowTaskOperationsService {
       this.toast.success('已移至待分配', `任务 "${task.title}" 已解除分配`);
     }
   }
+  
+  /**
+   * 释放资源
+   * 服务本身是无状态的代理，无需清理，但提供统一接口
+   */
+  dispose(): void {
+    // 无状态服务，无需清理
+  }
 }

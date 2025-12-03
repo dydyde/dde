@@ -19,25 +19,27 @@ TestBed.initTestEnvironment(
 );
 
 // 模拟 localStorage
-const localStorageMock = (() => {
+const createLocalStorageMock = () => {
   let store: Record<string, string> = {};
   return {
-    getItem: vi.fn((key: string) => store[key] || null),
-    setItem: vi.fn((key: string, value: string) => {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => {
       store[key] = value;
-    }),
-    removeItem: vi.fn((key: string) => {
+    },
+    removeItem: (key: string) => {
       delete store[key];
-    }),
-    clear: vi.fn(() => {
+    },
+    clear: () => {
       store = {};
-    }),
+    },
     get length() {
       return Object.keys(store).length;
     },
-    key: vi.fn((index: number) => Object.keys(store)[index] || null),
+    key: (index: number) => Object.keys(store)[index] || null,
   };
-})();
+};
+
+const localStorageMock = createLocalStorageMock();
 
 Object.defineProperty(globalThis, 'localStorage', {
   value: localStorageMock,
@@ -61,9 +63,66 @@ if (!globalThis.crypto.randomUUID) {
       const r = (Math.random() * 16) | 0;
       const v = c === 'x' ? r : (r & 0x3) | 0x8;
       return v.toString(16);
-    });
+    }) as `${string}-${string}-${string}-${string}-${string}`;
   };
 }
+
+// 模拟 IndexedDB（用于 ConflictStorageService）
+const createIndexedDBMock = () => {
+  const stores: Record<string, Record<string, unknown>> = {};
+  
+  const mockStore = (storeName: string) => ({
+    put: vi.fn((record: { projectId: string }) => {
+      const key = record.projectId;
+      if (!stores[storeName]) stores[storeName] = {};
+      stores[storeName][key] = record;
+      return { onsuccess: null, onerror: null };
+    }),
+    get: vi.fn((key: string) => {
+      const result = stores[storeName]?.[key] || null;
+      return { onsuccess: null, onerror: null, result };
+    }),
+    getAll: vi.fn(() => {
+      const result = Object.values(stores[storeName] || {});
+      return { onsuccess: null, onerror: null, result };
+    }),
+    delete: vi.fn((key: string) => {
+      if (stores[storeName]) delete stores[storeName][key];
+      return { onsuccess: null, onerror: null };
+    }),
+    count: vi.fn(() => {
+      const result = Object.keys(stores[storeName] || {}).length;
+      return { onsuccess: null, onerror: null, result };
+    }),
+  });
+  
+  return {
+    open: vi.fn(() => {
+      const request = {
+        result: {
+          objectStoreNames: { contains: vi.fn(() => true) },
+          transaction: vi.fn((storeNames: string[]) => ({
+            objectStore: vi.fn((name: string) => mockStore(name)),
+          })),
+          close: vi.fn(),
+        },
+        error: null,
+        onsuccess: null as (() => void) | null,
+        onerror: null as (() => void) | null,
+        onupgradeneeded: null as ((event: { target: { result: unknown } }) => void) | null,
+      };
+      // 模拟异步成功回调
+      setTimeout(() => request.onsuccess?.(), 0);
+      return request;
+    }),
+  };
+};
+
+Object.defineProperty(globalThis, 'indexedDB', {
+  value: createIndexedDBMock(),
+  writable: true,
+  configurable: true,
+});
 
 // 清理函数 - 在每个测试后重置模拟
 export function resetMocks() {

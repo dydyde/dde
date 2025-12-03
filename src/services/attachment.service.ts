@@ -1,27 +1,7 @@
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Attachment, AttachmentType } from '../models';
-import { ATTACHMENT_CONFIG as GLOBAL_ATTACHMENT_CONFIG } from '../config/constants';
-
-/**
- * 附件上传配置
- */
-const ATTACHMENT_CONFIG = {
-  /** 最大文件大小 (10MB) */
-  MAX_FILE_SIZE: 10 * 1024 * 1024,
-  /** 每个任务最大附件数 */
-  MAX_ATTACHMENTS_PER_TASK: 20,
-  /** 存储桶名称 */
-  BUCKET_NAME: 'attachments',
-  /** 图片类型 */
-  IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
-  /** 文档类型 */
-  DOCUMENT_TYPES: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown'],
-  /** 缩略图最大尺寸 */
-  THUMBNAIL_MAX_SIZE: 200,
-  /** 签名 URL 有效期（秒）- 7天 */
-  SIGNED_URL_EXPIRY: 60 * 60 * 24 * 7
-} as const;
+import { ATTACHMENT_CONFIG } from '../config/constants';
 
 /**
  * 上传进度
@@ -109,7 +89,7 @@ export class AttachmentService {
     
     this.urlRefreshTimer = setInterval(async () => {
       await this.checkAndRefreshExpiredUrls();
-    }, GLOBAL_ATTACHMENT_CONFIG.URL_REFRESH_CHECK_INTERVAL);
+    }, ATTACHMENT_CONFIG.URL_REFRESH_CHECK_INTERVAL);
   }
 
   /**
@@ -159,6 +139,40 @@ export class AttachmentService {
   }
 
   /**
+   * 用户登出时调用
+   * 停止 URL 刷新定时器，防止尝试刷新已失效的 URL
+   * 
+   * 设计理念：
+   * - 用户登出后，所有签名 URL 都已失效
+   * - 继续刷新只会产生无效请求
+   * - 新用户登录后会重新启动监控
+   */
+  onUserLogout(): void {
+    // 停止 URL 刷新监控
+    this.stopUrlRefreshMonitor();
+    
+    // 清空监控列表
+    this.clearMonitoredAttachments();
+    
+    // 取消所有进行中的上传
+    this.cancelAllUploads();
+    
+    // 清除回调
+    this.clearUrlRefreshCallback();
+    
+    // 清除上传进度
+    this.clearProgress();
+  }
+  
+  /**
+   * 用户登录后调用
+   * 重新启动 URL 刷新监控
+   */
+  onUserLogin(): void {
+    this.startUrlRefreshMonitor();
+  }
+
+  /**
    * 检查并刷新过期的 URL
    */
   private async checkAndRefreshExpiredUrls() {
@@ -166,7 +180,7 @@ export class AttachmentService {
 
     const refreshedUrls = new Map<string, { url: string; thumbnailUrl?: string; signedAt: string }>();
     const now = Date.now();
-    const expiryBuffer = GLOBAL_ATTACHMENT_CONFIG.URL_EXPIRY_BUFFER;
+    const expiryBuffer = ATTACHMENT_CONFIG.URL_EXPIRY_BUFFER;
 
     for (const [id, { userId, projectId, taskId, attachment }] of this.monitoredAttachments) {
       // 检查 URL 是否即将过期（优先使用 signedAt，fallback 到 createdAt）
@@ -614,10 +628,10 @@ export class AttachmentService {
    * 获取文件类型
    */
   private getAttachmentType(mimeType: string): AttachmentType {
-    if ((ATTACHMENT_CONFIG.IMAGE_TYPES as readonly string[]).includes(mimeType)) {
+    if (ATTACHMENT_CONFIG.IMAGE_TYPES.includes(mimeType)) {
       return 'image';
     }
-    if ((ATTACHMENT_CONFIG.DOCUMENT_TYPES as readonly string[]).includes(mimeType)) {
+    if (ATTACHMENT_CONFIG.DOCUMENT_TYPES.includes(mimeType)) {
       return 'document';
     }
     return 'file';
@@ -627,7 +641,7 @@ export class AttachmentService {
    * 是否为图片
    */
   private isImage(mimeType: string): boolean {
-    return (ATTACHMENT_CONFIG.IMAGE_TYPES as readonly string[]).includes(mimeType);
+    return ATTACHMENT_CONFIG.IMAGE_TYPES.includes(mimeType);
   }
 
   /**

@@ -78,13 +78,27 @@ export class AuthService {
     
     // 超时保护：10秒后自动放弃
     const SESSION_TIMEOUT = 10000;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let isSettled = false; // 用于防止超时后的 rejection
+    
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('会话检查超时')), SESSION_TIMEOUT);
+      timeoutId = setTimeout(() => {
+        if (!isSettled) {
+          reject(new Error('会话检查超时'));
+        }
+      }, SESSION_TIMEOUT);
     });
     
     try {
       const sessionPromise = this.supabase.getSession();
       const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
+      
+      // 标记已完成，防止超时回调执行
+      isSettled = true;
+      
+      // 清理超时计时器
+      if (timeoutId) clearTimeout(timeoutId);
+      
       if (error) throw error;
       
       const session = data?.session;
@@ -112,6 +126,12 @@ export class AuthService {
       
       return { userId: null, email: null };
     } catch (e: any) {
+      // 标记已完成，确保超时回调被忽略
+      isSettled = true;
+      
+      // 确保超时计时器被清理
+      if (timeoutId) clearTimeout(timeoutId);
+      
       this.authState.update(s => ({
         ...s,
         error: e?.message ?? String(e)
@@ -151,23 +171,28 @@ export class AuthService {
       return null;
     }
     
+    // 开发环境日志：不泄露凭据
     console.log('🔐 开发环境自动登录中...');
     
     try {
       const result = await this.signIn(devAutoLogin.email, devAutoLogin.password);
       
       if (result.ok && result.value.userId) {
-        console.log('✅ 开发环境自动登录成功:', devAutoLogin.email);
+        // 安全：只记录登录成功，不记录具体邮箱
+        console.log('✅ 开发环境自动登录成功');
         return { 
           userId: result.value.userId, 
           email: result.value.email ?? null 
         };
       } else {
-        console.warn('❌ 开发环境自动登录失败，请检查凭据配置');
+        // 开发环境凭据问题：使用 info 而非 warn，避免在控制台产生混淆
+        // 这是预期的静默降级，不是真正的错误
+        console.info('ℹ️ 开发环境自动登录未成功，将以未登录状态运行');
         return null;
       }
     } catch (e) {
-      console.warn('❌ 开发环境自动登录异常:', e);
+      // 网络异常等：静默降级为未登录状态
+      console.info('ℹ️ 开发环境自动登录异常，静默降级:', e);
       return null;
     }
   }

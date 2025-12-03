@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
 import { Task, Project, Connection, Attachment } from '../models';
 import { LayoutService } from './layout.service';
 import { LAYOUT_CONFIG, TRASH_CONFIG } from '../config/constants';
@@ -55,6 +55,7 @@ export interface InsertBetweenParams {
 })
 export class TaskOperationService {
   private layoutService = inject(LayoutService);
+  private destroyRef = inject(DestroyRef);
   
   /** 重平衡锁定的阶段 */
   private rebalancingStages = new Set<number>();
@@ -69,6 +70,16 @@ export class TaskOperationService {
   private onProjectUpdateCallback: ((mutator: (project: Project) => Project) => void) | null = null;
   private onProjectUpdateDebouncedCallback: ((mutator: (project: Project) => Project) => void) | null = null;
   private getActiveProjectCallback: (() => Project | null) | null = null;
+  
+  constructor() {
+    // 注册清理逻辑，防止定时器内存泄漏
+    this.destroyRef.onDestroy(() => {
+      if (this.rebalanceTimer) {
+        clearTimeout(this.rebalanceTimer);
+        this.rebalanceTimer = null;
+      }
+    });
+  }
   
   /**
    * 设置操作回调

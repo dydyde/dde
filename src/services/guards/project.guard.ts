@@ -53,12 +53,10 @@ async function waitForDataInit(
 }
 
 /**
- * 项目存在性和权限守卫
- * 检查访问的项目是否存在，并验证用户是否有权限访问
+ * 项目存在性守卫
+ * 检查访问的项目是否存在于当前用户的项目列表中
  * 
- * 权限检查逻辑：
- * 1. 项目必须存在于用户的项目列表中（由 StoreService 加载的都是当前用户的项目）
- * 2. 未来实现多用户/团队功能时，需要检查 owner_id 和协作者列表
+ * 单用户场景：StoreService 加载的项目即为当前用户可访问的全部项目
  */
 export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSnapshot, state) => {
   const store = inject(StoreService);
@@ -94,36 +92,12 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
     return false;
   }
   
-  // 权限检查：验证当前用户是否有权限访问该项目
-  // 当前实现：StoreService 只加载当前用户的项目，所以如果项目存在于列表中，用户就有权限
-  // 未来实现多用户功能时，需要检查 project.ownerId === currentUserId 或 project.collaborators.includes(currentUserId)
-  const currentUserId = authService.currentUserId();
-  
-  // 如果用户已登录但项目列表为空，可能是数据还未同步或项目真的不属于该用户
-  if (currentUserId && projects.length === 0) {
-    // 允许访问，因为可能是首次登录还没有项目
-    // 但如果指定了 projectId，则应该已经被上面的检查拦截
-  }
-  
-  // TODO: 未来多用户/团队功能实现时，在此处添加以下检查：
-  // const hasAccess = project.ownerId === currentUserId || 
-  //                   project.collaborators?.includes(currentUserId) ||
-  //                   project.isPublic;
-  // if (!hasAccess) {
-  //   toast.error('无权访问', '您没有权限访问此项目');
-  //   void router.navigate(['/projects']);
-  //   return false;
-  // }
+  // 权限检查：StoreService 只加载当前用户的项目
+  // 如果项目存在于列表中，说明用户有权限访问
+  // 单用户场景下无需额外权限检查
   
   return true;
 };
 
-/**
- * 项目权限守卫
- * 用于未来的多用户/团队功能
- * 
- * @deprecated 当前版本此守卫等同于 projectExistsGuard。
- * 新代码请直接使用 projectExistsGuard。
- * 保留此导出仅为向后兼容。
- */
-export const projectAccessGuard: CanActivateFn = projectExistsGuard;
+// projectAccessGuard 别名已移除
+// 单用户场景下统一使用 projectExistsGuard

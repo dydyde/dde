@@ -178,6 +178,9 @@ export class UndoService {
    * @returns 需要应用的撤销数据，或 null（如果没有可撤销的操作），或 'version-mismatch'（如果版本不匹配）
    */
   undo(currentProjectVersion?: number): UndoResult {
+    // 先刷新待处理的防抖操作，确保最近的编辑不会丢失
+    this.flushPendingAction();
+    
     const stack = this.undoStack();
     if (stack.length === 0) return null;
     
@@ -247,6 +250,9 @@ export class UndoService {
    * @returns 需要应用的重做数据，或 null（如果没有可重做的操作），或 'version-mismatch'（如果版本不匹配）
    */
   redo(currentProjectVersion?: number): UndoResult {
+    // 先刷新待处理的防抖操作，确保一致性
+    this.flushPendingAction();
+    
     const stack = this.redoStack();
     if (stack.length === 0) return null;
     
@@ -300,6 +306,57 @@ export class UndoService {
     );
     
     return before - this.undoStack().length;
+  }
+
+  /**
+   * 清理指定任务相关的撤销历史
+   * 当任务被远程删除时调用，防止撤销操作引用已删除的任务
+   * @param taskId 被删除的任务 ID
+   * @param projectId 任务所属的项目 ID
+   * @returns 清理的记录数
+   */
+  clearTaskHistory(taskId: string, projectId: string): number {
+    const beforeUndo = this.undoStack().length;
+    const beforeRedo = this.redoStack().length;
+    
+    // 过滤掉引用被删除任务的撤销记录
+    this.undoStack.update(stack => 
+      stack.filter(action => {
+        if (action.projectId !== projectId) return true;
+        
+        // 检查 before/after 快照中是否包含被删除的任务
+        const beforeTasks = action.data.before?.tasks as Array<{ id: string }> | undefined;
+        const afterTasks = action.data.after?.tasks as Array<{ id: string }> | undefined;
+        
+        // 如果操作涉及被删除的任务，移除该记录
+        const involvesDeletedTask = 
+          beforeTasks?.some(t => t.id === taskId) ||
+          afterTasks?.some(t => t.id === taskId);
+        
+        return !involvesDeletedTask;
+      })
+    );
+    
+    // 同时清理重做栈
+    this.redoStack.update(stack => 
+      stack.filter(action => {
+        if (action.projectId !== projectId) return true;
+        
+        const beforeTasks = action.data.before?.tasks as Array<{ id: string }> | undefined;
+        const afterTasks = action.data.after?.tasks as Array<{ id: string }> | undefined;
+        
+        const involvesDeletedTask = 
+          beforeTasks?.some(t => t.id === taskId) ||
+          afterTasks?.some(t => t.id === taskId);
+        
+        return !involvesDeletedTask;
+      })
+    );
+    
+    const clearedUndo = beforeUndo - this.undoStack().length;
+    const clearedRedo = beforeRedo - this.redoStack().length;
+    
+    return clearedUndo + clearedRedo;
   }
 
   /**
@@ -369,6 +426,33 @@ export class UndoService {
     this.undoStack.set([]);
     this.redoStack.set([]);
     this.pendingAction = null;
+    this.lastActionTime = 0;
+    this.isUndoRedoing = false;
+  }
+  
+  /**
+   * 用户登出时调用
+   * 清理跨会话可能泄漏的状态
+   * 
+   * 设计理念：
+   * - 防止旧会话的防抖定时器在新会话中触发
+   * - 清除可能包含敏感数据的撤销历史
+   */
+  onUserLogout(): void {
+    // 立即取消任何待处理的防抖操作
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    
+    // 清除待处理但未提交的操作（不提交到撤销栈）
+    this.pendingAction = null;
+    
+    // 清空所有撤销历史（可能包含敏感数据）
+    this.undoStack.set([]);
+    this.redoStack.set([]);
+    
+    // 重置状态
     this.lastActionTime = 0;
     this.isUndoRedoing = false;
   }

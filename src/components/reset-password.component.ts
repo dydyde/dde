@@ -101,10 +101,10 @@ import { ToastService } from '../services/toast.service';
                   name="password"
                   type="password"
                   required
-                  minlength="6"
+                  minlength="8"
                   [(ngModel)]="newPassword"
                   class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-primary focus:border-primary dark:bg-gray-800 dark:text-white"
-                  placeholder="至少 6 个字符"
+                  placeholder="至少 8 个字符"
                 />
               </div>
 
@@ -235,9 +235,9 @@ export class ResetPasswordComponent implements OnInit {
     event.preventDefault();
     this.error.set(null);
 
-    // 验证密码
-    if (this.newPassword.length < 6) {
-      this.error.set('密码长度至少 6 个字符');
+    // 验证密码（统一使用8位最小长度）
+    if (this.newPassword.length < 8) {
+      this.error.set('密码长度至少 8 个字符');
       return;
     }
 

@@ -41,24 +41,16 @@ export const routes: Routes = [
       { 
         path: ':projectId', 
         canActivate: [projectExistsGuard],
+        loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent),
         children: [
           // 默认重定向到 text 视图
           { path: '', redirectTo: 'text', pathMatch: 'full' },
           // 文本视图模式
-          { 
-            path: 'text', 
-            loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
-          },
+          { path: 'text', children: [] },
           // 流程图模式
-          { 
-            path: 'flow', 
-            loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
-          },
+          { path: 'flow', children: [] },
           // 定位到特定任务（深度链接）
-          { 
-            path: 'task/:taskId', 
-            loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
-          }
+          { path: 'task/:taskId', children: [] }
         ]
       }
     ]

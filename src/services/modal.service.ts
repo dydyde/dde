@@ -130,6 +130,9 @@ export class ModalService {
   /** 模态框栈深度 */
   readonly stackDepth = computed(() => this.modalStack().length);
   
+  /** 用于触发模态框闪烁效果的 signal */
+  readonly flashModalType = signal<ModalType | null>(null);
+  
   /**
    * 打开模态框（命令式 API）
    * @param type 模态框类型
@@ -141,7 +144,10 @@ export class ModalService {
       // 检查是否已经打开同类型的模态框
       const existing = this.modalStack().find(m => m.type === type);
       if (existing) {
-        console.warn(`Modal of type "${type}" is already open`);
+        // 触发闪烁效果提示用户该模态框已打开
+        this.flashModalType.set(type);
+        setTimeout(() => this.flashModalType.set(null), 300);
+        
         // 返回默认的取消结果
         resolve(this.getDefaultResult(type) as ModalResult<T>);
         return;
@@ -164,7 +170,9 @@ export class ModalService {
     // 检查是否已经打开同类型的模态框
     const existing = this.modalStack().find(m => m.type === type);
     if (existing) {
-      console.warn(`Modal of type "${type}" is already open`);
+      // 触发闪烁效果提示用户该模态框已打开
+      this.flashModalType.set(type);
+      setTimeout(() => this.flashModalType.set(null), 300);
       return;
     }
     

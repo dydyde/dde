@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, NgZone } from '@angular/core';
+import { Injectable, inject, signal, NgZone, DestroyRef } from '@angular/core';
 import { StoreService } from './store.service';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
@@ -40,6 +40,7 @@ export class FlowLinkService {
   private readonly logger = inject(LoggerService).category('FlowLink');
   private readonly toast = inject(ToastService);
   private readonly zone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
   
   // ========== 连接模式状态 ==========
   
@@ -48,6 +49,11 @@ export class FlowLinkService {
   
   /** 连接模式下选中的源任务 */
   readonly linkSourceTask = signal<Task | null>(null);
+  
+  constructor() {
+    // 注册自动清理
+    this.destroyRef.onDestroy(() => this.dispose());
+  }
   
   // ========== 连接类型对话框状态 ==========
   

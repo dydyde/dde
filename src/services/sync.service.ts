@@ -1,11 +1,28 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, DestroyRef } from '@angular/core';
+import { Subject } from 'rxjs';
+import { concatMap, tap } from 'rxjs/operators';
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { SupabaseClientService } from './supabase-client.service';
 import { TaskRepositoryService } from './task-repository.service';
 import { LoggerService } from './logger.service';
+import { ToastService } from './toast.service';
+import { ConflictStorageService, ConflictRecord } from './conflict-storage.service';
 import { Project, ProjectRow, SyncState, UserPreferences, ThemeType, Task, Connection } from '../models';
 import { SYNC_CONFIG, CACHE_CONFIG } from '../config/constants';
 import { nowISO } from '../utils/date';
+import { extractErrorMessage } from '../utils/result';
+
+/** 冲突元数据（持久化用 - 仅用于快速检查，完整数据在 IndexedDB） */
+interface ConflictMetadata {
+  projectId: string;
+  localVersion?: number;
+  remoteVersion?: number;
+  localTaskCount?: number;
+  remoteTaskCount?: number;
+  savedAt?: string;
+  /** 标记完整数据已保存到 IndexedDB */
+  fullDataInIndexedDB?: boolean;
+}
 
 /** 生成唯一的 Tab ID，用于 Realtime 频道隔离 */
 const TAB_ID = typeof crypto !== 'undefined' 
@@ -24,13 +41,15 @@ export interface RemoteProjectChangePayload {
 
 /**
  * 远程任务变更事件载荷
+ * 
+ * 设计说明：移除了 data 预留字段
+ * 增量更新的复杂度（JSON Patch、数组乱序等）远超其带来的带宽节省
+ * 在任务级别的数据量级下，全量替换是更简单可靠的选择
  */
 export interface RemoteTaskChangePayload {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE';
   taskId: string;
   projectId: string;
-  /** 原始数据（可能不完整，仅用于调试） */
-  data?: Record<string, unknown>;
 }
 
 /**
@@ -45,6 +64,8 @@ export class SyncService {
   private supabase = inject(SupabaseClientService);
   private taskRepo = inject(TaskRepositoryService);
   private logger = inject(LoggerService).category('Sync');
+  private toast = inject(ToastService);
+  private conflictStorage = inject(ConflictStorageService);
   
   /** 冲突数据持久化 key */
   private readonly CONFLICT_STORAGE_KEY = 'nanoflow.pending-conflicts';
@@ -76,6 +97,9 @@ export class SyncService {
   private onlineHandler: (() => void) | null = null;
   private offlineHandler: (() => void) | null = null;
   
+  /** DestroyRef 用于自动清理 */
+  private readonly destroyRef = inject(DestroyRef);
+  
   /** 重试状态 */
   private retryState = {
     count: 0,
@@ -92,17 +116,31 @@ export class SyncService {
   /** 保存队列最大长度 - 防止内存泄漏 */
   private static readonly MAX_SAVE_QUEUE_SIZE = 50;
   
-  /** 保存操作的互斥锁 - 防止并发保存导致版本号冲突 */
-  private saveLock = {
-    isLocked: false,
-    queue: [] as Array<{
-      resolve: (value: { success: boolean; conflict?: boolean; remoteData?: Project }) => void;
-      project: Project;
-      userId: string;
-      enqueuedAt: number; // 入队时间戳
-    }>,
-    /** 统计：溢出丢弃计数 */
-    overflowCount: 0
+  /** 保存队列超时时间 (毫秒) - 8秒，超时后强制解锁 */
+  private static readonly SAVE_QUEUE_TIMEOUT = 8000;
+  
+  /** 单次保存操作执行超时时间 (毫秒) - 30秒，防止网络挂起导致队列永久阻塞 */
+  private static readonly SAVE_EXECUTION_TIMEOUT = 30000;
+  
+  // ========== RxJS 声明式保存队列 ==========
+  // 使用 Subject + concatMap 替代手动锁，彻底消除死锁和忘记解锁的 Bug
+  // 声明式队列：你只管往传送带上放东西，流水线自己控制速度
+  
+  /** 保存请求队列 Subject */
+  private saveQueue$ = new Subject<{
+    project: Project;
+    userId: string;
+    resolve: (value: { success: boolean; conflict?: boolean; remoteData?: Project }) => void;
+    reject: (error: Error) => void;
+    enqueuedAt: number;
+  }>();
+  
+  /** 队列统计 */
+  private saveQueueStats = {
+    /** 溢出丢弃计数 */
+    overflowCount: 0,
+    /** 当前等待中的请求数 */
+    pendingCount: 0
   };
   
   /** 是否暂停处理远程更新（队列同步期间） */
@@ -113,44 +151,105 @@ export class SyncService {
     this.setupNetworkListeners();
     // 恢复持久化的冲突数据
     this.restoreConflictData();
+    // 初始化保存队列处理管道
+    this.setupSaveQueuePipeline();
+    
+    // 注册 DestroyRef 自动清理
+    this.destroyRef.onDestroy(() => this.destroy());
+  }
+  
+  /**
+   * 设置保存队列处理管道
+   * 使用 RxJS concatMap 实现声明式的串行处理
+   * 无需手动锁，彻底消除死锁风险
+   */
+  private setupSaveQueuePipeline(): void {
+    this.saveQueue$.pipe(
+      // 限流：如果队列积压过多，丢弃中间状态
+      tap(() => this.saveQueueStats.pendingCount++),
+      
+      // 核心：concatMap 保证串行执行，前一个完成才处理下一个
+      concatMap(async (request) => {
+        this.saveQueueStats.pendingCount--;
+        
+        // 超时检查：如果请求等待太久，跳过并返回成功（数据已在本地）
+        const waitTime = Date.now() - request.enqueuedAt;
+        if (waitTime > SyncService.SAVE_QUEUE_TIMEOUT) {
+          this.logger.warn('保存请求等待超时，跳过', {
+            projectId: request.project.id,
+            waitTime: `${waitTime}ms`
+          });
+          request.resolve({ success: true }); // 乐观返回成功，数据已在本地
+          return;
+        }
+        
+        try {
+          const result = await this.doSaveProjectToCloud(request.project, request.userId);
+          request.resolve(result);
+        } catch (error) {
+          request.reject(error as Error);
+        }
+      })
+    ).subscribe({
+      error: (err) => {
+        this.logger.error('保存队列管道异常', err);
+      }
+    });
   }
   
   /**
    * 恢复持久化的冲突数据
    * 在页面刷新后恢复未解决的冲突
-   * 如果需要重新加载完整数据，会异步加载
+   * 优先从 IndexedDB 加载完整数据，降级到 localStorage 元数据
    */
   private restoreConflictData(): void {
-    if (typeof localStorage === 'undefined') return;
-    
-    try {
-      const saved = localStorage.getItem(this.CONFLICT_STORAGE_KEY);
-      if (saved) {
-        const conflictMeta = JSON.parse(saved);
-        if (conflictMeta && conflictMeta.projectId) {
-          this.logger.info('恢复未解决的冲突数据', { projectId: conflictMeta.projectId });
+    // 首先检查 IndexedDB 是否有完整数据
+    void this.conflictStorage.hasConflicts().then(async (hasConflicts) => {
+      if (hasConflicts) {
+        const conflicts = await this.conflictStorage.getAllConflicts();
+        if (conflicts.length > 0) {
+          // 取最新的冲突
+          const latestConflict = conflicts.sort((a, b) => 
+            new Date(b.conflictedAt).getTime() - new Date(a.conflictedAt).getTime()
+          )[0];
           
-          // 如果标记了需要重新加载，设置一个标记，等待用户登录后加载
-          if (conflictMeta.needsFullReload) {
-            this.pendingConflictReload = conflictMeta;
-            this.logger.info('冲突数据需要重新加载完整内容');
-          } else {
-            this.syncState.update(s => ({
-              ...s,
-              hasConflict: true,
-              conflictData: conflictMeta
-            }));
-          }
+          this.logger.info('从 IndexedDB 恢复完整冲突数据', { 
+            projectId: latestConflict.projectId,
+            taskCount: latestConflict.localProject.tasks.length
+          });
+          
+          // 设置待加载标记，等待用户登录后完成恢复
+          this.pendingConflictReload = {
+            projectId: latestConflict.projectId,
+            localVersion: latestConflict.localVersion,
+            remoteVersion: latestConflict.remoteVersion,
+            fullDataInIndexedDB: true
+          };
+          return;
         }
       }
-    } catch (e) {
-      this.logger.warn('恢复冲突数据失败', e);
-      localStorage.removeItem(this.CONFLICT_STORAGE_KEY);
-    }
+      
+      // 降级：检查 localStorage
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const saved = localStorage.getItem(this.CONFLICT_STORAGE_KEY);
+          if (saved) {
+            const conflictMeta = JSON.parse(saved) as ConflictMetadata;
+            if (conflictMeta?.projectId) {
+              this.logger.info('从 localStorage 恢复冲突元数据', { projectId: conflictMeta.projectId });
+              this.pendingConflictReload = conflictMeta;
+            }
+          }
+        } catch (e) {
+          this.logger.warn('恢复冲突数据失败', e);
+          localStorage.removeItem(this.CONFLICT_STORAGE_KEY);
+        }
+      }
+    });
   }
   
   /** 待加载的冲突元数据 */
-  private pendingConflictReload: any = null;
+  private pendingConflictReload: ConflictMetadata | null = null;
   
   /**
    * 尝试加载完整的冲突数据
@@ -165,11 +264,26 @@ export class SyncService {
     try {
       this.logger.info('正在重新加载冲突数据', { projectId: meta.projectId });
       
+      // 优先从 IndexedDB 加载本地完整数据
+      let localProject: Project | undefined;
+      
+      if (meta.fullDataInIndexedDB) {
+        const conflictRecord = await this.conflictStorage.getConflict(meta.projectId);
+        if (conflictRecord) {
+          localProject = conflictRecord.localProject;
+          this.logger.info('从隔离区恢复本地项目数据', { 
+            taskCount: localProject.tasks.length 
+          });
+        }
+      }
+      
+      // 如果 IndexedDB 没有，尝试从当前内存获取
+      if (!localProject) {
+        localProject = getLocalProject(meta.projectId);
+      }
+      
       // 加载远程版本
       const remoteProject = await this.loadSingleProject(meta.projectId, userId);
-      
-      // 获取本地版本
-      const localProject = getLocalProject(meta.projectId);
       
       if (remoteProject && localProject) {
         const conflictData = {
@@ -198,38 +312,77 @@ export class SyncService {
   }
   
   /**
-   * 持久化冲突数据
-   * 防止页面刷新后丢失冲突信息
-   * 注意：只保存冲突元数据，不保存完整项目内容以保护隐私
+   * 持久化冲突数据到隔离区
+   * 
+   * 设计变更：不再只保存元数据，而是完整保存本地项目数据到 IndexedDB
+   * 这样即使应用崩溃、网络断开，用户的心血都完好无损地等待处理
+   * 
+   * localStorage 仅用于快速检测是否有待处理冲突
    */
-  private persistConflictData(conflictData: any): void {
-    if (typeof localStorage === 'undefined') return;
+  private persistConflictData(conflictData: { local?: Project; remote?: Project; projectId: string }): void {
+    if (!conflictData.local) {
+      this.logger.warn('冲突数据缺少本地项目，无法持久化');
+      return;
+    }
     
-    try {
-      // 只保存必要的元数据，不保存完整的项目内容
-      const sanitizedData = {
-        projectId: conflictData.projectId,
-        localVersion: conflictData.local?.version,
-        remoteVersion: conflictData.remote?.version,
-        localTaskCount: conflictData.local?.tasks?.length ?? 0,
-        remoteTaskCount: conflictData.remote?.tasks?.length ?? 0,
-        savedAt: new Date().toISOString(),
-        // 标记需要重新加载完整数据
-        needsFullReload: true
-      };
-      
-      localStorage.setItem(this.CONFLICT_STORAGE_KEY, JSON.stringify(sanitizedData));
-    } catch (e) {
-      this.logger.warn('持久化冲突数据失败', e);
+    // 1. 完整数据保存到 IndexedDB（隔离区）
+    const conflictRecord: ConflictRecord = {
+      projectId: conflictData.projectId,
+      localProject: conflictData.local,
+      conflictedAt: new Date().toISOString(),
+      localVersion: conflictData.local.version ?? 0,
+      remoteVersion: conflictData.remote?.version,
+      reason: 'version_mismatch'
+    };
+    
+    // 异步保存到 IndexedDB，记录错误但不阻塞主流程
+    this.conflictStorage.saveConflict(conflictRecord)
+      .then(success => {
+        if (success) {
+          this.logger.info('冲突数据已保存到 IndexedDB 隔离区', { projectId: conflictData.projectId });
+        }
+      })
+      .catch(e => {
+        this.logger.error('保存冲突数据到 IndexedDB 失败', e);
+        // IndexedDB 失败时，冲突元数据仍会保存到 localStorage（下面的代码）
+        // 这是双重保险机制
+      });
+    
+    // 2. 元数据保存到 localStorage（快速检测用）
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const metadata: ConflictMetadata = {
+          projectId: conflictData.projectId,
+          localVersion: conflictData.local.version,
+          remoteVersion: conflictData.remote?.version,
+          localTaskCount: conflictData.local.tasks?.length ?? 0,
+          remoteTaskCount: conflictData.remote?.tasks?.length ?? 0,
+          savedAt: new Date().toISOString(),
+          fullDataInIndexedDB: true
+        };
+        
+        localStorage.setItem(this.CONFLICT_STORAGE_KEY, JSON.stringify(metadata));
+      } catch (e) {
+        this.logger.warn('持久化冲突元数据到 localStorage 失败', e);
+      }
     }
   }
   
   /**
    * 清除持久化的冲突数据
    */
-  private clearPersistedConflict(): void {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.removeItem(this.CONFLICT_STORAGE_KEY);
+  private clearPersistedConflict(projectId?: string): void {
+    // 清除 localStorage 元数据
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(this.CONFLICT_STORAGE_KEY);
+    }
+    
+    // 清除 IndexedDB 完整数据
+    if (projectId) {
+      void this.conflictStorage.deleteConflict(projectId).catch(e => {
+        this.logger.warn('清除 IndexedDB 冲突数据失败', e);
+      });
+    }
   }
 
   /**
@@ -342,7 +495,9 @@ export class SyncService {
         },
         payload => {
           this.logger.debug('收到项目变更:', payload.eventType);
-          void this.handleRemoteChange(payload);
+          this.handleRemoteChange(payload).catch(e => {
+            this.logger.error('处理项目变更时发生错误', e);
+          });
         }
       );
 
@@ -368,6 +523,13 @@ export class SyncService {
           ...s,
           offlineMode: true
         }));
+        // 通知用户连接状态变化（仅在首次断开时提示，避免重连期间频繁打扰）
+        if (this.retryState.count === 0) {
+          this.toast.warning(
+            '实时同步已断开',
+            '正在尝试重新连接，离线期间的更改将在恢复后同步'
+          );
+        }
         // 尝试自动重连
         this.scheduleReconnect(userId);
       }
@@ -397,7 +559,9 @@ export class SyncService {
           // 如果没有 project_id，可能是删除事件，让 handler 处理
           if (projectId || payload.eventType === 'DELETE') {
             this.logger.debug('收到任务变更', { eventType: payload.eventType, projectId });
-            void this.handleTaskChange(payload);
+            this.handleTaskChange(payload).catch(e => {
+              this.logger.error('处理任务变更时发生错误', e);
+            });
           }
         }
       );
@@ -410,6 +574,13 @@ export class SyncService {
         this.logger.warn('⚠️ Tasks Realtime channel error:', err);
         // 任务通道错误不触发完全离线模式，只记录警告
         // 因为项目通道仍可能正常工作
+        // 如果错误持续出现，在日志中记录详细信息以便调试
+        if (err) {
+          this.logger.error('Tasks channel subscription error details', {
+            errorMessage: err.message || String(err),
+            status
+          });
+        }
       }
     });
   }
@@ -533,8 +704,7 @@ export class SyncService {
     this.onTaskChangeCallback({
       eventType,
       taskId,
-      projectId,
-      data: newRecord
+      projectId
     });
   }
 
@@ -610,11 +780,11 @@ export class SyncService {
       }));
       
       return projects;
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.logger.error('Loading from Supabase failed', e);
       this.syncState.update(s => ({
         ...s,
-        syncError: e?.message ?? String(e),
+        syncError: extractErrorMessage(e),
         offlineMode: true
       }));
       return [];
@@ -653,7 +823,7 @@ export class SyncService {
         this.taskRepo.loadConnections(projectRow.id)
       ]);
       return this.mapRowToProject(projectRow, tasks, connections);
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.logger.error('Loading single project failed', e);
       return null;
     }
@@ -663,98 +833,87 @@ export class SyncService {
    * 保存项目到云端（带冲突检测和并发控制）
    * 使用版本号 + 服务端时间戳双重检测机制
    * Token 过期时自动保存本地数据防止丢失
-   * 使用互斥锁防止并发保存导致版本号冲突
+   * 使用 RxJS concatMap 声明式队列防止并发保存导致版本号冲突
    */
   async saveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
     if (!userId || !this.supabase.isConfigured) {
       return { success: true }; // 离线模式视为成功
     }
     
-    // 如果当前有保存操作正在进行，加入队列等待
-    if (this.saveLock.isLocked) {
-      // 队列溢出保护：当队列过长时，丢弃最旧的请求
-      if (this.saveLock.queue.length >= SyncService.MAX_SAVE_QUEUE_SIZE) {
-        const droppedCount = Math.floor(SyncService.MAX_SAVE_QUEUE_SIZE / 4); // 丢弃25%
-        const dropped = this.saveLock.queue.splice(0, droppedCount);
-        this.saveLock.overflowCount += droppedCount;
-        
-        // 立即 resolve 被丢弃的请求，返回成功（它们会被后续更新覆盖）
-        for (const item of dropped) {
-          item.resolve({ success: true });
-        }
-        
-        this.logger.warn(`保存队列溢出：丢弃 ${droppedCount} 个旧请求（累计丢弃 ${this.saveLock.overflowCount}）`, {
-          queueLength: this.saveLock.queue.length,
-          maxSize: SyncService.MAX_SAVE_QUEUE_SIZE
-        });
+    // 检查队列是否溢出
+    if (this.saveQueueStats.pendingCount >= SyncService.MAX_SAVE_QUEUE_SIZE) {
+      this.saveQueueStats.overflowCount++;
+      this.logger.warn(`保存队列溢出：丢弃请求（累计丢弃 ${this.saveQueueStats.overflowCount}）`, {
+        pendingCount: this.saveQueueStats.pendingCount,
+        maxSize: SyncService.MAX_SAVE_QUEUE_SIZE
+      });
+      
+      // 通知用户同步压力过大（只在首次溢出时提示，避免刷屏）
+      if (this.saveQueueStats.overflowCount === 1) {
+        this.toast.warning(
+          '同步队列繁忙',
+          '部分中间状态已跳过，最新更改将继续同步'
+        );
       }
       
-      return new Promise((resolve) => {
-        this.saveLock.queue.push({ resolve, project, userId, enqueuedAt: Date.now() });
+      // 乐观返回成功，数据已在本地
+      return { success: true };
+    }
+    
+    // 将请求加入声明式队列
+    return new Promise((resolve, reject) => {
+      this.saveQueue$.next({
+        project,
+        userId,
+        resolve,
+        reject,
+        enqueuedAt: Date.now()
       });
-    }
-    
-    // 获取锁
-    this.saveLock.isLocked = true;
-    
-    try {
-      const result = await this.doSaveProjectToCloud(project, userId);
-      return result;
-    } finally {
-      // 释放锁并处理队列中的下一个请求
-      this.saveLock.isLocked = false;
-      this.processNextSaveInQueue();
-    }
-  }
-  
-  /**
-   * 处理保存队列中的下一个请求
-   * 合并相同项目的请求，只保留最新状态
-   */
-  private processNextSaveInQueue() {
-    if (this.saveLock.queue.length === 0) return;
-    
-    // 合并队列中相同项目的请求，只保留最后一个（最新状态）
-    const projectMap = new Map<string, typeof this.saveLock.queue[0]>();
-    let mergedCount = 0;
-    const droppedResolvers: Array<(value: { success: boolean }) => void> = [];
-    
-    for (const item of this.saveLock.queue) {
-      const existing = projectMap.get(item.project.id);
-      if (existing) {
-        mergedCount++;
-        // 立即 resolve 被覆盖的请求
-        droppedResolvers.push(existing.resolve);
-      }
-      projectMap.set(item.project.id, item);
-    }
-    
-    // 记录合并情况
-    if (mergedCount > 0) {
-      this.logger.debug(`保存队列合并: ${this.saveLock.queue.length} -> ${projectMap.size} 个请求 (合并了 ${mergedCount} 个中间状态)`);
-      // 立即 resolve 被合并的旧请求
-      for (const resolver of droppedResolvers) {
-        resolver({ success: true });
-      }
-    }
-    
-    // 清空队列
-    this.saveLock.queue = [];
-    
-    // 依次处理（使用 Promise.resolve 确保异步执行）
-    for (const item of projectMap.values()) {
-      void this.saveProjectToCloud(item.project, item.userId).then(item.resolve);
-    }
+    });
   }
   
   /**
    * 实际执行保存操作（内部方法）
    * 使用数据库乐观锁解决竞态条件：
    * UPDATE ... WHERE version = expected_version
+   * 添加执行超时控制防止网络挂起导致队列阻塞
    */
   private async doSaveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
     this.syncState.update(s => ({ ...s, isSyncing: true }));
     
+    // 使用 Promise.race 添加执行超时控制
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`保存操作执行超时 (${SyncService.SAVE_EXECUTION_TIMEOUT / 1000}s)`));
+      }, SyncService.SAVE_EXECUTION_TIMEOUT);
+    });
+    
+    try {
+      return await Promise.race([
+        this.doSaveProjectToCloudInternal(project, userId),
+        timeoutPromise
+      ]);
+    } catch (e: unknown) {
+      this.logger.error('Sync project failed or timed out', e);
+      
+      // 任何同步失败都保存到本地缓存
+      this.saveOfflineSnapshot([project]);
+      
+      this.syncState.update(s => ({
+        ...s,
+        syncError: extractErrorMessage(e),
+        offlineMode: true
+      }));
+      return { success: false };
+    } finally {
+      this.syncState.update(s => ({ ...s, isSyncing: false }));
+    }
+  }
+  
+  /**
+   * 保存操作的内部实现（不带超时控制）
+   */
+  private async doSaveProjectToCloudInternal(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
     try {
       const currentVersion = project.version ?? 0;
       const newVersion = currentVersion + 1;
@@ -857,7 +1016,7 @@ export class SyncService {
       }));
       
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.logger.error('Sync project failed', e);
       
       // 任何同步失败都保存到本地缓存
@@ -865,19 +1024,17 @@ export class SyncService {
       
       this.syncState.update(s => ({
         ...s,
-        syncError: e?.message ?? String(e),
+        syncError: extractErrorMessage(e),
         offlineMode: true
       }));
       return { success: false };
-    } finally {
-      this.syncState.update(s => ({ ...s, isSyncing: false }));
     }
   }
 
   /**
    * 处理保存错误
    */
-  private handleSaveError(error: any, project: Project): void {
+  private handleSaveError(error: { code?: string; message?: string }, project: Project): void {
     // 处理认证错误 - 先保存本地数据再报错
     if (error.code === 'PGRST301' || error.message?.includes('JWT') || error.code === '401') {
       this.saveOfflineSnapshot([project]);
@@ -909,11 +1066,11 @@ export class SyncService {
       
       if (error) throw error;
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.logger.error('Delete project from cloud failed', e);
       this.syncState.update(s => ({
         ...s,
-        syncError: e?.message ?? String(e)
+        syncError: extractErrorMessage(e)
       }));
       return false;
     }
@@ -923,8 +1080,8 @@ export class SyncService {
    * 解决冲突（选择保留哪个版本）
    */
   resolveConflict(projectId: string, project: Project, choice: 'local' | 'remote'): void {
-    // 清除持久化的冲突数据
-    this.clearPersistedConflict();
+    // 清除持久化的冲突数据（包括 IndexedDB 和 localStorage）
+    this.clearPersistedConflict(projectId);
     
     this.syncState.update(s => ({
       ...s,
@@ -932,7 +1089,7 @@ export class SyncService {
       conflictData: null
     }));
     
-    this.logger.info(`冲突已解决：${choice === 'local' ? '使用本地版本' : '使用远程版本'}`);
+    this.logger.info(`冲突已解决：${choice === 'local' ? '使用本地版本' : '使用远程版本'}`, { projectId });
   }
 
   /**
@@ -983,7 +1140,7 @@ export class SyncService {
     
     try {
       // 构建更新对象，只包含有值的字段
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, string | undefined> = {
         user_id: userId,
         updated_at: nowISO()
       };
@@ -1119,6 +1276,9 @@ export class SyncService {
     this.isDestroyed = true;
     this.currentSubscribedUserId = null;
     
+    // 完成保存队列 Subject，释放所有订阅
+    this.saveQueue$.complete();
+    
     this.teardownRealtimeSubscription();
     this.removeNetworkListeners();
     
@@ -1180,10 +1340,9 @@ export class SyncService {
     this.pauseRemoteUpdates = false;
     this.pendingConflictReload = null;
     
-    // 清空保存锁队列
-    this.saveLock.isLocked = false;
-    this.saveLock.queue = [];
-    this.saveLock.overflowCount = 0;
+    // 清空保存队列统计
+    this.saveQueueStats.pendingCount = 0;
+    this.saveQueueStats.overflowCount = 0;
     
     // 清空回调
     this.onRemoteChangeCallback = null;

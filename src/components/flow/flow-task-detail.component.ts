@@ -255,7 +255,7 @@ import { renderMarkdown } from '../../utils/markdown';
       
       <!-- 预览模式 -->
       @if (!isEditMode()) {
-        <div class="space-y-1.5">
+        <div class="space-y-1.5 cursor-pointer" (click)="toggleEditMode()">
           <!-- 标题 -->
           <h4 class="text-xs font-medium text-stone-800 leading-tight">{{ task.title || '无标题' }}</h4>
           
@@ -266,7 +266,7 @@ import { renderMarkdown } from '../../utils/markdown';
               [innerHTML]="renderMarkdownContent(task.content)">
             </div>
           } @else {
-            <div class="text-[10px] text-stone-400 italic">无内容</div>
+            <div class="text-[10px] text-stone-400 italic">点击编辑内容...</div>
           }
         </div>
       } @else {

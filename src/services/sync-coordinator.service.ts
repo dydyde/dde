@@ -16,6 +16,7 @@
  * - 数据流像电路板上的走线一样清晰，互不干扰
  */
 import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
+import { Subject } from 'rxjs';
 import { SyncService } from './sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { ConflictResolutionService } from './conflict-resolution.service';
@@ -23,10 +24,21 @@ import { ProjectStateService } from './project-state.service';
 import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';
 import { LayoutService } from './layout.service';
-import { Project } from '../models';
+import { LoggerService } from './logger.service';
+import { Project, Task, UserPreferences } from '../models';
 import { SYNC_CONFIG } from '../config/constants';
 import { validateProject, sanitizeProject } from '../utils/validation';
 import { Result, success, failure, ErrorCodes, OperationError, isFailure } from '../utils/result';
+
+/**
+ * 冲突事件数据
+ * 用于发布-订阅模式的冲突通知
+ */
+export interface ConflictEvent {
+  localProject: Project;
+  remoteProject: Project;
+  projectId: string;
+}
 
 /**
  * 持久化状态
@@ -48,6 +60,7 @@ interface PersistState {
   providedIn: 'root'
 })
 export class SyncCoordinatorService {
+  private readonly logger = inject(LoggerService).category('SyncCoordinator');
   private syncService = inject(SyncService);
   private actionQueue = inject(ActionQueueService);
   private conflictService = inject(ConflictResolutionService);
@@ -98,8 +111,22 @@ export class SyncCoordinatorService {
   
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   
-  /** 冲突回调函数 */
-  onConflict: ((localProject: Project, remoteProject: Project, projectId: string) => void) | null = null;
+  /** 
+   * 冲突事件 Subject - 使用发布-订阅模式替代回调
+   * 
+   * 优势：
+   * 1. 解耦：SyncCoordinatorService 不需要知道谁在消费冲突事件
+   * 2. 多订阅者：UI、日志、自动解决器可以同时订阅
+   * 3. 类型安全：ConflictEvent 接口明确定义事件结构
+   * 4. 可测试：Subject 比回调更容易 mock 和验证
+   */
+  private readonly conflict$ = new Subject<ConflictEvent>();
+  
+  /** 
+   * 冲突事件流（只读）
+   * 订阅者应使用此 Observable 而非直接访问 Subject
+   */
+  readonly onConflict$ = this.conflict$.asObservable();
   
   constructor() {
     this.setupQueueSyncCoordination();
@@ -163,8 +190,8 @@ export class SyncCoordinatorService {
    * 设置远程变更回调
    */
   setupRemoteChangeCallbacks(
-    onRemoteChange: (payload: any) => Promise<void>,
-    onTaskChange: (payload: any) => void
+    onRemoteChange: (payload: { eventType?: string; projectId?: string } | undefined) => Promise<void>,
+    onTaskChange: (payload: { eventType: string; taskId: string; projectId: string }) => void
   ) {
     this.syncService.setRemoteChangeCallback(onRemoteChange);
     this.syncService.setTaskChangeCallback(onTaskChange);
@@ -269,14 +296,16 @@ export class SyncCoordinatorService {
   
   /**
    * 合并离线数据
+   * 返回冲突项目列表供调用者处理
    */
   async mergeOfflineDataOnReconnect(
     cloudProjects: Project[], 
     offlineProjects: Project[],
     userId: string
-  ): Promise<{ projects: Project[]; syncedCount: number }> {
+  ): Promise<{ projects: Project[]; syncedCount: number; conflictProjects: Project[] }> {
     const cloudMap = new Map(cloudProjects.map(p => [p.id, p]));
     const mergedProjects: Project[] = [...cloudProjects];
+    const conflictProjects: Project[] = [];
     let syncedCount = 0;
     
     for (const offlineProject of offlineProjects) {
@@ -287,7 +316,7 @@ export class SyncCoordinatorService {
         if (result.success) {
           mergedProjects.push(offlineProject);
           syncedCount++;
-          console.log('离线新建项目已同步:', offlineProject.name);
+          this.logger.info('离线新建项目已同步:', offlineProject.name);
         }
         continue;
       }
@@ -308,15 +337,22 @@ export class SyncCoordinatorService {
             mergedProjects[idx] = projectToSync;
           }
           syncedCount++;
-          console.log('离线修改已同步:', offlineProject.name);
+          this.logger.info('离线修改已同步:', offlineProject.name);
         } else if (result.conflict) {
-          console.warn('离线数据存在冲突:', offlineProject.name);
-          this.onConflict?.(offlineProject, result.remoteData!, offlineProject.id);
+          this.logger.warn('离线数据存在冲突', { projectName: offlineProject.name });
+          // 记录冲突项目供调用者处理
+          conflictProjects.push(offlineProject);
+          // 发布冲突事件（替代回调）
+          this.conflict$.next({
+            localProject: offlineProject,
+            remoteProject: result.remoteData!,
+            projectId: offlineProject.id
+          });
         }
       }
     }
     
-    return { projects: mergedProjects, syncedCount };
+    return { projects: mergedProjects, syncedCount, conflictProjects };
   }
   
   /**
@@ -330,7 +366,7 @@ export class SyncCoordinatorService {
     );
     
     if (fatalErrors.length > 0) {
-      console.error('项目数据致命错误，无法恢复', { 
+      this.logger.error('项目数据致命错误，无法恢复', { 
         projectId: project.id, 
         fatalErrors 
       });
@@ -342,7 +378,7 @@ export class SyncCoordinatorService {
     }
     
     if (!validation.valid) {
-      console.warn('项目数据验证失败，尝试清理修复', { 
+      this.logger.warn('项目数据验证失败，尝试清理修复', { 
         projectId: project.id, 
         errors: validation.errors 
       });
@@ -350,7 +386,7 @@ export class SyncCoordinatorService {
       
       const revalidation = validateProject(project);
       if (!revalidation.valid) {
-        console.error('清理后数据仍然无效', { errors: revalidation.errors });
+        this.logger.error('清理后数据仍然无效', { errors: revalidation.errors });
         return failure(
           ErrorCodes.VALIDATION_ERROR,
           `项目数据清理后仍然无效: ${revalidation.errors.join('; ')}`,
@@ -360,12 +396,12 @@ export class SyncCoordinatorService {
     }
     
     if (validation.warnings.length > 0) {
-      console.warn('项目数据警告', { projectId: project.id, warnings: validation.warnings });
+      this.logger.warn('项目数据警告', { projectId: project.id, warnings: validation.warnings });
     }
     
     const { project: fixedProject, issues } = this.layoutService.validateAndFixTree(project);
     if (issues.length > 0) {
-      console.log('已修复数据问题', { projectId: project.id, issues });
+      this.logger.info('已修复数据问题', { projectId: project.id, issues });
     }
     
     return success(this.layoutService.rebalance(fixedProject));
@@ -378,7 +414,7 @@ export class SyncCoordinatorService {
     const result = this.validateAndRebalanceWithResult(project);
     if (isFailure(result)) {
       const errorMsg = result.error.message;
-      console.error('validateAndRebalance 失败:', errorMsg);
+      this.logger.error('validateAndRebalance 失败', { error: errorMsg });
       this.toastService.error('数据验证失败', errorMsg);
       return sanitizeProject(project);
     }
@@ -389,6 +425,8 @@ export class SyncCoordinatorService {
    * 销毁服务
    */
   destroy() {
+    // 完成冲突事件 Subject
+    this.conflict$.complete();
     this.syncService.destroy();
   }
   
@@ -431,7 +469,7 @@ export class SyncCoordinatorService {
       const userId = this.authService.currentUserId();
       if (!userId) return false;
       
-      const payload = action.payload as { task: any; projectId: string };
+      const payload = action.payload as { task: Task; projectId: string };
       const project = this.projectState.projects().find(p => p.id === payload.projectId);
       if (!project) return false;
       
@@ -443,7 +481,7 @@ export class SyncCoordinatorService {
       const userId = this.authService.currentUserId();
       if (!userId) return false;
       
-      const payload = action.payload as { task: any; projectId: string };
+      const payload = action.payload as { task: Task; projectId: string };
       const project = this.projectState.projects().find(p => p.id === payload.projectId);
       if (!project) return false;
       
@@ -467,7 +505,7 @@ export class SyncCoordinatorService {
       const userId = this.authService.currentUserId();
       if (!userId) return false;
       
-      const payload = action.payload as { preferences: any; userId: string };
+      const payload = action.payload as { preferences: Partial<UserPreferences>; userId: string };
       return await this.syncService.saveUserPreferences(userId, payload.preferences);
     });
   }
@@ -528,7 +566,10 @@ export class SyncCoordinatorService {
         ));
       }
     } catch (error) {
-      console.error('持久化项目时发生异常:', error);
+      this.logger.error('持久化项目时发生异常', { error });
+      // 乐观UI：静默记录错误，不阻塞用户操作
+      // 数据已保存到本地离线快照，网络恢复后会自动重试
+      this.logger.warn('自动保存失败，更改已保存到本地', { error });
     }
   }
 }

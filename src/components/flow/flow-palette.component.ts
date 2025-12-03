@@ -1,4 +1,4 @@
-import { Component, input, output, signal, inject, ElementRef, ViewChild, AfterViewInit } from '@angular/core';
+import { Component, input, output, signal, inject, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { Task } from '../../models';
@@ -105,7 +105,7 @@ import { Task } from '../../models';
     </div>
   `
 })
-export class FlowPaletteComponent {
+export class FlowPaletteComponent implements OnDestroy {
   readonly store = inject(StoreService);
   
   // 输入
@@ -131,15 +131,69 @@ export class FlowPaletteComponent {
   private startY = 0;
   private startHeight = 0;
   
+  // 组件销毁状态
+  private isDestroyed = false;
+  
+  // 调整大小事件监听器引用（用于清理）
+  private resizeMouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+  private resizeMouseUpHandler: (() => void) | null = null;
+  private resizeTouchMoveHandler: ((e: TouchEvent) => void) | null = null;
+  private resizeTouchEndHandler: (() => void) | null = null;
+  
   // 触摸拖动状态
   private touchState = {
     task: null as Task | null,
     startX: 0,
     startY: 0,
     isDragging: false,
-    longPressTimer: null as any,
+    longPressTimer: null as ReturnType<typeof setTimeout> | null,
     ghost: null as HTMLElement | null
   };
+  
+  /**
+   * 组件销毁时清理所有资源
+   */
+  ngOnDestroy() {
+    this.isDestroyed = true;
+    
+    // 清理长按定时器
+    if (this.touchState.longPressTimer) {
+      clearTimeout(this.touchState.longPressTimer);
+      this.touchState.longPressTimer = null;
+    }
+    
+    // 清理幽灵元素
+    if (this.touchState.ghost) {
+      this.touchState.ghost.remove();
+      this.touchState.ghost = null;
+    }
+    
+    // 清理调整大小的事件监听器
+    if (this.resizeMouseMoveHandler) {
+      window.removeEventListener('mousemove', this.resizeMouseMoveHandler);
+      this.resizeMouseMoveHandler = null;
+    }
+    if (this.resizeMouseUpHandler) {
+      window.removeEventListener('mouseup', this.resizeMouseUpHandler);
+      this.resizeMouseUpHandler = null;
+    }
+    if (this.resizeTouchMoveHandler) {
+      window.removeEventListener('touchmove', this.resizeTouchMoveHandler);
+      this.resizeTouchMoveHandler = null;
+    }
+    if (this.resizeTouchEndHandler) {
+      window.removeEventListener('touchend', this.resizeTouchEndHandler);
+      window.removeEventListener('touchcancel', this.resizeTouchEndHandler);
+      this.resizeTouchEndHandler = null;
+    }
+    
+    // 恢复 body 样式
+    if (this.isResizing) {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      this.isResizing = false;
+    }
+  }
   
   // 拖动事件
   onDragStart(event: DragEvent, task: Task) {
@@ -255,23 +309,37 @@ export class FlowPaletteComponent {
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
     
-    const onMove = (ev: MouseEvent) => {
-      if (!this.isResizing) return;
+    // 先清理可能存在的旧监听器
+    if (this.resizeMouseMoveHandler) {
+      window.removeEventListener('mousemove', this.resizeMouseMoveHandler);
+    }
+    if (this.resizeMouseUpHandler) {
+      window.removeEventListener('mouseup', this.resizeMouseUpHandler);
+    }
+    
+    this.resizeMouseMoveHandler = (ev: MouseEvent) => {
+      if (!this.isResizing || this.isDestroyed) return;
       const delta = ev.clientY - this.startY;
       const newHeight = Math.max(100, Math.min(600, this.startHeight + delta));
       this.heightChange.emit(newHeight);
     };
     
-    const onUp = () => {
+    this.resizeMouseUpHandler = () => {
       this.isResizing = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      if (this.resizeMouseMoveHandler) {
+        window.removeEventListener('mousemove', this.resizeMouseMoveHandler);
+        this.resizeMouseMoveHandler = null;
+      }
+      if (this.resizeMouseUpHandler) {
+        window.removeEventListener('mouseup', this.resizeMouseUpHandler);
+        this.resizeMouseUpHandler = null;
+      }
     };
     
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mousemove', this.resizeMouseMoveHandler);
+    window.addEventListener('mouseup', this.resizeMouseUpHandler);
   }
   
   startResizeTouch(e: TouchEvent) {
@@ -281,23 +349,38 @@ export class FlowPaletteComponent {
     this.startY = e.touches[0].clientY;
     this.startHeight = this.height();
     
-    const onMove = (ev: TouchEvent) => {
-      if (!this.isResizing || ev.touches.length !== 1) return;
+    // 先清理可能存在的旧监听器
+    if (this.resizeTouchMoveHandler) {
+      window.removeEventListener('touchmove', this.resizeTouchMoveHandler);
+    }
+    if (this.resizeTouchEndHandler) {
+      window.removeEventListener('touchend', this.resizeTouchEndHandler);
+      window.removeEventListener('touchcancel', this.resizeTouchEndHandler);
+    }
+    
+    this.resizeTouchMoveHandler = (ev: TouchEvent) => {
+      if (!this.isResizing || ev.touches.length !== 1 || this.isDestroyed) return;
       ev.preventDefault();
       const delta = ev.touches[0].clientY - this.startY;
       const newHeight = Math.max(80, Math.min(500, this.startHeight + delta));
       this.heightChange.emit(newHeight);
     };
     
-    const onEnd = () => {
+    this.resizeTouchEndHandler = () => {
       this.isResizing = false;
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
+      if (this.resizeTouchMoveHandler) {
+        window.removeEventListener('touchmove', this.resizeTouchMoveHandler);
+        this.resizeTouchMoveHandler = null;
+      }
+      if (this.resizeTouchEndHandler) {
+        window.removeEventListener('touchend', this.resizeTouchEndHandler);
+        window.removeEventListener('touchcancel', this.resizeTouchEndHandler);
+        this.resizeTouchEndHandler = null;
+      }
     };
     
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    window.addEventListener('touchcancel', onEnd);
+    window.addEventListener('touchmove', this.resizeTouchMoveHandler, { passive: false });
+    window.addEventListener('touchend', this.resizeTouchEndHandler);
+    window.addEventListener('touchcancel', this.resizeTouchEndHandler);
   }
 }

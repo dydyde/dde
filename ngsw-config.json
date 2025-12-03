@@ -18,10 +18,11 @@
     },
     {
       "name": "assets",
-      "installMode": "lazy",
+      "installMode": "prefetch",
       "updateMode": "prefetch",
       "resources": {
         "files": [
+          "/icons/**/*",
           "/**/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)"
         ]
       }
@@ -51,6 +52,30 @@
         "maxSize": 50,
         "maxAge": "7d",
         "timeout": "10s"
+      }
+    },
+    {
+      "name": "external-fonts",
+      "urls": [
+        "https://fonts.googleapis.com/**",
+        "https://fonts.gstatic.com/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 30,
+        "maxAge": "365d"
+      }
+    },
+    {
+      "name": "external-cdn",
+      "urls": [
+        "https://cdn.jsdelivr.net/**",
+        "https://unpkg.com/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 20,
+        "maxAge": "30d"
       }
     }
   ]

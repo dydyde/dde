@@ -66,6 +66,20 @@ export const ATTACHMENT_CONFIG = {
   URL_EXPIRY_BUFFER: 6 * 24 * 60 * 60 * 1000,
   /** URL 刷新检查间隔（毫秒）- 1小时 */
   URL_REFRESH_CHECK_INTERVAL: 60 * 60 * 1000,
+  /** 最大文件大小 (10MB) */
+  MAX_FILE_SIZE: 10 * 1024 * 1024,
+  /** 每个任务最大附件数 */
+  MAX_ATTACHMENTS_PER_TASK: 20,
+  /** 存储桶名称 */
+  BUCKET_NAME: 'attachments',
+  /** 图片类型 */
+  IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'] as readonly string[],
+  /** 文档类型 */
+  DOCUMENT_TYPES: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown'] as readonly string[],
+  /** 缩略图最大尺寸 */
+  THUMBNAIL_MAX_SIZE: 200,
+  /** 签名 URL 有效期（秒）- 7天 */
+  SIGNED_URL_EXPIRY: 60 * 60 * 24 * 7
 } as const;
 
 /**

@@ -127,7 +127,7 @@ describe('ActionQueueService', () => {
   });
 
   afterEach(() => {
-    service.ngOnDestroy();
+    service.reset();
     TestBed.resetTestingModule();
   });
 

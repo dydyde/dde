@@ -8,52 +8,39 @@
  * 4. 撤销/重做正确性不变量
  * 5. 项目隔离不变量
  * 6. Rank 排序不变量
+ * 
+ * 重构后架构：StoreService 作为纯门面，委托给子服务
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { signal, computed, WritableSignal } from '@angular/core';
+import { Subject } from 'rxjs';
 import { StoreService } from './store.service';
 import { AuthService } from './auth.service';
-import { SyncService } from './sync.service';
 import { UndoService } from './undo.service';
 import { ToastService } from './toast.service';
 import { LayoutService } from './layout.service';
 import { ActionQueueService } from './action-queue.service';
-import { MigrationService } from './migration.service';
-import { ConflictResolutionService } from './conflict-resolution.service';
 import { AttachmentService } from './attachment.service';
-import { LoggerService } from './logger.service';
+import { UiStateService } from './ui-state.service';
+import { ProjectStateService } from './project-state.service';
+import { SearchService } from './search.service';
+import { SyncCoordinatorService } from './sync-coordinator.service';
+import { UserSessionService } from './user-session.service';
+import { PreferenceService } from './preference.service';
+import { TaskOperationAdapterService } from './task-operation-adapter.service';
+import { RemoteChangeHandlerService } from './remote-change-handler.service';
 import { Project, Task } from '../models';
 
-// 模拟依赖服务
+// ========== 模拟依赖服务 ==========
+
+// 创建项目状态 Signal（用于跨服务共享）
+let mockProjectsSignal: WritableSignal<Project[]>;
+let mockActiveProjectIdSignal: WritableSignal<string | null>;
+let mockSearchQuerySignal: WritableSignal<string>;
+
 const mockAuthService = {
   currentUserId: signal<string | null>(null),
-};
-
-const mockSyncService = {
-  syncState: signal({
-    isSyncing: false,
-    isOnline: true,
-    offlineMode: false,
-    sessionExpired: false,
-    syncError: null,
-    hasConflict: false,
-    conflictData: null,
-  }),
-  isLoadingRemote: signal(false),
-  setRemoteChangeCallback: vi.fn(),
-  setTaskChangeCallback: vi.fn(),
-  loadProjectsFromCloud: vi.fn().mockResolvedValue([]),
-  saveProjectToCloud: vi.fn().mockResolvedValue({ success: true }),
-  loadOfflineSnapshot: vi.fn().mockReturnValue([]),
-  saveOfflineSnapshot: vi.fn(),
-  clearOfflineCache: vi.fn(),
-  initRealtimeSubscription: vi.fn().mockResolvedValue(undefined),
-  teardownRealtimeSubscription: vi.fn(),
-  pauseRealtimeUpdates: vi.fn(),
-  resumeRealtimeUpdates: vi.fn(),
-  tryReloadConflictData: vi.fn().mockResolvedValue(undefined),
-  destroy: vi.fn(),
 };
 
 const mockUndoService = {
@@ -85,7 +72,22 @@ const mockToastService = {
 };
 
 const mockLayoutService = {
-  rebalance: vi.fn((project: Project) => project),
+  rebalance: vi.fn((project: Project) => {
+    // 简单的 displayId 计算逻辑
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let letterIndex = 0;
+    
+    project.tasks.forEach(task => {
+      if (task.stage !== null) {
+        task.displayId = letters[letterIndex % 26];
+        letterIndex++;
+      } else {
+        task.displayId = '?';
+      }
+    });
+    
+    return project;
+  }),
   validateAndFixTree: vi.fn((project: Project) => ({ project, issues: [] })),
   getUnassignedPosition: vi.fn(() => ({ x: 0, y: 0 })),
 };
@@ -97,18 +99,6 @@ const mockActionQueueService = {
   enqueue: vi.fn(),
 };
 
-const mockMigrationService = {
-  migrateIfNeeded: vi.fn(),
-};
-
-const mockConflictService = {
-  smartMerge: vi.fn((local: Project, remote: Project) => ({
-    project: remote,
-    conflictCount: 0,
-  })),
-  resolveConflict: vi.fn(),
-};
-
 const mockAttachmentService = {
   setUrlRefreshCallback: vi.fn(),
   clearUrlRefreshCallback: vi.fn(),
@@ -116,15 +106,322 @@ const mockAttachmentService = {
   monitorAttachment: vi.fn(),
 };
 
-const mockLoggerCategory = {
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  debug: vi.fn(),
+// UiStateService mock
+const mockUiStateService = {
+  isUserEditing: signal(false),
+  isEditing: false,
+  selectedTaskId: signal<string | null>(null),
+  textViewCollapsed: signal(true),
+  viewStates: signal<Record<string, any>>({}),
+  isLoadingRemote: signal(false),
+  isSyncing: signal(false),
+  isOnline: signal(true),
+  syncError: signal<string | null>(null),
+  hasConflict: signal(false),
+  searchQuery: signal(''),
+  projectSearchQuery: signal(''),
+  setUserEditing: vi.fn((value: boolean) => {
+    (mockUiStateService.isUserEditing as WritableSignal<boolean>).set(value);
+    mockUiStateService.isEditing = value;
+  }),
+  markEditing: vi.fn(() => {
+    mockUiStateService.isEditing = true;
+  }),
+  setSelectedTask: vi.fn(),
+  setTextViewCollapsed: vi.fn(),
+  updateViewState: vi.fn((projectId: string, state: any) => {
+    const current = mockUiStateService.viewStates();
+    (mockUiStateService.viewStates as WritableSignal<Record<string, any>>).set({
+      ...current,
+      [projectId]: { ...current[projectId], ...state }
+    });
+  }),
+  getViewState: vi.fn((projectId: string) => mockUiStateService.viewStates()[projectId]),
+  clearViewState: vi.fn(),
+  clearSearch: vi.fn(() => {
+    (mockUiStateService.searchQuery as WritableSignal<string>).set('');
+  }),
+  setSearchQueryDebounced: vi.fn((query: string) => {
+    (mockUiStateService.searchQuery as WritableSignal<string>).set(query);
+  }),
 };
 
-const mockLoggerService = {
-  category: vi.fn(() => mockLoggerCategory),
+// ProjectStateService mock - 使用共享 signal
+const createMockProjectStateService = () => ({
+  projects: mockProjectsSignal,
+  activeProjectId: mockActiveProjectIdSignal,
+  activeProject: computed(() => {
+    const id = mockActiveProjectIdSignal();
+    return mockProjectsSignal().find(p => p.id === id) || null;
+  }),
+  tasks: computed(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    return project?.tasks || [];
+  }),
+  deletedTasks: computed(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    return project?.tasks.filter(t => t.deletedAt) || [];
+  }),
+  unassignedTasks: computed(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    return project?.tasks.filter(t => t.stage === null && !t.deletedAt) || [];
+  }),
+  setProjects: vi.fn((projects: Project[]) => mockProjectsSignal.set(projects)),
+  addProject: vi.fn((project: Project) => {
+    mockProjectsSignal.update(ps => [...ps, project]);
+    mockActiveProjectIdSignal.set(project.id);
+  }),
+  updateProject: vi.fn((projectId: string, updater: (p: Project) => Project) => {
+    mockProjectsSignal.update(ps => ps.map(p => p.id === projectId ? updater(p) : p));
+  }),
+  updateProjects: vi.fn((updater: (ps: Project[]) => Project[]) => {
+    mockProjectsSignal.update(updater);
+  }),
+  deleteProject: vi.fn((projectId: string) => {
+    mockProjectsSignal.update(ps => ps.filter(p => p.id !== projectId));
+    const remaining = mockProjectsSignal();
+    if (mockActiveProjectIdSignal() === projectId && remaining.length > 0) {
+      mockActiveProjectIdSignal.set(remaining[0].id);
+    } else if (remaining.length === 0) {
+      mockActiveProjectIdSignal.set(null);
+    }
+  }),
+  setActiveProjectId: vi.fn((id: string | null) => mockActiveProjectIdSignal.set(id)),
+  getViewState: vi.fn(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    return project?.viewState || null;
+  }),
+  unfinishedItems: computed(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    const items: Array<{ taskId: string; taskDisplayId: string; text: string }> = [];
+    project?.tasks.forEach(task => {
+      if (task.stage !== null && task.content && !task.deletedAt) {
+        const codeBlockRegex = /```[\s\S]*?```/g;
+        const contentWithoutCodeBlocks = task.content.replace(codeBlockRegex, '');
+        const todoRegex = /-\s*\[ \]\s*(.+)/g;
+        let match;
+        while ((match = todoRegex.exec(contentWithoutCodeBlocks)) !== null) {
+          items.push({
+            taskId: task.id,
+            taskDisplayId: task.displayId || '?',
+            text: match[1].trim()
+          });
+        }
+      }
+    });
+    return items;
+  }),
+  compressDisplayId: vi.fn((displayId: string) => displayId),
+});
+
+// SearchService mock
+const createMockSearchService = () => ({
+  searchQuery: mockSearchQuerySignal,
+  searchResults: computed(() => {
+    const query = mockSearchQuerySignal().toLowerCase();
+    if (!query) return [];
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    return project?.tasks.filter(t => 
+      t.title.toLowerCase().includes(query) || 
+      t.content?.toLowerCase().includes(query)
+    ) || [];
+  }),
+  setSearchQuery: vi.fn((query: string) => mockSearchQuerySignal.set(query)),
+  clearSearch: vi.fn(() => mockSearchQuerySignal.set('')),
+  unfinishedItems: computed(() => {
+    const project = mockProjectsSignal().find(p => p.id === mockActiveProjectIdSignal());
+    const items: Array<{ taskId: string; text: string; line: number }> = [];
+    project?.tasks.forEach(task => {
+      if (task.stage !== null && task.content) {
+        // 简单检测 - [ ] 标记
+        const lines = task.content.split('\n');
+        let inCodeBlock = false;
+        lines.forEach((line, idx) => {
+          if (line.startsWith('```')) inCodeBlock = !inCodeBlock;
+          if (!inCodeBlock && /^\s*-\s*\[\s*\]/.test(line)) {
+            items.push({
+              taskId: task.id,
+              text: line.replace(/^\s*-\s*\[\s*\]\s*/, ''),
+              line: idx
+            });
+          }
+        });
+      }
+    });
+    return items;
+  }),
+});
+
+// SyncCoordinatorService mock
+const mockSyncCoordinatorService = {
+  syncState: signal({
+    isSyncing: false,
+    isOnline: true,
+    offlineMode: false,
+    sessionExpired: false,
+    syncError: null,
+    hasConflict: false,
+    conflictData: null,
+  }),
+  isLoadingRemote: signal(false),
+  isSyncing: computed(() => false),
+  isOnline: computed(() => true),
+  offlineMode: computed(() => false),
+  sessionExpired: computed(() => false),
+  syncError: computed(() => null),
+  hasConflict: computed(() => false),
+  conflictData: computed(() => null),
+  pendingActionsCount: computed(() => 0),
+  onConflict$: new Subject<{ localProject: Project; remoteProject: Project; projectId: string }>(),
+  scheduleSync: vi.fn().mockResolvedValue(undefined),
+  scheduleDebouncedSync: vi.fn(),
+  schedulePersist: vi.fn(),
+  loadFromRemote: vi.fn().mockResolvedValue([]),
+  markInitialized: vi.fn(),
+  destroy: vi.fn(),
+  resolveConflict: vi.fn().mockReturnValue({ success: true, value: null }),
+  validateAndRebalance: vi.fn((project: Project) => project),
+  saveProjectToCloud: vi.fn().mockResolvedValue({ success: true }),
+  deleteProjectFromCloud: vi.fn().mockResolvedValue(true),
+  saveOfflineSnapshot: vi.fn(),
+};
+
+// UserSessionService mock
+const mockUserSessionService = {
+  currentUserId: signal<string | null>(null),
+  setCurrentUser: vi.fn().mockResolvedValue(undefined),
+  switchActiveProject: vi.fn((projectId: string) => {
+    const prevId = mockActiveProjectIdSignal();
+    mockActiveProjectIdSignal.set(projectId);
+    mockSearchQuerySignal.set('');
+    // Also clear the UiStateService's searchQuery signal
+    (mockUiStateService.searchQuery as WritableSignal<string>).set('');
+    mockUndoService.onProjectSwitch(prevId);
+  }),
+  loadProjects: vi.fn().mockResolvedValue([]),
+  clearLocalData: vi.fn(),
+};
+
+// PreferenceService mock
+const mockPreferenceService = {
+  theme: signal<'light' | 'dark' | 'system'>('system'),
+  setTheme: vi.fn((theme: 'light' | 'dark' | 'system') => {
+    (mockPreferenceService.theme as WritableSignal<'light' | 'dark' | 'system'>).set(theme);
+  }),
+  loadUserPreferences: vi.fn().mockResolvedValue(undefined),
+  loadLocalPreferences: vi.fn(),
+};
+
+// TaskOperationAdapterService mock
+let mockIsUserEditing = false;
+const mockTaskOperationAdapterService = {
+  isUserEditing: false,
+  markEditing: vi.fn(() => {
+    mockTaskOperationAdapterService.isUserEditing = true;
+    mockIsUserEditing = true;
+  }),
+  getLastUpdateType: vi.fn(() => 'content' as const),
+  addTask: vi.fn((task: Task, options?: any) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return { ...p, tasks: [...p.tasks, task] };
+    }));
+  }),
+  updateTask: vi.fn((taskId: string, updates: Partial<Task>) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return {
+        ...p,
+        tasks: p.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t)
+      };
+    }));
+  }),
+  deleteTask: vi.fn((taskId: string) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      const deleteTaskAndDescendants = (tasks: Task[], targetId: string): Task[] => {
+        const idsToDelete = new Set<string>();
+        const findDescendants = (parentId: string) => {
+          idsToDelete.add(parentId);
+          tasks.filter(t => t.parentId === parentId).forEach(t => findDescendants(t.id));
+        };
+        findDescendants(targetId);
+        return tasks.map(t => 
+          idsToDelete.has(t.id) 
+            ? { ...t, deletedAt: new Date().toISOString() }
+            : t
+        );
+      };
+      return { ...p, tasks: deleteTaskAndDescendants(p.tasks, taskId) };
+    }));
+  }),
+  restoreTask: vi.fn((taskId: string) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return {
+        ...p,
+        tasks: p.tasks.map(t => t.id === taskId ? { ...t, deletedAt: null } : t)
+      };
+    }));
+  }),
+  permanentlyDeleteTask: vi.fn((taskId: string) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return { ...p, tasks: p.tasks.filter(t => t.id !== taskId) };
+    }));
+  }),
+  updateTaskContent: vi.fn((taskId: string, content: string) => {
+    mockTaskOperationAdapterService.isUserEditing = true;
+    mockUiStateService.markEditing();
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return {
+        ...p,
+        tasks: p.tasks.map(t => t.id === taskId ? { ...t, content } : t)
+      };
+    }));
+  }),
+  updateTaskTitle: vi.fn((taskId: string, title: string) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return {
+        ...p,
+        tasks: p.tasks.map(t => t.id === taskId ? { ...t, title } : t)
+      };
+    }));
+  }),
+  addCrossTreeConnection: vi.fn((source: string, target: string) => {
+    if (source === target) return;
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      if (p.connections.some(c => c.source === source && c.target === target)) return p;
+      return {
+        ...p,
+        connections: [...p.connections, { 
+          id: `conn-${source}-${target}`,
+          source, 
+          target 
+        }]
+      };
+    }));
+  }),
+  removeConnection: vi.fn((source: string, target: string) => {
+    mockProjectsSignal.update(ps => ps.map(p => {
+      if (p.id !== mockActiveProjectIdSignal()) return p;
+      return {
+        ...p,
+        connections: p.connections.filter(c => !(c.source === source && c.target === target))
+      };
+    }));
+  }),
+  cleanupOldTrashItems: vi.fn().mockReturnValue(0),
+};
+
+// RemoteChangeHandlerService mock
+const mockRemoteChangeHandlerService = {
+  handleIncrementalUpdate: vi.fn(),
+  handleTaskLevelUpdate: vi.fn(),
+  setupCallbacks: vi.fn(),
 };
 
 // 辅助函数：创建测试项目
@@ -163,10 +460,26 @@ function createTestTask(overrides?: Partial<Task>): Task {
 
 describe('StoreService', () => {
   let service: StoreService;
+  let mockProjectStateService: ReturnType<typeof createMockProjectStateService>;
+  let mockSearchService: ReturnType<typeof createMockSearchService>;
 
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    
+    // 重置 mock 状态
+    mockTaskOperationAdapterService.isUserEditing = false;
+    mockUiStateService.isEditing = false;
+    (mockUiStateService.searchQuery as WritableSignal<string>).set('');
+    
+    // 初始化共享 signal
+    mockProjectsSignal = signal<Project[]>([]);
+    mockActiveProjectIdSignal = signal<string | null>(null);
+    mockSearchQuerySignal = signal<string>('');
+    
+    // 创建带有状态的 mock 服务
+    mockProjectStateService = createMockProjectStateService();
+    mockSearchService = createMockSearchService();
     
     // 重新设置 createProjectSnapshot mock 实现
     mockUndoService.createProjectSnapshot.mockImplementation((project: Project) => ({
@@ -174,46 +487,28 @@ describe('StoreService', () => {
       tasks: project.tasks.map(t => ({ ...t })),
       connections: project.connections.map(c => ({ ...c }))
     }));
-    
-    // 模拟 rebalance 计算 displayId
-    mockLayoutService.rebalance.mockImplementation((project: Project) => {
-      // 简单的 displayId 计算逻辑
-      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-      let letterIndex = 0;
-      
-      project.tasks.forEach((task, index) => {
-        if (task.stage !== null) {
-          task.displayId = letters[letterIndex % 26];
-          letterIndex++;
-        } else {
-          task.displayId = '?';
-        }
-      });
-      
-      return project;
-    });
 
     TestBed.configureTestingModule({
       providers: [
         StoreService,
         { provide: AuthService, useValue: mockAuthService },
-        { provide: SyncService, useValue: mockSyncService },
         { provide: UndoService, useValue: mockUndoService },
         { provide: ToastService, useValue: mockToastService },
         { provide: LayoutService, useValue: mockLayoutService },
         { provide: ActionQueueService, useValue: mockActionQueueService },
-        { provide: MigrationService, useValue: mockMigrationService },
-        { provide: ConflictResolutionService, useValue: mockConflictService },
         { provide: AttachmentService, useValue: mockAttachmentService },
-        { provide: LoggerService, useValue: mockLoggerService },
+        { provide: UiStateService, useValue: mockUiStateService },
+        { provide: ProjectStateService, useValue: mockProjectStateService },
+        { provide: SearchService, useValue: mockSearchService },
+        { provide: SyncCoordinatorService, useValue: mockSyncCoordinatorService },
+        { provide: UserSessionService, useValue: mockUserSessionService },
+        { provide: PreferenceService, useValue: mockPreferenceService },
+        { provide: TaskOperationAdapterService, useValue: mockTaskOperationAdapterService },
+        { provide: RemoteChangeHandlerService, useValue: mockRemoteChangeHandlerService },
       ],
     });
 
     service = TestBed.inject(StoreService);
-    
-    // 清空种子项目，确保测试从空白状态开始
-    (service as any).projects.set([]);
-    (service as any).activeProjectId.set(null);
   });
 
   afterEach(() => {
@@ -464,10 +759,10 @@ describe('StoreService', () => {
       // 先切换到 proj-1（因为添加 project2 后它会成为活动项目）
       service.switchActiveProject('proj-1');
       
-      service.searchQuery.set('test query');
+      mockUiStateService.searchQuery.set('test query');
       service.switchActiveProject('proj-2');
       
-      expect(service.searchQuery()).toBe('');
+      expect(mockUiStateService.searchQuery()).toBe('');
     });
   });
 
@@ -594,7 +889,7 @@ describe('StoreService', () => {
       });
       
       await service.addProject(project);
-      service.searchQuery.set('Important');
+      mockSearchQuerySignal.set('important');
       
       const results = service.searchResults();
       expect(results.length).toBe(1);
@@ -609,7 +904,7 @@ describe('StoreService', () => {
       });
       
       await service.addProject(project);
-      service.searchQuery.set('');
+      mockSearchQuerySignal.set('');
       
       expect(service.searchResults().length).toBe(0);
     });

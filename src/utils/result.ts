@@ -126,6 +126,23 @@ export function unwrapOr<T>(result: Result<T, OperationError>, defaultValue: T):
 }
 
 /**
+ * 安全地从 unknown 类型提取错误消息
+ * 用于 catch 块中将 unknown 类型的错误转换为字符串
+ */
+export function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
+/**
  * 将可能抛出异常的操作包装为 Result
  */
 export function tryCatch<T>(
@@ -134,8 +151,8 @@ export function tryCatch<T>(
 ): Result<T, OperationError> {
   try {
     return success(fn());
-  } catch (e: any) {
-    return failure(errorCode, e?.message ?? String(e));
+  } catch (e: unknown) {
+    return failure(errorCode, extractErrorMessage(e));
   }
 }
 
@@ -149,8 +166,8 @@ export async function tryCatchAsync<T>(
   try {
     const value = await fn();
     return success(value);
-  } catch (e: any) {
-    return failure(errorCode, e?.message ?? String(e));
+  } catch (e: unknown) {
+    return failure(errorCode, extractErrorMessage(e));
   }
 }
 

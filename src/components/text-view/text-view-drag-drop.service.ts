@@ -260,6 +260,9 @@ export class TextViewDragDropService {
   
   /** 启动自动滚动 */
   startAutoScroll(container: HTMLElement, clientY: number) {
+    // 先移除可能存在的监听器，防止重复添加
+    document.removeEventListener('dragover', this.boundHandleDragAutoScroll);
+    
     this.autoScrollState.scrollContainer = container;
     this.autoScrollState.lastClientY = clientY;
     

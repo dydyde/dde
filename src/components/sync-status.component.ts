@@ -2,6 +2,7 @@ import { Component, inject, signal, computed, input, ChangeDetectionStrategy } f
 import { CommonModule } from '@angular/common';
 import { ActionQueueService, DeadLetterItem } from '../services/action-queue.service';
 import { SyncService } from '../services/sync.service';
+import { AuthService } from '../services/auth.service';
 
 /**
  * 同步状态组件
@@ -26,8 +27,8 @@ import { SyncService } from '../services/sync.service';
           [class.bg-stone-100]="isExpanded()">
           <!-- 状态点 -->
           <div class="w-2 h-2 rounded-full flex-shrink-0" 
-               [class.bg-green-500]="isOnline() && !offlineMode() && !hasIssues()"
-               [class.bg-amber-500]="!isOnline() || offlineMode() || pendingCount() > 0"
+               [class.bg-green-500]="isLoggedIn() && isOnline() && !offlineMode() && !hasIssues()"
+               [class.bg-amber-500]="!isOnline() || offlineMode() || pendingCount() > 0 || !isLoggedIn()"
                [class.bg-red-500]="deadLetterCount() > 0"
                [class.bg-blue-500]="isSyncing()"
                [class.animate-pulse]="isSyncing() || pendingCount() > 0">
@@ -45,6 +46,8 @@ import { SyncService } from '../services/sync.service';
               离线
             } @else if (offlineMode()) {
               连接中断
+            } @else if (!isLoggedIn()) {
+              本地
             } @else {
               已保存
             }
@@ -77,9 +80,9 @@ import { SyncService } from '../services/sync.service';
             <div data-testid="sync-status-indicator" class="w-2 h-2 rounded-full flex-shrink-0" 
                  [attr.data-testid-offline]="!isOnline() || offlineMode() ? 'offline-indicator' : null"
                  [attr.data-testid-pending]="pendingCount() > 0 ? 'pending-sync-indicator' : null"
-                 [attr.data-testid-success]="isOnline() && !offlineMode() && !hasIssues() ? 'sync-success-indicator' : null"
-                 [class.bg-green-500]="isOnline() && !offlineMode() && !hasIssues()"
-                 [class.bg-amber-500]="!isOnline() || offlineMode() || pendingCount() > 0"
+                 [attr.data-testid-success]="isLoggedIn() && isOnline() && !offlineMode() && !hasIssues() ? 'sync-success-indicator' : null"
+                 [class.bg-green-500]="isLoggedIn() && isOnline() && !offlineMode() && !hasIssues()"
+                 [class.bg-amber-500]="!isOnline() || offlineMode() || pendingCount() > 0 || !isLoggedIn()"
                  [class.bg-red-500]="deadLetterCount() > 0"
                  [class.bg-blue-500]="isSyncing()"
                  [class.animate-pulse]="isSyncing() || pendingCount() > 0">
@@ -96,6 +99,8 @@ import { SyncService } from '../services/sync.service';
                 离线模式
               } @else if (offlineMode()) {
                 连接中断
+              } @else if (!isLoggedIn()) {
+                数据保存在本地
               } @else {
                 已保存到云端
               }
@@ -106,9 +111,17 @@ import { SyncService } from '../services/sync.service';
           @if (pendingCount() > 0 || deadLetterCount() > 0) {
             <button 
               (click)="retryAll(); $event.stopPropagation()"
-              [disabled]="isProcessing()"
-              class="px-2 py-0.5 text-[10px] font-medium bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors disabled:opacity-50">
-              {{ isProcessing() ? '...' : '立即同步' }}
+              [disabled]="isProcessing() || isRetrying()"
+              class="px-2 py-0.5 text-[10px] font-medium bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
+              @if (isRetrying()) {
+                <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                同步中...
+              } @else {
+                立即同步
+              }
             </button>
           }
         </div>
@@ -177,15 +190,15 @@ import { SyncService } from '../services/sync.service';
         <div class="px-3 py-2 bg-gradient-to-r from-stone-50 to-white border-b border-stone-100 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full" 
-                 [class.bg-green-500]="isOnline() && !offlineMode()"
-                 [class.bg-amber-500]="!isOnline() || offlineMode()"
+                 [class.bg-green-500]="isLoggedIn() && isOnline() && !offlineMode()"
+                 [class.bg-amber-500]="!isOnline() || offlineMode() || !isLoggedIn()"
                  [class.bg-blue-500]="isSyncing()"
                  [class.animate-pulse]="isSyncing()">
             </div>
             <h3 class="font-bold text-stone-700 text-xs">同步状态</h3>
           </div>
           <span class="text-[10px] text-stone-400">
-            {{ isOnline() && !offlineMode() ? '在线' : offlineMode() ? '连接中断' : '离线' }}
+            {{ !isLoggedIn() ? '未登录' : isOnline() && !offlineMode() ? '在线' : offlineMode() ? '连接中断' : '离线' }}
           </span>
         </div>
         
@@ -298,15 +311,21 @@ import { SyncService } from '../services/sync.service';
 export class SyncStatusComponent {
   private actionQueue = inject(ActionQueueService);
   private syncService = inject(SyncService);
+  private authService = inject(AuthService);
   
   // 输入属性 - 是否使用紧凑模式
   compact = input(false);
   // 输入属性 - 是否使用嵌入模式（直接显示在侧边栏中）
   embedded = input(false);
   
+  /** 用户是否已登录 */
+  readonly isLoggedIn = computed(() => !!this.authService.currentUserId());
+  
   // 状态
   showDeadLetters = signal(false);
   isExpanded = signal(false);
+  /** 本地重试状态（用于禁用按钮防止重复点击） */
+  isRetrying = signal(false);
   
   // 从服务获取状态
   readonly pendingCount = this.actionQueue.queueSize;
@@ -348,6 +367,9 @@ export class SyncStatusComponent {
     if (this.syncError()) {
       return '同步错误';
     }
+    if (!this.isLoggedIn()) {
+      return '数据保存在本地 - 登录后可同步到云端';
+    }
     return '数据已保存到云端';
   });
   
@@ -362,7 +384,15 @@ export class SyncStatusComponent {
    * 立即重试所有待处理操作
    */
   async retryAll() {
-    await this.actionQueue.processQueue();
+    // 防止重复点击
+    if (this.isRetrying() || this.isProcessing()) return;
+    
+    this.isRetrying.set(true);
+    try {
+      await this.actionQueue.processQueue();
+    } finally {
+      this.isRetrying.set(false);
+    }
   }
   
   /**

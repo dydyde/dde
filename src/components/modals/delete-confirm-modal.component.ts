@@ -1,4 +1,4 @@
-import { Component, Output, EventEmitter, input, inject, OnInit } from '@angular/core';
+import { Component, Output, EventEmitter, input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MODAL_DATA, MODAL_REF } from '../../services/dynamic-modal.service';
 
@@ -90,7 +90,7 @@ export interface DeleteConfirmResult {
     }
   `]
 })
-export class DeleteConfirmModalComponent implements OnInit {
+export class DeleteConfirmModalComponent {
   // ========== 模板渲染模式的 Inputs ==========
   /** 对话框标题 */
   title = input('删除确认');
@@ -121,10 +121,6 @@ export class DeleteConfirmModalComponent implements OnInit {
     } catch {
       // 非动态模式
     }
-  }
-  
-  ngOnInit(): void {
-    // 初始化时可进行额外设置
   }
   
   // ========== 统一的数据访问器 ==========

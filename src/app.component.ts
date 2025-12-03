@@ -18,7 +18,6 @@ import {
   LoginModalComponent, 
   ConflictModalComponent, 
   NewProjectModalComponent, 
-  DeleteConfirmModalComponent,
   ConfigHelpModalComponent,
   TrashModalComponent,
   MigrationModalComponent,
@@ -47,7 +46,6 @@ import { ThemeType, Project } from './models';
     LoginModalComponent,
     ConflictModalComponent,
     NewProjectModalComponent,
-    DeleteConfirmModalComponent,
     ConfigHelpModalComponent,
     TrashModalComponent,
     MigrationModalComponent,
@@ -81,6 +79,10 @@ export class AppComponent implements OnInit, OnDestroy {
   authError = signal<string | null>(null);
   isAuthLoading = signal(false);
   isCheckingSession = signal(true);
+  
+  /** 启动失败状态 - 用于阻断性显式反馈 */
+  bootstrapFailed = signal(false);
+  bootstrapErrorMessage = signal<string | null>(null);
   sessionEmail = signal<string | null>(null);
   isReloginMode = signal(false);
   
@@ -224,7 +226,10 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly SEARCH_DEBOUNCE_DELAY = 300; // 300ms 搜索防抖
 
   constructor() {
-    void this.bootstrapSession();
+    this.bootstrapSession().catch(e => {
+      // 错误已在 bootstrapSession 内部处理并设置 bootstrapFailed 状态
+      // 不再静默处理，确保用户感知启动失败
+    });
     this.checkMobile();
     this.setupSwUpdateListener();
     // 主题初始化在 StoreService 构造函数中完成
@@ -256,13 +261,23 @@ export class AppComponent implements OnInit, OnDestroy {
   
   /**
    * 监听子组件发出的 toggle-sidebar 事件
+   * 使用 WeakMap 防止 HMR 时累积多个监听器
    */
   private handleToggleSidebar = () => {
     this.isSidebarOpen.update(v => !v);
   };
   
+  /** 用于追踪是否已添加监听器（HMR 安全） */
+  private static sidebarListenerAdded = false;
+  
   private setupSidebarToggleListener() {
+    // 防止 HMR 时累积监听器
+    if (AppComponent.sidebarListenerAdded) {
+      // 先移除旧的监听器
+      window.removeEventListener('toggle-sidebar', this.handleToggleSidebar);
+    }
     window.addEventListener('toggle-sidebar', this.handleToggleSidebar);
+    AppComponent.sidebarListenerAdded = true;
   }
   
   /**
@@ -323,38 +338,43 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   
   private setupConflictHandler() {
-    // 监听冲突事件 - 使用 ModalService 打开冲突模态框
-    this.store.onConflict = (local, remote, projectId) => {
-      this.modal.show('conflict', { localProject: local, remoteProject: remote, projectId });
-    };
+    // 订阅冲突事件流 - 使用发布-订阅模式
+    this.store.onConflict$.pipe(
+      takeUntil(this.destroy$)
+    ).subscribe(({ localProject, remoteProject, projectId }) => {
+      this.modal.show('conflict', { 
+        localProject, 
+        remoteProject, 
+        projectId 
+      });
+    });
   }
   
   // 解决冲突：使用本地版本
-  resolveConflictLocal() {
+  async resolveConflictLocal() {
     const data = this.conflictData();
     if (data) {
-      this.store.resolveConflict(data.projectId, 'local');
-      this.toast.success('已使用本地版本');
+      await this.store.resolveConflict(data.projectId, 'local');
+      // store.resolveConflict 内部已有错误处理和 toast 显示
+      // 冲突解决成功的反馈由 store 内部处理
     }
     this.modal.closeByType('conflict', { choice: 'local' });
   }
   
   // 解决冲突：使用远程版本
-  resolveConflictRemote() {
+  async resolveConflictRemote() {
     const data = this.conflictData();
     if (data) {
-      this.store.resolveConflict(data.projectId, 'remote');
-      this.toast.success('已使用云端版本');
+      await this.store.resolveConflict(data.projectId, 'remote');
     }
     this.modal.closeByType('conflict', { choice: 'remote' });
   }
   
   // 解决冲突：智能合并
-  resolveConflictMerge() {
+  async resolveConflictMerge() {
     const data = this.conflictData();
     if (data) {
-      this.store.resolveConflict(data.projectId, 'merge');
-      this.toast.success('智能合并完成');
+      await this.store.resolveConflict(data.projectId, 'merge');
     }
     this.modal.closeByType('conflict', { choice: 'merge' });
   }
@@ -480,6 +500,8 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
     this.isCheckingSession.set(true);
+    this.bootstrapFailed.set(false);
+    this.bootstrapErrorMessage.set(null);
     try {
       const result = await this.auth.checkSession();
       if (result.userId) {
@@ -487,10 +509,21 @@ export class AppComponent implements OnInit, OnDestroy {
         await this.store.setCurrentUser(result.userId);
       }
     } catch (e: any) {
-      this.authError.set(e?.message ?? String(e));
+      // 阻断性显式反馈：启动失败时不静默，让用户明确知道发生了什么
+      const errorMsg = e?.message ?? String(e);
+      this.bootstrapFailed.set(true);
+      this.bootstrapErrorMessage.set(errorMsg);
+      this.authError.set(errorMsg);
     } finally {
       this.isCheckingSession.set(false);
     }
+  }
+  
+  /** 重试启动会话 - 用于启动失败后的重试按钮 */
+  retryBootstrap() {
+    this.bootstrapSession().catch(e => {
+      // 重试失败已在 bootstrapSession 内部处理
+    });
   }
 
   async handleLogin(event?: Event, opts?: { closeSettings?: boolean }) {
@@ -515,6 +548,9 @@ export class AppComponent implements OnInit, OnDestroy {
       }
       
       await this.store.setCurrentUser(userId);
+      
+      // 手动登录成功反馈（自动登录/会话恢复保持静默）
+      this.toast.success('登录成功', `欢迎回来`);
       
       // 登录成功后检查是否需要数据迁移
       await this.checkMigrationAfterLogin();
@@ -577,6 +613,7 @@ export class AppComponent implements OnInit, OnDestroy {
         // 注册成功且自动登录
         this.sessionEmail.set(this.auth.sessionEmail());
         await this.store.setCurrentUser(this.auth.currentUserId());
+        this.toast.success('注册成功', '欢迎使用');
         this.modal.closeByType('login', { success: true, userId: this.auth.currentUserId() ?? undefined });
         this.isSignupMode.set(false);
       }

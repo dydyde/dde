@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../services/store.service';
@@ -10,6 +10,12 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
 /**
  * 任务编辑器组件（展开态）
  * 显示任务的完整编辑界面，包括标题、内容、待办、附件和操作按钮
+ * 
+ * 预览模式逻辑：
+ * - 默认进入编辑状态时为预览模式
+ * - 点击预览区域进入编辑模式
+ * - 点击空白区域（组件外部）自动切换回预览模式
+ * - 预览模式下隐藏底部操作按钮（添加同级、添加下级、删除）
  */
 @Component({
   selector: 'app-text-task-editor',
@@ -60,11 +66,13 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           </div>
           
           @if (isPreview()) {
-            <!-- Markdown 预览 -->
+            <!-- Markdown 预览 - 点击切换到编辑模式 -->
             <div 
-              class="w-full border border-retro-muted/20 rounded-lg bg-retro-muted/5 overflow-y-auto markdown-preview"
+              (click)="togglePreview(); $event.stopPropagation()"
+              class="w-full border border-retro-muted/20 rounded-lg bg-retro-muted/5 overflow-y-auto markdown-preview cursor-pointer hover:border-stone-300 transition-colors"
               [ngClass]="{'min-h-24 max-h-48 p-3 text-xs': !isMobile, 'min-h-28 max-h-40 p-2 text-[11px]': isMobile}"
-              [innerHTML]="renderMarkdown(task.content)">
+              [innerHTML]="task.content ? renderMarkdown(task.content) : '<span class=&quot;text-stone-400 italic&quot;>点击输入内容...</span>'"
+              title="点击编辑">
             </div>
           } @else {
             <!-- Markdown 编辑 -->
@@ -80,31 +88,33 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           }
         </div>
         
-        <!-- 快速待办输入 -->
-        <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded-lg overflow-hidden"
-             [ngClass]="{'p-1': !isMobile, 'p-0.5': isMobile}">
-          <span class="text-retro-rust flex-shrink-0"
-                [ngClass]="{'text-xs pl-2': !isMobile, 'text-[10px] pl-1.5': isMobile}">☐</span>
-          <input
-            #quickTodoInput
-            type="text"
-            (keydown.enter)="addQuickTodo(quickTodoInput)"
-            (focus)="onInputFocus()"
-            (blur)="onInputBlur()"
-            class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
-            [ngClass]="{'text-xs py-1.5 px-2': !isMobile, 'text-[11px] py-1 px-1.5': isMobile}"
-            placeholder="输入待办内容，按回车添加...">
-          <button
-            (click)="addQuickTodo(quickTodoInput)"
-            class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded transition-all flex items-center justify-center"
-            [ngClass]="{'p-1.5 mr-0.5': !isMobile, 'p-1 mr-0.5': isMobile}"
-            title="添加待办">
-            <svg [ngClass]="{'w-3.5 h-3.5': !isMobile, 'w-3 h-3': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
-        </div>
+        <!-- 快速待办输入 - 仅在编辑模式下显示 -->
+        @if (!isPreview()) {
+          <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded-lg overflow-hidden"
+               [ngClass]="{'p-1': !isMobile, 'p-0.5': isMobile}">
+            <span class="text-retro-rust flex-shrink-0"
+                  [ngClass]="{'text-xs pl-2': !isMobile, 'text-[10px] pl-1.5': isMobile}">☐</span>
+            <input
+              #quickTodoInput
+              type="text"
+              (keydown.enter)="addQuickTodo(quickTodoInput)"
+              (focus)="onInputFocus()"
+              (blur)="onInputBlur()"
+              class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
+              [ngClass]="{'text-xs py-1.5 px-2': !isMobile, 'text-[11px] py-1 px-1.5': isMobile}"
+              placeholder="输入待办内容，按回车添加...">
+            <button
+              (click)="addQuickTodo(quickTodoInput)"
+              class="flex-shrink-0 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white rounded transition-all flex items-center justify-center"
+              [ngClass]="{'p-1.5 mr-0.5': !isMobile, 'p-1 mr-0.5': isMobile}"
+              title="添加待办">
+              <svg [ngClass]="{'w-3.5 h-3.5': !isMobile, 'w-3 h-3': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        }
         
         <!-- 附件管理 -->
         @if (userId && projectId) {
@@ -119,42 +129,44 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           </app-attachment-manager>
         }
         
-        <!-- 操作按钮 -->
-        <div class="flex flex-wrap border-t border-stone-100"
-             [ngClass]="{'gap-2 pt-2': !isMobile, 'gap-1.5 pt-1.5': isMobile}">
-          <button 
-            (click)="addSibling.emit()" 
-            class="flex-1 bg-retro-teal/10 hover:bg-retro-teal text-retro-teal hover:text-white border border-retro-teal/30 font-medium rounded-md flex items-center justify-center transition-all"
-            [ngClass]="{'px-2 py-1 text-xs gap-1': !isMobile, 'px-1.5 py-0.5 text-[10px] gap-0.5': isMobile}"
-            title="添加同级">
-            <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            同级
-          </button>
-          <button 
-            (click)="addChild.emit()" 
-            class="flex-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 font-medium rounded-md flex items-center justify-center transition-all"
-            [ngClass]="{'px-2 py-1 text-xs gap-1': !isMobile, 'px-1.5 py-0.5 text-[10px] gap-0.5': isMobile}"
-            title="添加下级">
-            <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="15 10 20 15 15 20"/>
-              <path d="M4 4v7a4 4 0 0 0 4 4h12"/>
-            </svg>
-            下级
-          </button>
-          <button 
-            (click)="deleteTask.emit()" 
-            class="bg-stone-100 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
-            [ngClass]="{'px-2 py-1 text-xs': !isMobile, 'px-1.5 py-0.5 text-[10px]': isMobile}"
-            title="删除任务">
-            <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            </svg>
-          </button>
-        </div>
+        <!-- 操作按钮 - 仅在编辑模式下显示 -->
+        @if (!isPreview()) {
+          <div class="flex flex-wrap border-t border-stone-100"
+               [ngClass]="{'gap-2 pt-2': !isMobile, 'gap-1.5 pt-1.5': isMobile}">
+            <button 
+              (click)="addSibling.emit()" 
+              class="flex-1 bg-retro-teal/10 hover:bg-retro-teal text-retro-teal hover:text-white border border-retro-teal/30 font-medium rounded-md flex items-center justify-center transition-all"
+              [ngClass]="{'px-2 py-1 text-xs gap-1': !isMobile, 'px-1.5 py-0.5 text-[10px] gap-0.5': isMobile}"
+              title="添加同级">
+              <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              同级
+            </button>
+            <button 
+              (click)="addChild.emit()" 
+              class="flex-1 bg-retro-rust/10 hover:bg-retro-rust text-retro-rust hover:text-white border border-retro-rust/30 font-medium rounded-md flex items-center justify-center transition-all"
+              [ngClass]="{'px-2 py-1 text-xs gap-1': !isMobile, 'px-1.5 py-0.5 text-[10px] gap-0.5': isMobile}"
+              title="添加下级">
+              <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="15 10 20 15 15 20"/>
+                <path d="M4 4v7a4 4 0 0 0 4 4h12"/>
+              </svg>
+              下级
+            </button>
+            <button 
+              (click)="deleteTask.emit()" 
+              class="bg-stone-100 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
+              [ngClass]="{'px-2 py-1 text-xs': !isMobile, 'px-1.5 py-0.5 text-[10px]': isMobile}"
+              title="删除任务">
+              <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        }
       </div>
       
       <!-- 关联区域 -->
@@ -178,6 +190,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
 export class TextTaskEditorComponent {
   private readonly store = inject(StoreService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly elementRef = inject(ElementRef);
   
   @Input({ required: true }) task!: Task;
   @Input() isMobile = false;
@@ -193,6 +206,19 @@ export class TextTaskEditorComponent {
   @Output() openLinkedTask = new EventEmitter<{ task: Task; event: Event }>();
   
   readonly isPreview = signal(true);
+  
+  /** 监听 document 点击事件，当点击组件外部时切换回预览模式 */
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent) {
+    // 如果已经是预览模式，无需处理
+    if (this.isPreview()) return;
+    
+    // 检查点击是否在组件内部
+    const clickedInside = this.elementRef.nativeElement.contains(event.target as Node);
+    if (!clickedInside) {
+      this.isPreview.set(true);
+    }
+  }
   
   ngOnInit() {
     this.isPreview.set(this.initialPreview);

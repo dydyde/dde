@@ -384,4 +384,12 @@ export class FlowDragDropService {
     
     return Math.sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
   }
+  
+  /**
+   * 释放资源
+   */
+  dispose(): void {
+    this.isDropTargetActive.set(false);
+    this.draggingFromDiagramId = null;
+  }
 }

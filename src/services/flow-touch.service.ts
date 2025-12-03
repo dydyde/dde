@@ -47,6 +47,13 @@ export class FlowTouchService {
   /** 销毁标志 */
   private isDestroyed = false;
   
+  /** 活动的全局事件监听器（用于清理） */
+  private activeListeners: Array<{
+    type: string;
+    handler: EventListener;
+    options?: boolean | AddEventListenerOptions;
+  }> = [];
+  
   // ========== 公开方法 ==========
   
   /**
@@ -171,11 +178,12 @@ export class FlowTouchService {
   }
   
   /**
-   * 标记为已销毁
+   * 标记为已销毁并清理所有资源
    */
   dispose(): void {
     this.isDestroyed = true;
     this.cleanup();
+    this.removeAllGlobalListeners();
   }
   
   /**
@@ -199,28 +207,27 @@ export class FlowTouchService {
     getInitialHeight: () => number
   ): {
     startResize: (event: TouchEvent) => void;
+    cleanup: () => void;
   } {
     let isResizing = false;
     let startY = 0;
     let startHeight = 0;
+    let onMove: ((ev: TouchEvent) => void) | null = null;
+    let onEnd: (() => void) | null = null;
     
-    const onMove = (ev: TouchEvent) => {
-      if (!isResizing || ev.touches.length !== 1) return;
-      ev.preventDefault();
-      
-      const deltaY = startY - ev.touches[0].clientY;
-      const deltaVh = (deltaY / window.innerHeight) * 100;
-      const newHeight = Math.max(15, Math.min(70, startHeight + deltaVh));
-      onHeightChange(newHeight);
-    };
-    
-    const onEnd = () => {
-      isResizing = false;
-      onResizingChange(false);
-      
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
+    const removeListeners = () => {
+      if (onMove) {
+        window.removeEventListener('touchmove', onMove as EventListener);
+        this.untrackListener('touchmove', onMove as EventListener);
+      }
+      if (onEnd) {
+        window.removeEventListener('touchend', onEnd);
+        window.removeEventListener('touchcancel', onEnd);
+        this.untrackListener('touchend', onEnd);
+        this.untrackListener('touchcancel', onEnd);
+      }
+      onMove = null;
+      onEnd = null;
     };
     
     return {
@@ -233,10 +240,32 @@ export class FlowTouchService {
         startY = event.touches[0].clientY;
         startHeight = getInitialHeight();
         
-        window.addEventListener('touchmove', onMove, { passive: false });
+        onMove = (ev: TouchEvent) => {
+          if (!isResizing || ev.touches.length !== 1) return;
+          ev.preventDefault();
+          
+          const deltaY = startY - ev.touches[0].clientY;
+          const deltaVh = (deltaY / window.innerHeight) * 100;
+          const newHeight = Math.max(15, Math.min(70, startHeight + deltaVh));
+          onHeightChange(newHeight);
+        };
+        
+        onEnd = () => {
+          isResizing = false;
+          onResizingChange(false);
+          removeListeners();
+        };
+        
+        window.addEventListener('touchmove', onMove as EventListener, { passive: false });
         window.addEventListener('touchend', onEnd);
         window.addEventListener('touchcancel', onEnd);
-      }
+        
+        // 追踪监听器
+        this.trackListener('touchmove', onMove as EventListener, { passive: false });
+        this.trackListener('touchend', onEnd);
+        this.trackListener('touchcancel', onEnd);
+      },
+      cleanup: removeListeners
     };
   }
   
@@ -250,25 +279,27 @@ export class FlowTouchService {
     getInitialHeight: () => number
   ): {
     startResize: (event: TouchEvent) => void;
+    cleanup: () => void;
   } {
     let isResizing = false;
     let startY = 0;
     let startHeight = 0;
+    let onMove: ((ev: TouchEvent) => void) | null = null;
+    let onEnd: (() => void) | null = null;
     
-    const onMove = (ev: TouchEvent) => {
-      if (!isResizing || ev.touches.length !== 1) return;
-      ev.preventDefault();
-      
-      const delta = ev.touches[0].clientY - startY;
-      const newHeight = Math.max(80, Math.min(500, startHeight + delta));
-      onHeightChange(newHeight);
-    };
-    
-    const onEnd = () => {
-      isResizing = false;
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
+    const removeListeners = () => {
+      if (onMove) {
+        window.removeEventListener('touchmove', onMove as EventListener);
+        this.untrackListener('touchmove', onMove as EventListener);
+      }
+      if (onEnd) {
+        window.removeEventListener('touchend', onEnd);
+        window.removeEventListener('touchcancel', onEnd);
+        this.untrackListener('touchend', onEnd);
+        this.untrackListener('touchcancel', onEnd);
+      }
+      onMove = null;
+      onEnd = null;
     };
     
     return {
@@ -280,10 +311,30 @@ export class FlowTouchService {
         startY = event.touches[0].clientY;
         startHeight = getInitialHeight();
         
-        window.addEventListener('touchmove', onMove, { passive: false });
+        onMove = (ev: TouchEvent) => {
+          if (!isResizing || ev.touches.length !== 1) return;
+          ev.preventDefault();
+          
+          const delta = ev.touches[0].clientY - startY;
+          const newHeight = Math.max(80, Math.min(500, startHeight + delta));
+          onHeightChange(newHeight);
+        };
+        
+        onEnd = () => {
+          isResizing = false;
+          removeListeners();
+        };
+        
+        window.addEventListener('touchmove', onMove as EventListener, { passive: false });
         window.addEventListener('touchend', onEnd);
         window.addEventListener('touchcancel', onEnd);
-      }
+        
+        // 追踪监听器
+        this.trackListener('touchmove', onMove as EventListener, { passive: false });
+        this.trackListener('touchend', onEnd);
+        this.trackListener('touchcancel', onEnd);
+      },
+      cleanup: removeListeners
     };
   }
   
@@ -310,5 +361,32 @@ export class FlowTouchService {
       this.touchState.ghost.remove();
       this.touchState.ghost = null;
     }
+  }
+  
+  /**
+   * 追踪全局事件监听器
+   */
+  private trackListener(type: string, handler: EventListener, options?: boolean | AddEventListenerOptions): void {
+    this.activeListeners.push({ type, handler, options });
+  }
+  
+  /**
+   * 取消追踪监听器
+   */
+  private untrackListener(type: string, handler: EventListener): void {
+    const index = this.activeListeners.findIndex(l => l.type === type && l.handler === handler);
+    if (index > -1) {
+      this.activeListeners.splice(index, 1);
+    }
+  }
+  
+  /**
+   * 移除所有活动的全局监听器
+   */
+  private removeAllGlobalListeners(): void {
+    for (const listener of this.activeListeners) {
+      window.removeEventListener(listener.type, listener.handler);
+    }
+    this.activeListeners = [];
   }
 }

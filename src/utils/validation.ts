@@ -410,9 +410,11 @@ export function sanitizeProject(project: any): Project {
   
   const connections = Array.isArray(project.connections)
     ? project.connections.filter((c: any) => c.source && c.target).map((c: any) => ({
+        id: c.id ? String(c.id) : crypto.randomUUID(),
         source: String(c.source),
         target: String(c.target),
-        description: c.description ? String(c.description) : undefined
+        description: c.description ? String(c.description) : undefined,
+        deletedAt: c.deletedAt ? String(c.deletedAt) : undefined
       }))
     : [];
 
