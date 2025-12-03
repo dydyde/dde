@@ -2,10 +2,18 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist/browser",
+  "framework": null,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
+    {
+      "source": "/(.*\\.js)",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript" },
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [
@@ -13,7 +21,7 @@
       ]
     },
     {
-      "source": "/(.*\\.(?:js|css|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|json|webmanifest))",
+      "source": "/(.*\\.(?:css|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|json|webmanifest))",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
@@ -22,7 +30,7 @@
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
         { "key": "X-XSS-Protection", "value": "1; mode=block" }
       ]
     }
