@@ -97,6 +97,9 @@ export interface Project {
   version?: number; // 数据版本号
   // 视图状态持久化
   viewState?: ViewState;
+  // 流程图缩略图
+  flowchartUrl?: string;
+  flowchartThumbnailUrl?: string;
 }
 
 /**

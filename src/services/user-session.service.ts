@@ -22,7 +22,7 @@ import { MigrationService } from './migration.service';
 import { LayoutService } from './layout.service';
 import { LoggerService } from './logger.service';
 import { Project } from '../models';
-import { CACHE_CONFIG } from '../config/constants';
+import { CACHE_CONFIG, AUTH_CONFIG } from '../config/constants';
 import { isFailure } from '../utils/result';
 import { ToastService } from './toast.service';
 
@@ -143,6 +143,13 @@ export class UserSessionService {
     
     if (!userId) {
       console.log('[Session] 无 userId，从缓存或种子加载');
+      this.loadFromCacheOrSeed();
+      return;
+    }
+    
+    // 如果是本地模式用户，直接从缓存加载，不尝试云端同步
+    if (userId === AUTH_CONFIG.LOCAL_MODE_USER_ID) {
+      console.log('[Session] 本地模式，从缓存或种子加载');
       this.loadFromCacheOrSeed();
       return;
     }

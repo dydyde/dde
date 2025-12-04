@@ -18,27 +18,26 @@ import { Attachment } from '../models';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <!-- 附件区域 -->
-    <div class="border-t border-stone-100 pt-2 mt-2">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-[10px] font-medium text-stone-500 flex items-center gap-1">
-          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-          附件 ({{ attachments().length }}/{{ maxAttachments }})
-          <span class="text-stone-400">· 单文件≤10MB</span>
-        </span>
-        
-        <!-- 上传按钮 -->
+    <!-- 紧凑模式：只显示一个附件按钮 -->
+    @if (compact()) {
+      <div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-stone-100">
+        <!-- 附件按钮 -->
         @if (canAddMore()) {
           <label 
-            class="cursor-pointer text-[10px] px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded transition-colors flex items-center gap-1"
+            class="cursor-pointer text-[10px] px-2 py-1 bg-stone-50 hover:bg-stone-100 text-stone-500 hover:text-stone-700 rounded border border-stone-200 transition-colors flex items-center gap-1"
             [class.opacity-50]="isUploading()"
             [class.pointer-events-none]="isUploading()">
             <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
-            上传
+            @if (isUploading()) {
+              上传中...
+            } @else {
+              附件
+            }
+            @if (attachments().length > 0) {
+              <span class="text-[9px] bg-indigo-100 text-indigo-600 px-1 rounded">{{ attachments().length }}</span>
+            }
             <input 
               type="file" 
               class="hidden" 
@@ -47,100 +46,189 @@ import { Attachment } from '../models';
               (change)="onFileSelect($event)"
               [disabled]="isUploading()">
           </label>
+        } @else {
+          <span class="text-[10px] text-stone-400 flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            附件已满
+          </span>
         }
-      </div>
-      
-      <!-- 上传进度 -->
-      @if (uploadProgress().length > 0) {
-        <div class="space-y-1 mb-2">
-          @for (progress of uploadProgress(); track progress.fileName) {
-            <div class="flex items-center gap-2 text-[10px] p-1.5 bg-stone-50 rounded">
-              <div class="flex-1 min-w-0">
-                <div class="truncate text-stone-600">{{ progress.fileName }}</div>
-                <div class="h-1 bg-stone-200 rounded-full mt-1 overflow-hidden">
-                  <div 
-                    class="h-full transition-all duration-300"
-                    [class.bg-indigo-500]="progress.status === 'uploading'"
-                    [class.bg-green-500]="progress.status === 'completed'"
-                    [class.bg-red-500]="progress.status === 'error'"
-                    [style.width.%]="progress.progress">
-                  </div>
-                </div>
-              </div>
-              @if (progress.status === 'error') {
-                <span class="text-red-500 text-[9px]">{{ progress.error }}</span>
-              }
-            </div>
-          }
-        </div>
-      }
-      
-      <!-- 附件列表 -->
-      @if (attachments().length > 0) {
-        <div class="grid gap-1.5" [class.grid-cols-2]="!compact" [class.grid-cols-1]="compact">
-          @for (attachment of attachments(); track attachment.id) {
-            <div 
-              class="group relative flex items-center gap-2 p-1.5 bg-stone-50 hover:bg-stone-100 rounded border border-stone-100 transition-colors"
-              [class.cursor-pointer]="attachment.type === 'image'"
-              (click)="attachment.type === 'image' && previewImage(attachment)">
-              
-              <!-- 图标/缩略图 -->
-              @if (attachment.type === 'image' && attachment.thumbnailUrl) {
-                <img 
-                  [src]="attachment.thumbnailUrl" 
-                  [alt]="attachment.name"
-                  class="w-8 h-8 object-cover rounded flex-shrink-0"
-                  (error)="onThumbnailError($event, attachment)">
-              } @else {
-                <div class="w-8 h-8 rounded bg-stone-200 flex items-center justify-center flex-shrink-0">
-                  <span class="text-[10px] text-stone-500 uppercase">{{ getFileExtension(attachment.name) }}</span>
-                </div>
-              }
-              
-              <!-- 文件信息 -->
-              <div class="flex-1 min-w-0">
-                <div class="text-[11px] text-stone-700 truncate" [title]="attachment.name">{{ attachment.name }}</div>
-                <div class="text-[9px] text-stone-400">{{ formatFileSize(attachment.size) }}</div>
-              </div>
-              
-              <!-- 操作按钮 -->
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        
+        <!-- 已有附件的横向滚动列表 -->
+        @if (attachments().length > 0) {
+          <div class="flex-1 flex gap-1 overflow-x-auto scrollbar-hide">
+            @for (attachment of attachments(); track attachment.id) {
+              <div 
+                class="group relative flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-stone-50 hover:bg-stone-100 rounded text-[10px] text-stone-600 border border-stone-100 transition-colors"
+                [class.cursor-pointer]="attachment.type === 'image'"
+                (click)="attachment.type === 'image' && previewImage(attachment)">
+                @if (attachment.type === 'image' && attachment.thumbnailUrl) {
+                  <img [src]="attachment.thumbnailUrl" [alt]="attachment.name" class="w-4 h-4 object-cover rounded" (error)="onThumbnailError($event, attachment)">
+                } @else {
+                  <span class="text-[8px] text-stone-400 uppercase">{{ getFileExtension(attachment.name) }}</span>
+                }
+                <span class="max-w-16 truncate">{{ attachment.name }}</span>
                 @if (isProcessing(attachment.id)) {
-                  <!-- 处理中 Spinner -->
-                  <div class="p-1">
-                    <svg class="w-3 h-3 text-indigo-500 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  </div>
+                  <svg class="w-3 h-3 text-indigo-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
                 } @else {
                   <button 
-                    (click)="downloadAttachment(attachment, $event)"
-                    class="p-1 hover:bg-white rounded transition-colors"
-                    title="下载">
-                    <svg class="w-3 h-3 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                  </button>
-                  <button 
                     (click)="deleteAttachment(attachment, $event)"
-                    class="p-1 hover:bg-red-50 rounded transition-colors"
+                    class="opacity-0 group-hover:opacity-100 text-stone-400 hover:text-red-500 transition-all"
                     title="删除">
-                    <svg class="w-3 h-3 text-stone-400 hover:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 }
               </div>
+            }
+          </div>
+        }
+      </div>
+      
+      <!-- 上传进度（紧凑模式） -->
+      @if (uploadProgress().length > 0) {
+        <div class="mt-1 space-y-0.5">
+          @for (progress of uploadProgress(); track progress.fileName) {
+            <div class="flex items-center gap-1 text-[9px] px-1 py-0.5 bg-stone-50 rounded">
+              <span class="truncate max-w-24 text-stone-500">{{ progress.fileName }}</span>
+              <div class="flex-1 h-0.5 bg-stone-200 rounded-full overflow-hidden">
+                <div 
+                  class="h-full transition-all duration-300"
+                  [class.bg-indigo-500]="progress.status === 'uploading'"
+                  [class.bg-green-500]="progress.status === 'completed'"
+                  [class.bg-red-500]="progress.status === 'error'"
+                  [style.width.%]="progress.progress">
+                </div>
+              </div>
             </div>
           }
         </div>
-      } @else if (!isUploading()) {
-        <div class="text-[10px] text-stone-400 italic py-2 text-center">
-          暂无附件，点击上传添加
-        </div>
       }
-    </div>
+    } @else {
+      <!-- 完整模式：保持原有的区域展示 -->
+      <div class="border-t border-stone-100 pt-2 mt-2">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] font-medium text-stone-500 flex items-center gap-1">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            附件 ({{ attachments().length }}/{{ maxAttachments }})
+            <span class="text-stone-400">· 单文件≤10MB</span>
+          </span>
+          
+          @if (canAddMore()) {
+            <label 
+              class="cursor-pointer text-[10px] px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded transition-colors flex items-center gap-1"
+              [class.opacity-50]="isUploading()"
+              [class.pointer-events-none]="isUploading()">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              上传
+              <input 
+                type="file" 
+                class="hidden" 
+                multiple 
+                [accept]="acceptedTypes"
+                (change)="onFileSelect($event)"
+                [disabled]="isUploading()">
+            </label>
+          }
+        </div>
+        
+        <!-- 上传进度 -->
+        @if (uploadProgress().length > 0) {
+          <div class="space-y-1 mb-2">
+            @for (progress of uploadProgress(); track progress.fileName) {
+              <div class="flex items-center gap-2 text-[10px] p-1.5 bg-stone-50 rounded">
+                <div class="flex-1 min-w-0">
+                  <div class="truncate text-stone-600">{{ progress.fileName }}</div>
+                  <div class="h-1 bg-stone-200 rounded-full mt-1 overflow-hidden">
+                    <div 
+                      class="h-full transition-all duration-300"
+                      [class.bg-indigo-500]="progress.status === 'uploading'"
+                      [class.bg-green-500]="progress.status === 'completed'"
+                      [class.bg-red-500]="progress.status === 'error'"
+                      [style.width.%]="progress.progress">
+                    </div>
+                  </div>
+                </div>
+                @if (progress.status === 'error') {
+                  <span class="text-red-500 text-[9px]">{{ progress.error }}</span>
+                }
+              </div>
+            }
+          </div>
+        }
+        
+        <!-- 附件列表 -->
+        @if (attachments().length > 0) {
+          <div class="grid gap-1.5 grid-cols-1">
+            @for (attachment of attachments(); track attachment.id) {
+              <div 
+                class="group relative flex items-center gap-2 p-1.5 bg-stone-50 hover:bg-stone-100 rounded border border-stone-100 transition-colors"
+                [class.cursor-pointer]="attachment.type === 'image'"
+                (click)="attachment.type === 'image' && previewImage(attachment)">
+                
+                @if (attachment.type === 'image' && attachment.thumbnailUrl) {
+                  <img 
+                    [src]="attachment.thumbnailUrl" 
+                    [alt]="attachment.name"
+                    class="w-8 h-8 object-cover rounded flex-shrink-0"
+                    (error)="onThumbnailError($event, attachment)">
+                } @else {
+                  <div class="w-8 h-8 rounded bg-stone-200 flex items-center justify-center flex-shrink-0">
+                    <span class="text-[10px] text-stone-500 uppercase">{{ getFileExtension(attachment.name) }}</span>
+                  </div>
+                }
+                
+                <div class="flex-1 min-w-0">
+                  <div class="text-[11px] text-stone-700 truncate" [title]="attachment.name">{{ attachment.name }}</div>
+                  <div class="text-[9px] text-stone-400">{{ formatFileSize(attachment.size) }}</div>
+                </div>
+                
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  @if (isProcessing(attachment.id)) {
+                    <div class="p-1">
+                      <svg class="w-3 h-3 text-indigo-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    </div>
+                  } @else {
+                    <button 
+                      (click)="downloadAttachment(attachment, $event)"
+                      class="p-1 hover:bg-white rounded transition-colors"
+                      title="下载">
+                      <svg class="w-3 h-3 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </button>
+                    <button 
+                      (click)="deleteAttachment(attachment, $event)"
+                      class="p-1 hover:bg-red-50 rounded transition-colors"
+                      title="删除">
+                      <svg class="w-3 h-3 text-stone-400 hover:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        } @else if (!isUploading()) {
+          <div class="text-[10px] text-stone-400 italic py-2 text-center">
+            暂无附件，点击上传添加
+          </div>
+        }
+      </div>
+    }
     
     <!-- 图片预览模态框 -->
     @if (previewingImage()) {

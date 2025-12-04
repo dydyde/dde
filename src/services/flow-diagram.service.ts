@@ -85,10 +85,19 @@ export class FlowDiagramService {
   private resizeObserver: ResizeObserver | null = null;
   private isDestroyed = false;
   
+  // ========== 小地图状态 ==========
+  private overview: go.Overview | null = null;
+  private overviewContainer: HTMLDivElement | null = null;
+  private lastOverviewScale: number = 0.1;
+  private isNodeDragging: boolean = false;
+  
   // ========== 定时器 ==========
   private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private viewStateSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  // ========== 首次加载标志 ==========
+  private isFirstLoad = true;
   
   // ========== 回调函数 ==========
   private nodeClickCallback: NodeClickCallback | null = null;
@@ -155,6 +164,7 @@ export class FlowDiagramService {
     
     try {
       this.isDestroyed = false;
+      this.isFirstLoad = true; // 重置首次加载标志
       this.diagramDiv = container;
       
       // 注入 GoJS License Key
@@ -172,8 +182,11 @@ export class FlowDiagramService {
         layout: $(go.Layout), // 无操作布局，保持用户位置
         "autoScale": go.Diagram.None,
         "initialAutoScale": go.Diagram.None,
-        "scrollMargin": GOJS_CONFIG.SCROLL_MARGIN,
-        "draggingTool.isGridSnapEnabled": false
+        // 关键：设置非常大的滚动边距，实现"无限画布"效果
+        "scrollMargin": new go.Margin(5000, 5000, 5000, 5000),
+        "draggingTool.isGridSnapEnabled": false,
+        // 禁用固定边界，允许无限滚动
+        "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN)
       });
       
       // 设置节点模板
@@ -209,11 +222,327 @@ export class FlowDiagramService {
     }
   }
   
+  // ========== 小地图 ==========
+  
+  /**
+   * 初始化小地图 (Overview)
+   * 
+   * 实现"硬实时连续自适应"：
+   * - 当拖动节点到边缘时，小地图实时缩小以适应扩大的世界边界
+   * - 零延迟，与鼠标移动同步
+   */
+  initializeOverview(container: HTMLDivElement): void {
+    if (!this.diagram || this.isDestroyed) return;
+    
+    // 如果已经有 Overview，先销毁它
+    if (this.overview) {
+      this.disposeOverview();
+    }
+    
+    this.overviewContainer = container;
+    
+    try {
+      const $ = go.GraphObject.make;
+      
+      // 创建 Overview，使用简化的节点模板使节点更明显
+      this.overview = $(go.Overview, container, {
+        observed: this.diagram,
+        contentAlignment: go.Spot.Center,
+        "animationManager.isEnabled": false,
+        // 让 Overview 完整渲染所有层
+        drawsTemporaryLayers: false
+      });
+      
+      // 修改 box（视口框）的视觉样式
+      const boxShape = this.overview.box.findObject("BOXSHAPE") as go.Shape;
+      if (boxShape) {
+        boxShape.stroke = "#4A8C8C";
+        boxShape.strokeWidth = 2;
+        boxShape.fill = "rgba(74, 140, 140, 0.15)";
+      }
+      
+      // 为 Overview 设置简化的节点模板，使节点在缩小后仍然可见
+      // 使用纯色填充，不依赖原始模板的渐变或透明度
+      this.overview.nodeTemplate = $(go.Node, "Auto",
+        { locationSpot: go.Spot.Center },
+        $(go.Shape, "RoundedRectangle",
+          {
+            fill: "#374151",  // 深灰色，在白色背景上明显
+            stroke: "#1F2937",
+            strokeWidth: 1,
+            minSize: new go.Size(8, 6)  // 最小尺寸，确保可见
+          },
+          new go.Binding("fill", "status", (status: string) => {
+            // 根据状态使用不同颜色
+            switch (status) {
+              case 'done': return "#059669";     // 绿色
+              case 'in-progress': return "#3B82F6"; // 蓝色
+              case 'blocked': return "#DC2626";  // 红色
+              default: return "#6B7280";         // 灰色
+            }
+          })
+        )
+      );
+      
+      // 简化的连接线模板
+      this.overview.linkTemplate = $(go.Link,
+        $(go.Shape, { stroke: "#9CA3AF", strokeWidth: 1 })
+      );
+      
+      // 关键：让 Overview 只显示实际的文档内容，不包含 scrollMargin
+      // 这样视口框大小才能正确反映主图的缩放
+      this.overview.contentAlignment = go.Spot.Center;
+      
+      // 初始缩放
+      this.overview.scale = 0.15;
+      this.lastOverviewScale = 0.15;
+      
+      // 启用自动缩放逻辑
+      this.setupOverviewAutoScale();
+      
+      this.logger.info('Overview 初始化成功（支持实时自适应）');
+    } catch (error) {
+      this.logger.error('Overview 初始化失败:', error);
+    }
+  }
+  
+  /**
+   * 设置小地图自动缩放
+   * 
+   * 核心逻辑：
+   * 1. 初始化时计算一个固定的基准缩放（baseScale）
+   * 2. 在节点范围内缩放时，保持 baseScale 不变，视口框自然变化
+   * 3. 只在视口超出节点边界时，才按比例缩小 overview.scale
+   */
+  private setupOverviewAutoScale(): void {
+    if (!this.diagram || !this.overview) return;
+    
+    // 获取实际节点边界
+    const getNodesBounds = (): go.Rect => {
+      if (!this.diagram) return new go.Rect(0, 0, 500, 500);
+      
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let hasNodes = false;
+      
+      this.diagram.nodes.each((node: go.Node) => {
+        if (node.actualBounds.isReal()) {
+          hasNodes = true;
+          minX = Math.min(minX, node.actualBounds.x);
+          minY = Math.min(minY, node.actualBounds.y);
+          maxX = Math.max(maxX, node.actualBounds.right);
+          maxY = Math.max(maxY, node.actualBounds.bottom);
+        }
+      });
+      
+      if (!hasNodes) {
+        return new go.Rect(-250, -250, 500, 500);
+      }
+      
+      const padding = 80;
+      return new go.Rect(minX - padding, minY - padding, 
+                         maxX - minX + padding * 2, maxY - minY + padding * 2);
+    };
+    
+    // 计算基准缩放（只在初始化和节点变化时调用）
+    const calculateBaseScale = (): number => {
+      if (!this.overviewContainer || !this.diagram) return 0.15;
+      
+      const containerWidth = this.overviewContainer.clientWidth;
+      const containerHeight = this.overviewContainer.clientHeight;
+      const nodeBounds = getNodesBounds();
+      
+      if (containerWidth <= 0 || containerHeight <= 0) return 0.15;
+      
+      const padding = 0.1;
+      const scaleX = (containerWidth * (1 - padding * 2)) / nodeBounds.width;
+      const scaleY = (containerHeight * (1 - padding * 2)) / nodeBounds.height;
+      
+      return Math.min(scaleX, scaleY, 0.35);
+    };
+    
+    // 计算视口超出节点边界的扩展因子
+    const getExpansionFactor = (): number => {
+      if (!this.diagram) return 1;
+      
+      const nodeBounds = getNodesBounds();
+      const viewBounds = this.diagram.viewportBounds;
+      
+      // 检查视口是否完全在节点边界内
+      if (viewBounds.x >= nodeBounds.x && 
+          viewBounds.y >= nodeBounds.y &&
+          viewBounds.right <= nodeBounds.right &&
+          viewBounds.bottom <= nodeBounds.bottom) {
+        return 1; // 完全在内部，不需要扩展
+      }
+      
+      // 计算需要显示的总范围
+      const totalMinX = Math.min(nodeBounds.x, viewBounds.x);
+      const totalMinY = Math.min(nodeBounds.y, viewBounds.y);
+      const totalMaxX = Math.max(nodeBounds.right, viewBounds.right);
+      const totalMaxY = Math.max(nodeBounds.bottom, viewBounds.bottom);
+      
+      const totalWidth = totalMaxX - totalMinX;
+      const totalHeight = totalMaxY - totalMinY;
+      
+      const widthFactor = totalWidth / nodeBounds.width;
+      const heightFactor = totalHeight / nodeBounds.height;
+      
+      return Math.max(widthFactor, heightFactor);
+    };
+    
+    // 初始化：计算并设置固定的基准缩放
+    let baseScale = calculateBaseScale();
+    let lastExpansionFactor = 1;
+    this.lastOverviewScale = baseScale;
+    this.overview.scale = baseScale;
+    
+    // 监听文档变化：只在节点增删时重新计算基准缩放
+    this.addTrackedListener('DocumentBoundsChanged', () => {
+      if (!this.overview || !this.diagram) return;
+      
+      const newBaseScale = calculateBaseScale();
+      // 只有变化显著时才更新
+      if (Math.abs(newBaseScale - baseScale) > 0.02) {
+        baseScale = newBaseScale;
+        const factor = getExpansionFactor();
+        this.overview.scale = baseScale / factor;
+        this.lastOverviewScale = this.overview.scale;
+        lastExpansionFactor = factor;
+      }
+    });
+    
+    // 监听视口变化：只在超出边界时调整
+    this.addTrackedListener('ViewportBoundsChanged', () => {
+      if (!this.overview || !this.diagram) return;
+      
+      const factor = getExpansionFactor();
+      
+      // 只有扩展因子变化显著时才更新
+      if (Math.abs(factor - lastExpansionFactor) > 0.02) {
+        const newScale = baseScale / factor;
+        this.overview.scale = Math.max(0.01, Math.min(0.5, newScale));
+        this.lastOverviewScale = this.overview.scale;
+        lastExpansionFactor = factor;
+      }
+      // 否则保持 scale 不变，让视口框自然变化
+    });
+    
+    this.logger.debug('Overview 自动缩放已启用');
+  }
+  
+  /**
+   * 计算仅基于文档边界的缩放比例（不考虑视口超出部分）
+   */
+  private calculateDocumentOnlyScale(): number | null {
+    if (!this.overview || !this.diagram || !this.overviewContainer) return null;
+    
+    const container = this.overviewContainer;
+    const minimapWidth = container.clientWidth;
+    const minimapHeight = container.clientHeight;
+    
+    if (minimapWidth <= 0 || minimapHeight <= 0) return null;
+    
+    const docBounds = this.diagram.documentBounds;
+    if (!docBounds.isReal() || docBounds.width <= 0 || docBounds.height <= 0) {
+      return 0.1; // 默认值
+    }
+    
+    // 计算合适的缩放比例（留出 10% 边距）
+    const padding = 0.1;
+    const effectiveWidth = minimapWidth * (1 - padding * 2);
+    const effectiveHeight = minimapHeight * (1 - padding * 2);
+    
+    const scaleX = effectiveWidth / docBounds.width;
+    const scaleY = effectiveHeight / docBounds.height;
+    
+    const scale = Math.min(scaleX, scaleY, 0.5);
+    return Math.max(0.005, scale);
+  }
+  
+  /**
+   * 计算目标缩放比例
+   */
+  private calculateTargetScale(): number | null {
+    if (!this.overview || !this.diagram || !this.overviewContainer) return null;
+    
+    const container = this.overviewContainer;
+    const minimapWidth = container.clientWidth;
+    const minimapHeight = container.clientHeight;
+    
+    if (minimapWidth <= 0 || minimapHeight <= 0) return null;
+    
+    // 计算总边界（文档 + 视口的并集）
+    const totalBounds = this.calculateTotalBounds();
+    if (totalBounds.width <= 0 || totalBounds.height <= 0) return null;
+    
+    // 计算合适的缩放比例（留出 10% 边距）
+    const padding = 0.1;
+    const effectiveWidth = minimapWidth * (1 - padding * 2);
+    const effectiveHeight = minimapHeight * (1 - padding * 2);
+    
+    const scaleX = effectiveWidth / totalBounds.width;
+    const scaleY = effectiveHeight / totalBounds.height;
+    const scale = Math.min(scaleX, scaleY, 0.5); // 最大 0.5
+    
+    return Math.max(0.005, scale); // 最小 0.005
+  }
+  
+  /**
+   * 更新小地图缩放比例（保留用于直接调用）
+   */
+  private updateOverviewScale(): void {
+    const scale = this.calculateTargetScale();
+    if (scale !== null && this.overview) {
+      this.overview.scale = scale;
+      this.lastOverviewScale = scale;
+    }
+  }
+  
+  /**
+   * 计算总边界（文档边界 + 视口边界的并集）
+   * 
+   * 这确保了当视口拖到文档外部时，小地图会扩大显示范围
+   */
+  private calculateTotalBounds(): go.Rect {
+    if (!this.diagram) return new go.Rect(0, 0, 100, 100);
+    
+    const docBounds = this.diagram.documentBounds;
+    const viewBounds = this.diagram.viewportBounds;
+    
+    // 如果文档为空，使用视口边界
+    if (!docBounds.isReal() || (docBounds.width === 0 && docBounds.height === 0)) {
+      return viewBounds.copy();
+    }
+    
+    // 计算并集
+    const minX = Math.min(docBounds.x, viewBounds.x);
+    const minY = Math.min(docBounds.y, viewBounds.y);
+    const maxX = Math.max(docBounds.x + docBounds.width, viewBounds.x + viewBounds.width);
+    const maxY = Math.max(docBounds.y + docBounds.height, viewBounds.y + viewBounds.height);
+    
+    return new go.Rect(minX, minY, maxX - minX, maxY - minY);
+  }
+  
+  /**
+   * 销毁小地图
+   */
+  disposeOverview(): void {
+    if (this.overview) {
+      this.overview.div = null;
+      this.overview = null;
+    }
+    this.overviewContainer = null;
+  }
+  
   /**
    * 销毁 Diagram 实例和相关资源
    */
   dispose(): void {
     this.isDestroyed = true;
+    this.isFirstLoad = true; // 重置首次加载标志
+    
+    // 清理小地图
+    this.disposeOverview();
     
     // 清理定时器
     this.clearAllTimers();
@@ -271,6 +600,112 @@ export class FlowDiagramService {
     if (this.diagram) {
       this.diagram.commandHandler.decreaseZoom();
     }
+  }
+  
+  /**
+   * 导出为 PNG 图片
+   * @returns Promise<Blob | null> 图片 Blob 或 null
+   */
+  async exportToPng(): Promise<Blob | null> {
+    if (!this.diagram) {
+      this.toast.error('导出失败', '流程图未加载');
+      return null;
+    }
+    
+    try {
+      // 使用 GoJS 的 makeImageData 方法生成 base64 图片
+      const imgData = this.diagram.makeImageData({
+        scale: 2, // 2x 分辨率，更清晰
+        background: '#F9F8F6', // 使用流程图背景色
+        type: 'image/png',
+        maxSize: new go.Size(4096, 4096) // 限制最大尺寸
+      }) as string;
+      
+      if (!imgData) {
+        this.toast.error('导出失败', '无法生成图片');
+        return null;
+      }
+      
+      // 将 base64 转换为 Blob
+      const response = await fetch(imgData);
+      const blob = await response.blob();
+      
+      // 触发下载
+      this.downloadBlob(blob, `流程图_${this.getExportFileName()}.png`);
+      this.toast.success('导出成功', 'PNG 图片已下载');
+      
+      return blob;
+    } catch (error) {
+      this.logger.error('导出 PNG 失败', error);
+      this.toast.error('导出失败', '生成图片时发生错误');
+      return null;
+    }
+  }
+  
+  /**
+   * 导出为 SVG 图片
+   * @returns Promise<Blob | null> SVG Blob 或 null
+   */
+  async exportToSvg(): Promise<Blob | null> {
+    if (!this.diagram) {
+      this.toast.error('导出失败', '流程图未加载');
+      return null;
+    }
+    
+    try {
+      // 使用 GoJS 的 makeSvg 方法生成 SVG
+      const svg = this.diagram.makeSvg({
+        scale: 1,
+        background: '#F9F8F6',
+        maxSize: new go.Size(4096, 4096)
+      });
+      
+      if (!svg) {
+        this.toast.error('导出失败', '无法生成 SVG');
+        return null;
+      }
+      
+      // 序列化 SVG 为字符串
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(svg);
+      
+      // 创建 Blob
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      
+      // 触发下载
+      this.downloadBlob(blob, `流程图_${this.getExportFileName()}.svg`);
+      this.toast.success('导出成功', 'SVG 图片已下载');
+      
+      return blob;
+    } catch (error) {
+      this.logger.error('导出 SVG 失败', error);
+      this.toast.error('导出失败', '生成 SVG 时发生错误');
+      return null;
+    }
+  }
+  
+  /**
+   * 生成导出文件名
+   */
+  private getExportFileName(): string {
+    const project = this.store.activeProject();
+    const projectName = project?.name || '未命名项目';
+    const date = new Date().toISOString().slice(0, 10);
+    return `${projectName}_${date}`;
+  }
+  
+  /**
+   * 触发 Blob 文件下载
+   */
+  private downloadBlob(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
   
   /**
@@ -339,6 +774,47 @@ export class FlowDiagramService {
         this.diagram.centerRect(node.actualBounds);
       }
     }
+  }
+  
+  /**
+   * 适应内容：将所有节点缩放并居中显示在视口中
+   * 主要用于移动端首次加载时确保节点可见
+   */
+  fitToContents(): void {
+    if (!this.diagram) return;
+    
+    // 获取所有节点的边界
+    const bounds = this.diagram.documentBounds;
+    if (!bounds.isReal() || bounds.width === 0 || bounds.height === 0) {
+      // 如果没有有效的边界，尝试滚动到原点
+      this.diagram.scrollToRect(new go.Rect(0, 0, 100, 100));
+      return;
+    }
+    
+    // 添加一些内边距
+    const padding = 50;
+    const paddedBounds = bounds.copy().inflate(padding, padding);
+    
+    // 计算需要的缩放比例
+    const viewportWidth = this.diagram.viewportBounds.width;
+    const viewportHeight = this.diagram.viewportBounds.height;
+    
+    if (viewportWidth <= 0 || viewportHeight <= 0) {
+      return; // 视口无效
+    }
+    
+    const scaleX = viewportWidth / paddedBounds.width;
+    const scaleY = viewportHeight / paddedBounds.height;
+    let scale = Math.min(scaleX, scaleY);
+    
+    // 限制缩放范围：不要太小也不要太大
+    scale = Math.max(0.3, Math.min(1.5, scale));
+    
+    // 应用缩放
+    this.diagram.scale = scale;
+    
+    // 居中显示
+    this.diagram.centerRect(bounds);
   }
   
   /**
@@ -500,6 +976,20 @@ export class FlowDiagramService {
             node.isSelected = true;
           }
         });
+      }
+      
+      // 首次加载完成后，在移动端自动适应内容
+      if (this.isFirstLoad && diagramData.nodeDataArray.length > 0) {
+        this.isFirstLoad = false;
+        // 延迟执行，确保节点布局完成
+        setTimeout(() => {
+          if (this.isDestroyed || !this.diagram) return;
+          // 检查是否有保存的视图状态
+          const viewState = this.store.getViewState();
+          if (!viewState) {
+            this.fitToContents();
+          }
+        }, 100);
       }
       
     } catch (error) {
@@ -837,17 +1327,28 @@ export class FlowDiagramService {
   
   /**
    * 恢复视图状态
+   * 如果没有保存的视图状态，则自动适应内容
    */
   private restoreViewState(): void {
     if (!this.diagram) return;
     
     const viewState = this.store.getViewState();
-    if (!viewState) return;
     
     setTimeout(() => {
       if (this.isDestroyed || !this.diagram) return;
-      this.diagram.scale = viewState.scale;
-      this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);
+      
+      if (viewState) {
+        // 恢复保存的视图状态
+        this.diagram.scale = viewState.scale;
+        this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);
+      } else {
+        // 没有保存的视图状态，自动适应内容
+        // 稍后执行，确保节点已经加载
+        setTimeout(() => {
+          if (this.isDestroyed || !this.diagram) return;
+          this.fitToContents();
+        }, 300);
+      }
     }, 200);
   }
   

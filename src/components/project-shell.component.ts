@@ -93,7 +93,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
                               <div 
                                   (click)="store.filterMode.set(root.id); isFilterOpen.set(false)"
                                   class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
-                                  <span class="truncate">{{root.title}}</span>
+                                  <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
                                   @if (store.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                               </div>
                           }
@@ -145,7 +145,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
                           <div 
                               (click)="store.filterMode.set(root.id); isFilterOpen.set(false)"
                               class="px-3 py-2 text-xs text-stone-600 active:bg-indigo-50 cursor-pointer flex items-center justify-between">
-                              <span class="truncate">{{root.title}}</span>
+                              <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
                               @if (store.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                           </div>
                       }
@@ -248,7 +248,8 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
     const filterId = this.store.filterMode();
     if (filterId === 'all') return '全部任务';
     const task = this.store.rootTasks().find(t => t.id === filterId);
-    return task ? task.title : '全部任务';
+    if (!task) return '全部任务';
+    return task.title || task.displayId || '未命名任务';
   }
   
   ngOnInit() {

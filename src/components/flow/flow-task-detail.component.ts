@@ -74,11 +74,11 @@ import { renderMarkdown } from '../../utils/markdown';
       </button>
     }
 
-    <!-- 移动端底部小型标签触发器 -->
+    <!-- 移动端顶部小型标签触发器 -->
     @if (store.isMobile() && !store.isFlowDetailOpen()) {
       <button 
         (click)="store.isFlowDetailOpen.set(true)"
-        class="absolute bottom-2 right-2 z-20 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
+        class="absolute top-2 right-2 z-20 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
@@ -86,19 +86,13 @@ import { renderMarkdown } from '../../utils/markdown';
       </button>
     }
     
-    <!-- 移动端底部抽屉面板 -->
+    <!-- 移动端顶部下拉抽屉面板 -->
     @if (store.isMobile() && store.isFlowDetailOpen()) {
-      <div class="absolute bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-t border-stone-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)] rounded-t-2xl flex flex-col"
+      <div class="absolute top-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col"
            [style.max-height.vh]="drawerHeight()"
            style="transform: translateZ(0); backface-visibility: hidden;">
-        <!-- 拖动条 -->
-        <div class="flex justify-center py-1.5 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
-             (touchstart)="startDrawerResize($event)">
-          <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
-        </div>
-        
         <!-- 标题栏 - 紧凑 -->
-        <div class="px-3 pb-1 flex justify-between items-center flex-shrink-0">
+        <div class="px-3 pt-2 pb-1 flex justify-between items-center flex-shrink-0">
           <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
           <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -108,13 +102,19 @@ import { renderMarkdown } from '../../utils/markdown';
         </div>
         
         <!-- 内容区域 -->
-        <div class="flex-1 overflow-y-auto px-3 pb-3 overscroll-contain"
+        <div class="flex-1 overflow-y-auto px-3 pb-2 overscroll-contain"
              style="-webkit-overflow-scrolling: touch; touch-action: pan-y; transform: translateZ(0);">
           @if (task(); as t) {
             <ng-container *ngTemplateOutlet="mobileTaskContent; context: { $implicit: t }"></ng-container>
           } @else {
             <div class="text-center text-stone-400 text-xs py-2">双击节点查看详情</div>
           }
+        </div>
+        
+        <!-- 拖动条 - 移到底部 -->
+        <div class="flex justify-center py-1.5 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
+             (touchstart)="startDrawerResize($event)">
+          <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
         </div>
       </div>
     }
@@ -480,7 +480,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
     this.positionChange.emit({ x: -1, y: -1 });
   }
   
-  // 移动端抽屉高度调整
+  // 移动端抽屉高度调整（顶部下拉：向下拖增大，向上拖减小）
   startDrawerResize(event: TouchEvent) {
     if (event.touches.length !== 1) return;
     event.preventDefault();
@@ -492,7 +492,8 @@ export class FlowTaskDetailComponent implements OnDestroy {
     const onMove = (ev: TouchEvent) => {
       if (!this.isResizingDrawer || ev.touches.length !== 1) return;
       ev.preventDefault();
-      const deltaY = this.drawerStartY - ev.touches[0].clientY;
+      // 顶部抽屉：向下拖（正 deltaY）增大高度
+      const deltaY = ev.touches[0].clientY - this.drawerStartY;
       const deltaVh = (deltaY / window.innerHeight) * 100;
       const newHeight = Math.max(15, Math.min(70, this.drawerStartHeight + deltaVh));
       this.drawerHeightChange.emit(newHeight);

@@ -43,13 +43,13 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       
       @if (!isSelected) {
         <!-- 收起状态 -->
-        <div class="font-medium text-retro-dark leading-snug line-clamp-2"
+        <div class="font-medium text-retro-dark leading-snug line-clamp-2 cursor-pointer"
              [ngClass]="{'text-sm mb-1': !isMobile, 'text-xs mb-0.5': isMobile}">
           {{task.title || '未命名任务'}}
         </div>
-        <div class="text-stone-500 font-light leading-relaxed line-clamp-1"
+        <div class="text-stone-500 font-light leading-relaxed line-clamp-1 cursor-pointer min-h-[1em]"
              [ngClass]="{'text-xs': !isMobile, 'text-[10px]': isMobile}">
-          {{getContentPreview(task.content)}}
+          {{getContentPreview(task.content) || '暂无描述'}}
         </div>
       } @else {
         <!-- 展开编辑状态 -->

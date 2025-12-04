@@ -12,6 +12,7 @@ import { GlobalErrorHandler } from './services/global-error-handler.service';
 import { ModalService, type DeleteProjectData, type ConflictData, type LoginData } from './services/modal.service';
 import { DynamicModalService } from './services/dynamic-modal.service';
 import { SyncCoordinatorService } from './services/sync-coordinator.service';
+import { enableLocalMode, disableLocalMode } from './services/guards';
 import { ToastContainerComponent } from './components/toast-container.component';
 import { SyncStatusComponent } from './components/sync-status.component';
 import { OfflineBannerComponent } from './components/offline-banner.component';
@@ -34,7 +35,7 @@ import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { getErrorMessage, isFailure, isSuccess } from './utils/result';
 import { ThemeType, Project } from './models';
-import { UI_CONFIG } from './config/constants';
+import { UI_CONFIG, AUTH_CONFIG } from './config/constants';
 
 /**
  * 应用根组件
@@ -229,7 +230,8 @@ export class AppComponent implements OnInit, OnDestroy {
     const filterId = this.store.filterMode();
     if (filterId === 'all') return '全部任务';
     const task = this.store.rootTasks().find(t => t.id === filterId);
-    return task ? task.title : '全部任务';
+    if (!task) return '全部任务';
+    return task.title || task.displayId || '未命名任务';
   });
 
   // 模态框开关状态 - 便捷访问器（代理到 ModalService）
@@ -659,6 +661,10 @@ export class AppComponent implements OnInit, OnDestroy {
       if (isFailure(result)) {
         throw new Error(getErrorMessage(result.error));
       }
+      
+      // 登录成功后禁用本地模式
+      disableLocalMode();
+      
       this.sessionEmail.set(this.auth.sessionEmail());
       
       // 保存用户ID用于迁移
@@ -1096,6 +1102,32 @@ async signOut() {
     await this.handleResetPassword();
     // 通知 LoginModalComponent 更新重置邮件发送状态
     // resetPasswordSent 状态已在 handleResetPassword 中设置
+  }
+  
+  /**
+   * 处理本地模式选择
+   * 用户选择跳过登录，使用本地存储模式
+   */
+  handleLocalModeFromModal() {
+    // 启用本地模式
+    enableLocalMode();
+    
+    // 设置本地用户 ID
+    this.auth.currentUserId.set(AUTH_CONFIG.LOCAL_MODE_USER_ID);
+    
+    // 关闭登录模态框
+    this.modal.closeByType('login', { success: true, userId: AUTH_CONFIG.LOCAL_MODE_USER_ID });
+    
+    // 加载本地数据
+    void this.store.loadProjects();
+    
+    // 提示用户
+    this.toast.info('本地模式', '数据仅保存在本地，不会同步到云端');
+    
+    // 导航到项目页面
+    const loginData = this.modal.getData('login') as LoginData | undefined;
+    const returnUrl = loginData?.returnUrl || '/projects';
+    void this.router.navigateByUrl(returnUrl);
   }
   
   /**

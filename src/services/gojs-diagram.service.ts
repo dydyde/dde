@@ -80,7 +80,8 @@ export class GoJSDiagramService {
         layout: $(go.Layout),
         "autoScale": go.Diagram.None,
         "initialAutoScale": go.Diagram.None,
-        "scrollMargin": GOJS_CONFIG.SCROLL_MARGIN,
+        "scrollMode": go.Diagram.InfiniteScroll, // 无限画布
+        "scrollMargin": new go.Margin(500, 500, 500, 500), // 大边距支持无限滚动
         "draggingTool.isGridSnapEnabled": false
       });
       

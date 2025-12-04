@@ -51,7 +51,7 @@ import { TextStageCardComponent } from './text-stage-card.component';
                   @if (store.stageFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
                 </div>
                 <div class="h-px bg-stone-100 my-0.5"></div>
-                @for (stage of store.stages(); track stage.stageNumber) {
+                @for (stage of availableStages(); track stage.stageNumber) {
                   <div 
                     (click)="setStageFilter(stage.stageNumber)"
                     class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
@@ -95,7 +95,7 @@ import { TextStageCardComponent } from './text-stage-card.component';
                     (click)="setRootFilter(root.id)"
                     class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
                     [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
-                    <span class="truncate">{{root.title}}</span>
+                    <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
                     @if (store.stageViewRootFilter() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                   </div>
                 }
@@ -206,7 +206,29 @@ export class TextStagesComponent {
   readonly currentRootLabel = computed(() => {
     const filter = this.store.stageViewRootFilter();
     if (filter === 'all') return '全部任务';
-    return this.store.allStage1Tasks().find(t => t.id === filter)?.title ?? '全部任务';
+    const task = this.store.allStage1Tasks().find(t => t.id === filter);
+    if (!task) return '全部任务';
+    return task.title || task.displayId || '未命名任务';
+  });
+
+  /** 可选阶段列表（考虑延伸筛选后的有效阶段） */
+  readonly availableStages = computed(() => {
+    const rootFilter = this.store.stageViewRootFilter();
+    let stages = this.store.stages();
+    
+    // 如果有延伸筛选，只保留有该根任务子孙的阶段
+    if (rootFilter !== 'all') {
+      const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
+      if (root) {
+        stages = stages.filter(stage => 
+          stage.tasks.some(task => 
+            task.id === root.id || task.displayId.startsWith(root.displayId + ',')
+          )
+        );
+      }
+    }
+    
+    return stages;
   });
 
   readonly visibleStages = computed(() => {
@@ -266,6 +288,19 @@ export class TextStagesComponent {
   setRootFilter(value: string) {
     this.store.stageViewRootFilter.set(value);
     this.isRootFilterOpen.set(false);
+    
+    // 如果当前阶段筛选在新的延伸筛选下不可用，重置为"全部"
+    const currentStageFilter = this.store.stageFilter();
+    if (currentStageFilter !== 'all') {
+      // 需要在下一个微任务中检查，因为 availableStages 依赖 stageViewRootFilter
+      queueMicrotask(() => {
+        const available = this.availableStages();
+        const stillValid = available.some(s => s.stageNumber === currentStageFilter);
+        if (!stillValid) {
+          this.store.setStageFilter('all');
+        }
+      });
+    }
   }
   
   onToggleExpand(stageNumber: number) {

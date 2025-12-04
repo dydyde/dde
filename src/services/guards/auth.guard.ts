@@ -8,6 +8,42 @@ import { GUARD_CONFIG, AUTH_CONFIG } from '../../config/constants';
 const AUTH_CACHE_KEY = 'nanoflow.auth-cache';
 
 /**
+ * 检查是否处于本地模式
+ * 本地模式允许用户在不登录的情况下使用应用（数据仅保存在本地）
+ */
+export function isLocalModeEnabled(): boolean {
+  try {
+    return localStorage.getItem(AUTH_CONFIG.LOCAL_MODE_CACHE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 启用本地模式
+ * 允许用户跳过登录，使用本地存储进行数据隔离
+ */
+export function enableLocalMode(): void {
+  try {
+    localStorage.setItem(AUTH_CONFIG.LOCAL_MODE_CACHE_KEY, 'true');
+  } catch (e) {
+    console.warn('启用本地模式失败:', e);
+  }
+}
+
+/**
+ * 禁用本地模式
+ * 用户登录成功后应调用此方法
+ */
+export function disableLocalMode(): void {
+  try {
+    localStorage.removeItem(AUTH_CONFIG.LOCAL_MODE_CACHE_KEY);
+  } catch (e) {
+    console.warn('禁用本地模式失败:', e);
+  }
+}
+
+/**
  * 检查本地缓存的认证状态
  * 用于离线模式下验证用户身份
  */
@@ -114,8 +150,11 @@ async function waitForSessionCheck(
  * 获取当前数据隔离 ID
  * 用于确定数据存储的命名空间
  * 
- * 注意：此函数现在仅返回已登录用户的 ID
- * 不再支持匿名会话，符合「强制认证」策略
+ * 优先级：
+ * 1. 已登录用户的 ID
+ * 2. 本地缓存的认证状态
+ * 3. 本地模式用户 ID（如果启用了本地模式）
+ * 4. null（无法确定用户身份）
  */
 export function getDataIsolationId(authService: AuthService): string | null {
   const userId = authService.currentUserId();
@@ -126,6 +165,11 @@ export function getDataIsolationId(authService: AuthService): string | null {
   const localAuth = checkLocalAuthCache();
   if (localAuth.userId) {
     return localAuth.userId;
+  }
+  
+  // 如果启用了本地模式，返回本地模式用户 ID
+  if (isLocalModeEnabled()) {
+    return AUTH_CONFIG.LOCAL_MODE_USER_ID;
   }
   
   // 不再返回匿名会话 ID，返回 null 表示无法确定用户身份
@@ -141,9 +185,10 @@ export function getDataIsolationId(authService: AuthService): string | null {
  * - 避免「幽灵数据」问题 - 无需处理匿名数据到正式账户的迁移
  * - 保障数据安全 - 防止未授权访问和垃圾数据注入
  * 
- * 【离线模式策略】守卫数据流，而非 UI：
+ * 【离线/本地模式策略】守卫数据流，而非 UI：
  * - 离线时允许完全的读写访问，用户体验不受阻断
  * - 本地缓存的认证状态用于确定数据命名空间
+ * - 本地模式允许用户跳过登录，数据仅保存在本地
  * - 写操作通过 ActionQueueService 进入离线队列
  * - 网络恢复后，SyncCoordinator 统一处理队列同步
  * - 冲突处理和 ID 生成由 sync 层负责，守卫不介入
@@ -170,6 +215,12 @@ export const requireAuthGuard: CanActivateFn = async (route, state) => {
     // 数据存储在本地 IndexedDB，用户可以正常进行所有操作
     // 这不是"限制功能"的降级模式，而是完整的本地优先体验
     console.log('[Guard] Supabase 未配置，允许离线模式访问');
+    return true;
+  }
+  
+  // 检查是否已启用本地模式（用户选择跳过登录）
+  if (isLocalModeEnabled()) {
+    console.log('[Guard] 本地模式已启用，允许访问');
     return true;
   }
   

@@ -129,6 +129,28 @@ import { FormsModule } from '@angular/forms';
                 <button type="button" (click)="switchToSignup()" class="text-indigo-600 hover:text-indigo-800">没有账号？注册</button>
                 <button type="button" (click)="switchToResetPassword()" class="text-stone-500 hover:text-stone-700">忘记密码？</button>
               </div>
+              
+              <!-- 本地模式分隔线和按钮 -->
+              <div class="relative my-3">
+                <div class="absolute inset-0 flex items-center">
+                  <div class="w-full border-t border-stone-200"></div>
+                </div>
+                <div class="relative flex justify-center text-xs">
+                  <span class="bg-white px-2 text-stone-400">或</span>
+                </div>
+              </div>
+              
+              <button 
+                type="button" 
+                (click)="handleLocalMode()" 
+                data-testid="local-mode-btn"
+                class="w-full px-4 py-2.5 text-stone-600 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                本地模式（不同步云端）
+              </button>
+              <p class="text-xs text-stone-400 text-center">数据仅保存在本地，不会同步到云端</p>
             </div>
           </form>
         }
@@ -141,6 +163,7 @@ export class LoginModalComponent implements OnDestroy {
   @Output() login = new EventEmitter<{ email: string; password: string }>();
   @Output() signup = new EventEmitter<{ email: string; password: string; confirmPassword: string }>();
   @Output() resetPassword = new EventEmitter<string>();
+  @Output() localMode = new EventEmitter<void>();
   
   /** 认证错误信息 */
   authError = input<string | null>(null);
@@ -248,6 +271,10 @@ export class LoginModalComponent implements OnDestroy {
   handleResetPassword(event: Event) {
     event.preventDefault();
     this.resetPassword.emit(this.email());
+  }
+  
+  handleLocalMode() {
+    this.localMode.emit();
   }
   
   // 设置重置密码已发送状态（保留接口兼容性，现在由父组件控制）

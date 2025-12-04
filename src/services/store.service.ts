@@ -509,6 +509,26 @@ export class StoreService {
     this.syncCoordinator.schedulePersist();
   }
 
+  /**
+   * 更新项目的流程图缩略图 URL
+   * @param projectId 项目 ID
+   * @param flowchartUrl 流程图完整图片 URL
+   * @param thumbnailUrl 流程图缩略图 URL（可选）
+   */
+  updateProjectFlowchartUrl(projectId: string, flowchartUrl: string, thumbnailUrl?: string) {
+    this.projectState.updateProjects(projects => projects.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          flowchartUrl,
+          flowchartThumbnailUrl: thumbnailUrl
+        };
+      }
+      return p;
+    }));
+    this.syncCoordinator.schedulePersist();
+  }
+
   getViewState(): { scale: number; positionX: number; positionY: number } | null {
     return this.projectState.getViewState();
   }

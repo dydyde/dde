@@ -104,6 +104,10 @@ export const AUTH_CONFIG = {
   REMEMBER_ME_EXPIRY: 7 * 24 * 60 * 60 * 1000,
   /** 密码最小长度（与后端保持一致） */
   MIN_PASSWORD_LENGTH: 8,
+  /** 本地模式用户 ID（用于离线/本地编辑时的数据隔离） */
+  LOCAL_MODE_USER_ID: 'local-user',
+  /** 本地模式缓存 key */
+  LOCAL_MODE_CACHE_KEY: 'nanoflow.local-mode',
 } as const;
 
 /**

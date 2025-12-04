@@ -226,82 +226,68 @@
           @if (expandedProjectId() === proj.id) {
             @if (projectDraft(proj.id); as draft) {
               <div class="mt-1 mb-2 rounded-lg border border-stone-200 bg-white/90 text-stone-600 shadow-sm cursor-default animate-fade-in" 
-                   [ngClass]="{'mx-4 p-4 space-y-3 text-xs rounded-xl': !store.isMobile(), 'mx-1 p-2 space-y-2 text-[10px]': store.isMobile()}"
+                   [ngClass]="{'mx-4 p-3 space-y-2 text-xs rounded-xl': !store.isMobile(), 'mx-1 p-2 space-y-1.5 text-[10px]': store.isMobile()}"
                    (click)="$event.stopPropagation()"
                    (touchstart)="$event.stopPropagation()">
-                <!-- 创建时间 - 移动端用单行紧凑显示 -->
-                <div class="flex items-center text-stone-400"
-                     [ngClass]="{'flex-col gap-1': !store.isMobile(), 'gap-2': store.isMobile()}">
-                  @if (!store.isMobile()) {
-                    <label class="font-semibold text-[11px] uppercase tracking-wide w-full">创建时间</label>
-                    <div class="w-full border border-transparent px-3 py-2 text-stone-500">
-                      {{ proj.createdDate | date:'yyyy-MM-dd HH:mm' }}
-                    </div>
-                  } @else {
-                    <svg class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <span class="text-stone-500">{{ proj.createdDate | date:'MM/dd HH:mm' }}</span>
-                  }
+                <!-- 创建时间和简介合并为紧凑布局 -->
+                <div class="flex items-start gap-2 text-stone-400">
+                  <svg class="w-3 h-3 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  <span class="text-stone-500 text-[11px]">{{ proj.createdDate | date:'yyyy-MM-dd HH:mm' }}</span>
                 </div>
                 <!-- 简介 -->
-                <div class="flex flex-col" [ngClass]="{'gap-1': !store.isMobile(), 'gap-0.5': store.isMobile()}">
-                  <label class="font-semibold text-stone-400 uppercase tracking-wide"
-                         [ngClass]="{'text-[11px]': !store.isMobile(), 'text-[9px]': store.isMobile()}">简介</label>
+                <div class="flex flex-col gap-0.5">
                   @if (isEditingDescription()) {
-                    <div class="animate-fade-in" (click)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
+                    <div class="animate-fade-in flex gap-1.5 items-end" (click)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
                       <textarea
-                        [rows]="store.isMobile() ? 2 : 3"
-                        class="w-full border border-stone-200 rounded-lg text-stone-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none touch-manipulation"
-                        [ngClass]="{'px-3 py-2': !store.isMobile(), 'px-2 py-1.5 text-[10px]': store.isMobile()}"
+                        [rows]="store.isMobile() ? 2 : 2"
+                        class="flex-1 border border-stone-200 rounded text-stone-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none touch-manipulation text-[11px]"
+                        [ngClass]="{'px-2 py-1.5': !store.isMobile(), 'px-2 py-1 text-[10px]': store.isMobile()}"
                         [ngModel]="draft.description"
                         (ngModelChange)="updateProjectDraft(proj.id, 'description', $event)"
                         (click)="$event.stopPropagation()"
                         (touchstart)="$event.stopPropagation()"
                         (focus)="$event.stopPropagation()"
+                        placeholder="添加项目简介..."
                         aria-label="项目简介"></textarea>
-                      <div class="flex justify-end mt-1">
-                        <button
-                          type="button"
-                          class="rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-500 transition"
-                          [ngClass]="{'px-4 py-2 text-xs': !store.isMobile(), 'px-2 py-1 text-[10px]': store.isMobile()}"
-                          (click)="saveProjectDetails(proj.id); $event.stopPropagation()">
-                          保存
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        class="rounded bg-indigo-600 text-white font-medium hover:bg-indigo-500 transition px-2 py-1.5 text-[11px] flex-shrink-0"
+                        (click)="saveProjectDetails(proj.id); $event.stopPropagation()">
+                        保存
+                      </button>
                     </div>
                   } @else {
                     <div 
-                      class="w-full border border-transparent text-stone-600 whitespace-pre-wrap hover:bg-stone-50 rounded-lg transition-colors cursor-text line-clamp-3"
-                      [ngClass]="{'px-3 py-2 min-h-[3em]': !store.isMobile(), 'px-2 py-1 min-h-[2em] text-[10px]': store.isMobile()}"
+                      class="w-full text-stone-500 whitespace-pre-wrap hover:bg-stone-50 rounded px-2 py-1 transition-colors cursor-text text-[11px] line-clamp-2"
+                      [ngClass]="{'min-h-[1.5em]': !store.isMobile(), 'text-[10px]': store.isMobile()}"
                       (click)="isEditingDescription.set(true); $event.stopPropagation()"
                       (touchend)="isEditingDescription.set(true); $event.stopPropagation()"
-                      title="点击编辑"
+                      title="点击编辑简介"
                       role="button"
                       tabindex="0"
                       (keydown.enter)="isEditingDescription.set(true); $event.stopPropagation()">
-                      {{ draft.description || '无简介' }}
+                      {{ draft.description || '点击添加简介...' }}
                     </div>
                   }
                 </div>
                 <!-- 操作按钮区 -->
-                <div class="flex border-t border-stone-100" [ngClass]="{'pt-2 gap-2': !store.isMobile(), 'pt-1.5 gap-1.5': store.isMobile()}">
+                <div class="flex border-t border-stone-100 pt-2 gap-2">
                   <!-- 进入项目按钮 -->
                   <button
                     type="button"
-                    class="flex-1 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors flex items-center justify-center"
-                    [ngClass]="{'px-3 py-2 text-xs gap-1.5': !store.isMobile(), 'px-2 py-1.5 text-[10px] gap-1': store.isMobile()}"
+                    class="flex-1 rounded bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors flex items-center justify-center px-2 py-1.5 text-[11px] gap-1"
                     (click)="enterProject(proj.id); $event.stopPropagation()">
                     <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                     </svg>
-                    进入
+                    进入项目
                   </button>
                   <!-- 删除项目按钮 -->
                   <button
                     type="button"
-                    class="rounded-lg bg-stone-50 hover:bg-red-50 text-stone-400 hover:text-red-500 font-medium transition-colors flex items-center justify-center"
-                    [ngClass]="{'px-3 py-2 text-xs': !store.isMobile(), 'px-2 py-1.5 text-[10px]': store.isMobile()}"
+                    class="rounded bg-stone-50 hover:bg-red-50 text-stone-400 hover:text-red-500 font-medium transition-colors flex items-center justify-center px-2 py-1.5 text-[11px]"
                     (click)="confirmDeleteProject(proj.id, proj.name, $event)"
                     title="删除项目">
                     <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -467,7 +453,8 @@
       (close)="modal.closeByType('login', { success: false })"
       (login)="handleLoginFromModal($event)"
       (signup)="handleSignupFromModal($event)"
-      (resetPassword)="handleResetPasswordFromModal($event)">
+      (resetPassword)="handleResetPasswordFromModal($event)"
+      (localMode)="handleLocalModeFromModal()">
     </app-login-modal>
   }
   

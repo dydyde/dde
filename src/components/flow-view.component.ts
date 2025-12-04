@@ -83,6 +83,47 @@ import * as go from 'gojs';
       <div class="flex-1 min-h-0 relative overflow-hidden bg-[#F9F8F6] border-t border-stone-200/50">
         @if (!diagram.error()) {
           <div #diagramDiv data-testid="flow-diagram" class="absolute inset-0 w-full h-full z-0 flow-canvas-container"></div>
+          
+          <!-- 小地图/导航器 -->
+          @if (isOverviewVisible()) {
+            <div 
+              class="absolute z-10 bg-white/90 backdrop-blur rounded-lg shadow-md border border-stone-200/60 overflow-hidden select-none"
+              [class.opacity-40]="isOverviewCollapsed()"
+              [class.hover:opacity-100]="isOverviewCollapsed()"
+              [style.right.px]="store.isMobile() ? 8 : 16"
+              [style.bottom]="overviewBottomPosition()"
+              [style.width.px]="isOverviewCollapsed() ? (store.isMobile() ? 32 : 28) : overviewSize().width"
+              [style.height.px]="isOverviewCollapsed() ? (store.isMobile() ? 32 : 28) : overviewSize().height">
+              
+              <!-- 小地图内容 -->
+              @if (!isOverviewCollapsed()) {
+                <div #overviewDiv class="w-full h-full"></div>
+              }
+              
+              <!-- 折叠/展开按钮 -->
+              <button
+                (click)="toggleOverviewCollapse()"
+                class="absolute top-0.5 right-0.5 rounded bg-white/80 hover:bg-stone-100 flex items-center justify-center transition-colors"
+                [class.w-5]="!store.isMobile()"
+                [class.h-5]="!store.isMobile()"
+                [class.w-7]="store.isMobile()"
+                [class.h-7]="store.isMobile()"
+                [title]="isOverviewCollapsed() ? '展开小地图' : '折叠小地图'">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                     [class.w-3]="!store.isMobile()"
+                     [class.h-3]="!store.isMobile()"
+                     [class.w-4]="store.isMobile()"
+                     [class.h-4]="store.isMobile()"
+                     class="text-stone-500">
+                  @if (isOverviewCollapsed()) {
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                  } @else {
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  }
+                </svg>
+              </button>
+            </div>
+          }
         } @else {
           <!-- 流程图加载失败时的降级 UI -->
           <div class="absolute inset-0 flex flex-col items-center justify-center bg-stone-50 p-6">
@@ -144,7 +185,10 @@ import * as go from 'gojs';
           (toggleLinkMode)="link.toggleLinkMode()"
           (cancelLinkMode)="link.cancelLinkMode()"
           (toggleSidebar)="emitToggleSidebar()"
-          (goBackToText)="goBackToText.emit()">
+          (goBackToText)="goBackToText.emit()"
+          (exportPng)="exportToPng()"
+          (exportSvg)="exportToSvg()"
+          (saveToCloud)="saveToCloud()">
         </app-flow-toolbar>
 
         <!-- 任务详情面板 -->
@@ -216,6 +260,7 @@ import * as go from 'gojs';
 })
 export class FlowViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('diagramDiv') diagramDiv!: ElementRef;
+  @ViewChild('overviewDiv') overviewDiv!: ElementRef;
   @Output() goBackToText = new EventEmitter<void>();
   
   // ========== 依赖注入 ==========
@@ -255,6 +300,28 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   /** 是否正在重试加载图表 */
   readonly isRetryingDiagram = signal(false);
   
+  /** 小地图状态 */
+  readonly isOverviewVisible = signal(true);
+  readonly isOverviewCollapsed = signal(false);
+  
+  /** 小地图尺寸（移动端使用更小尺寸） */
+  readonly overviewSize = computed(() => {
+    if (this.store.isMobile()) {
+      return { width: 100, height: 80 };
+    }
+    return { width: 180, height: 140 };
+  });
+
+  /** 小地图底部位置（抽屉在顶部，固定在底部） */
+  readonly overviewBottomPosition = computed(() => {
+    // 桌面端稍高一点
+    if (!this.store.isMobile()) {
+      return '16px';
+    }
+    // 移动端固定在底部（抽屉在顶部，不影响小地图）
+    return '8px';
+  });
+
   /** 图表初始化重试次数 */
   private diagramRetryCount = 0;
   
@@ -445,8 +512,46 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.diagram.setupDropHandler((taskData, docPoint) => {
       this.handleDiagramDrop(taskData, docPoint);
     });
+    
+    // 初始化小地图
+    this.initOverview();
   }
   
+  // ========== 小地图 ==========
+  
+  /**
+   * 初始化小地图
+   */
+  private initOverview(): void {
+    if (this.store.isMobile() || !this.isOverviewVisible()) return;
+    
+    this.scheduleTimer(() => {
+      if (this.overviewDiv?.nativeElement && this.diagram.isInitialized) {
+        this.diagram.initializeOverview(this.overviewDiv.nativeElement);
+      }
+    }, 100);
+  }
+  
+  /**
+   * 折叠/展开小地图
+   */
+  toggleOverviewCollapse(): void {
+    const wasCollapsed = this.isOverviewCollapsed();
+    this.isOverviewCollapsed.set(!wasCollapsed);
+    
+    // 展开时需要重新初始化 Overview
+    if (wasCollapsed) {
+      this.scheduleTimer(() => {
+        if (this.overviewDiv?.nativeElement && this.diagram.isInitialized) {
+          this.diagram.initializeOverview(this.overviewDiv.nativeElement);
+        }
+      }, 50);
+    } else {
+      // 折叠时销毁 Overview
+      this.diagram.disposeOverview();
+    }
+  }
+
   retryInitDiagram(): void {
     // 检查是否超过最大重试次数
     if (this.diagramRetryCount >= FLOW_VIEW_CONFIG.MAX_DIAGRAM_RETRIES) {
@@ -526,6 +631,19 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.diagram.applyAutoLayout();
   }
   
+  exportToPng(): void {
+    this.diagram.exportToPng();
+  }
+  
+  exportToSvg(): void {
+    this.diagram.exportToSvg();
+  }
+  
+  saveToCloud(): void {
+    // TODO: 实现云端保存功能
+    this.toast.info('功能开发中', '云端保存功能即将推出');
+  }
+
   centerOnNode(taskId: string, openDetail: boolean = true): void {
     this.diagram.centerOnNode(taskId);
     this.selectedTaskId.set(taskId);

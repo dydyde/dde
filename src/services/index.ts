@@ -67,6 +67,8 @@ export { FlowDragDropService, type InsertPositionInfo, type DropResultCallback }
 export { FlowTouchService, type TouchDropCallback } from './flow-touch.service';
 export { FlowLinkService, type LinkType } from './flow-link.service';
 export { FlowTaskOperationsService } from './flow-task-operations.service';
+export { MinimapMathService, type WorldPoint, type MinimapPoint, type WorldBounds, type MinimapState, type DragSession, type RealTimeScaleResult, type VirtualBoundsResult } from './minimap-math.service';
+export { ReactiveMinimapService, type MinimapElements, type NodePosition, type MainCanvasViewport, type ReactiveDragSession, type MinimapTransform } from './reactive-minimap.service';
 
 // Guards
 export { authGuard, saveAuthCache, getDataIsolationId } from './guards/auth.guard';

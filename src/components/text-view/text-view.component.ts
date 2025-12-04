@@ -31,7 +31,8 @@ import { DropTargetInfo } from './text-view.types';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div #scrollContainer class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden text-view-scroll-container">
+    <div #scrollContainer class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden text-view-scroll-container"
+         (click)="onContainerClick($event)">
       
       @if (store.isLoadingRemote()) {
         <app-text-view-loading [isMobile]="isMobile()" />
@@ -131,6 +132,30 @@ export class TextViewComponent implements OnDestroy {
     // 清理所有待处理的定时器，防止内存泄漏
     this.pendingTimers.forEach(timer => clearTimeout(timer));
     this.pendingTimers = [];
+  }
+  
+  // ========== 容器点击处理 ==========
+  
+  /**
+   * 点击空白区域时收缩已展开的任务
+   */
+  onContainerClick(event: Event) {
+    const target = event.target as HTMLElement;
+    
+    // 如果点击的是任务卡片内部，不处理（由卡片自己处理）
+    if (target.closest('[data-task-id]') || target.closest('[data-unassigned-task]')) {
+      return;
+    }
+    
+    // 如果点击的是按钮、输入框等交互元素，不处理
+    if (target.closest('button, input, textarea, a, [role="button"]')) {
+      return;
+    }
+    
+    // 点击空白区域，收缩当前展开的任务
+    if (this.selectedTaskId()) {
+      this.selectedTaskId.set(null);
+    }
   }
   
   // ========== DOM 辅助方法 ==========
