@@ -293,8 +293,8 @@ describe('SyncCoordinatorService', () => {
       service.schedulePersist();
       await vi.advanceTimersByTimeAsync(800); // 等待 DEBOUNCE_DELAY (800ms)
       
-      // 只应该调用一次
-      expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalledTimes(1);
+      // 应该调用两次：一次在保存到云端前，一次在成功后同步版本号
+      expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -720,8 +720,8 @@ describe('SyncCoordinatorService', () => {
       // 等待防抖完成 (800ms)
       await vi.advanceTimersByTimeAsync(800);
       
-      // 只应该触发一次保存
-      expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalledTimes(1);
+      // 应该触发两次保存：一次在保存到云端前，一次在成功后同步版本号
+      expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalledTimes(2);
     });
   });
 

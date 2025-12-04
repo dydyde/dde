@@ -344,6 +344,12 @@ export class SyncCoordinatorService {
   /**
    * 合并离线数据
    * 返回冲突项目列表供调用者处理
+   * 
+   * 合并策略：
+   * 1. 云端不存在的项目 → 直接上传
+   * 2. 离线版本号 > 云端版本号 → 上传离线数据
+   * 3. 版本号相同时 → 比较 updatedAt 时间戳和任务内容
+   * 4. 版本号相同但内容不同 → 保留本地数据（用户最近编辑的）
    */
   async mergeOfflineDataOnReconnect(
     cloudProjects: Project[], 
@@ -373,11 +379,54 @@ export class SyncCoordinatorService {
       const offlineVersion = offlineProject.version ?? 0;
       const cloudVersion = cloudProject.version ?? 0;
       
+      // 检查是否需要同步离线数据
+      let shouldSyncOffline = false;
+      let reason = '';
+      
       if (offlineVersion > cloudVersion) {
+        shouldSyncOffline = true;
+        reason = '版本号更高';
+      } else if (offlineVersion === cloudVersion) {
+        // 版本号相同时，比较内容是否有差异
+        const hasContentDiff = this.hasProjectContentDifference(offlineProject, cloudProject);
+        
+        if (hasContentDiff) {
+          // 有内容差异，比较更新时间
+          const offlineTime = new Date(offlineProject.updatedAt || 0).getTime();
+          const cloudTime = new Date(cloudProject.updatedAt || 0).getTime();
+          
+          if (offlineTime >= cloudTime) {
+            shouldSyncOffline = true;
+            reason = '本地有未同步的修改';
+          } else {
+            // 云端更新时间更新，但我们仍需要记录这个潜在的冲突
+            this.logger.info('检测到本地修改可能被覆盖', {
+              projectId: offlineProject.id,
+              offlineTime: new Date(offlineTime).toISOString(),
+              cloudTime: new Date(cloudTime).toISOString()
+            });
+            // 使用智能合并来保留双方的修改
+            const mergedProject = this.conflictService.smartMerge(offlineProject, cloudProject);
+            shouldSyncOffline = true;
+            reason = '智能合并本地和云端修改';
+            // 替换 offlineProject 为合并后的版本
+            Object.assign(offlineProject, mergedProject);
+          }
+        }
+      }
+      
+      if (shouldSyncOffline) {
         const projectToSync = { 
           ...offlineProject, 
           version: Math.max(offlineVersion, cloudVersion) + 1 
         };
+        
+        this.logger.info('同步离线修改', { 
+          projectId: offlineProject.id, 
+          reason,
+          offlineVersion,
+          cloudVersion
+        });
         
         const result = await this.syncService.saveProjectToCloud(projectToSync, userId);
         if (result.success) {
@@ -404,6 +453,55 @@ export class SyncCoordinatorService {
     }
     
     return { projects: mergedProjects, syncedCount, conflictProjects };
+  }
+  
+  /**
+   * 检查两个项目是否有内容差异
+   * 比较任务数量、任务内容、连接等
+   */
+  private hasProjectContentDifference(project1: Project, project2: Project): boolean {
+    // 比较任务数量
+    if (project1.tasks.length !== project2.tasks.length) {
+      return true;
+    }
+    
+    // 比较连接数量
+    if ((project1.connections?.length ?? 0) !== (project2.connections?.length ?? 0)) {
+      return true;
+    }
+    
+    // 创建任务 ID 到内容的映射
+    const tasks1Map = new Map(project1.tasks.map(t => [t.id, t]));
+    const tasks2Map = new Map(project2.tasks.map(t => [t.id, t]));
+    
+    // 检查是否有不同的任务 ID
+    for (const id of tasks1Map.keys()) {
+      if (!tasks2Map.has(id)) {
+        return true;
+      }
+    }
+    
+    // 比较每个任务的关键内容
+    for (const [id, task1] of tasks1Map) {
+      const task2 = tasks2Map.get(id);
+      if (!task2) {
+        return true;
+      }
+      
+      // 比较标题和内容
+      if (task1.title !== task2.title || task1.content !== task2.content) {
+        return true;
+      }
+      
+      // 比较结构属性
+      if (task1.parentId !== task2.parentId || 
+          task1.stage !== task2.stage ||
+          task1.deletedAt !== task2.deletedAt) {
+        return true;
+      }
+    }
+    
+    return false;
   }
   
   /**
@@ -693,9 +791,16 @@ export class SyncCoordinatorService {
   private async doPersistActiveProject() {
     const project = this.projectState.activeProject();
     const projects = this.projectState.projects();
+    const now = new Date().toISOString();
+    
+    // 更新活动项目的 updatedAt 时间戳
+    const updatedProjects = projects.map(p => 
+      p.id === project?.id ? { ...p, updatedAt: now } : p
+    );
     
     // 始终先保存到本地离线快照（防止任何情况下的数据丢失）
-    this.syncService.saveOfflineSnapshot(projects);
+    // 注意：这里使用更新后的项目列表，确保 updatedAt 被保存
+    this.syncService.saveOfflineSnapshot(updatedProjects);
     
     if (!project) {
       return;
@@ -703,11 +808,13 @@ export class SyncCoordinatorService {
 
     const userId = this.authService.currentUserId();
     if (!userId) {
-      // 未登录时仅保存到本地
+      // 未登录时仅保存到本地，但需要更新本地状态的 updatedAt
+      this.projectState.updateProjects(ps => ps.map(p => 
+        p.id === project.id ? { ...p, updatedAt: now } : p
+      ));
       return;
     }
 
-    const now = new Date().toISOString();
     try {
       const result = await this.syncService.saveProjectToCloud(
         { ...project, updatedAt: now },
@@ -721,6 +828,8 @@ export class SyncCoordinatorService {
             ? { ...p, updatedAt: now, version: result.newVersion ?? p.version } 
             : p
         ));
+        // 同步成功后，再次保存快照以确保版本号同步
+        this.syncService.saveOfflineSnapshot(this.projectState.projects());
         console.log('[Sync] 本地版本号已更新', { projectId: project.id, newVersion: result.newVersion });
       } else if (result.conflict && result.remoteData) {
         // 版本冲突处理：发布冲突事件供 UI 层处理
