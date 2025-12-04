@@ -1,6 +1,6 @@
 
 <!DOCTYPE html>
-<!-- Build: 1764786000 - v14 DEBUG -->
+<!-- Build: 2025-12-04-v15-CACHE-FIX -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- 早期调试脚本 - 在任何模块加载前执行 -->
   <script>
-    console.log('[DEBUG v14] HTML 开始解析');
+    console.log('[DEBUG v15] HTML 开始解析');
     window.__DEBUG_LOG__ = [];
     window.__DEBUG_LOG__.push({t: Date.now(), m: 'HTML head 开始'});
     window.onerror = function(msg, url, line, col, err) {
@@ -161,13 +161,14 @@
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen w-screen overflow-hidden">
   <script>
-    console.log('[DEBUG v14] body 开始解析');
+    console.log('[DEBUG v15] body 开始解析');
     window.__DEBUG_LOG__.push({t: Date.now(), m: 'body 开始'});
   </script>
   <!-- 初始加载指示器 - Angular 加载完成后会被隐藏 -->
   <div id="initial-loader">
     <div class="spinner"></div>
-    <div class="text">正在加载 NanoFlow... (v14)</div>
+    <div class="text">正在加载 NanoFlow... (v15)</div>
+    <div id="loader-status" style="margin-top:0.5rem;font-size:12px;color:#999;"></div>
   </div>
   
   <app-root></app-root>
@@ -180,49 +181,64 @@
   </noscript>
   
   <script>
-    // 简化加载检测 - Build v14
-    console.log('[DEBUG v14] 检测脚本开始');
+    // 简化加载检测 - Build v15
+    console.log('[DEBUG v15] 检测脚本开始');
     window.__DEBUG_LOG__.push({t: Date.now(), m: '检测脚本开始'});
     
     (function() {
       var startTime = Date.now();
+      var statusEl = document.getElementById('loader-status');
+      
+      var updateStatus = function(msg) {
+        if (statusEl) statusEl.textContent = msg;
+      };
       
       var checkReady = function() {
         var appRoot = document.querySelector('app-root');
         var hasContent = appRoot && appRoot.children.length > 0;
         var isReady = window.__NANOFLOW_READY__ === true;
         var zoneLoaded = typeof window.Zone !== 'undefined';
+        var elapsed = Date.now() - startTime;
         
-        console.log('[DEBUG v14] 检查状态:', {
+        console.log('[DEBUG v15] 检查状态:', {
           hasContent: hasContent,
           isReady: isReady,
           zoneLoaded: zoneLoaded,
-          elapsed: Date.now() - startTime
+          elapsed: elapsed
         });
         
         if (isReady || hasContent) {
           var loader = document.getElementById('initial-loader');
           if (loader) loader.style.display = 'none';
-          console.log('[DEBUG v14] ✅ 应用就绪');
+          console.log('[DEBUG v15] ✅ 应用就绪');
           return;
         }
         
-        var elapsed = Date.now() - startTime;
+        // 更新加载状态提示
+        if (elapsed > 5000) {
+          updateStatus('加载时间较长，请稍候...');
+        }
+        if (elapsed > 10000) {
+          updateStatus('仍在加载中...');
+        }
         
-        // 最多等待 30 秒
-        if (elapsed < 30000) {
+        // 最多等待 25 秒（给版本检测和缓存清理留时间）
+        if (elapsed < 25000) {
           setTimeout(checkReady, 1000);
         } else {
-          console.error('[DEBUG v14] ❌ 加载超时');
-          console.log('[DEBUG v14] 调试日志:', window.__DEBUG_LOG__);
-          // 超时 - 显示简单提示
+          console.error('[DEBUG v15] ❌ 加载超时');
+          console.log('[DEBUG v15] 调试日志:', window.__DEBUG_LOG__);
+          // 超时 - 显示带缓存清理按钮的提示
           var loader = document.getElementById('initial-loader');
           if (loader) {
             loader.innerHTML = '<div style="text-align:center;padding:2rem;">' +
-              '<h2 style="color:#dc2626;">加载超时 (v14)</h2>' +
-              '<p style="color:#666;margin:1rem 0;">应用加载时间过长</p>' +
+              '<h2 style="color:#dc2626;">加载超时 (v15)</h2>' +
+              '<p style="color:#666;margin:1rem 0;">应用加载时间过长，可能是缓存问题</p>' +
               '<p style="color:#999;font-size:12px;">Zone.js: ' + (typeof window.Zone !== 'undefined' ? '✅' : '❌') + '</p>' +
-              '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-top:1rem;">刷新</button>' +
+              '<div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1rem;flex-wrap:wrap;">' +
+              '<button onclick="location.reload()" style="padding:0.5rem 1rem;background:#4f46e5;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新</button>' +
+              '<button onclick="if(window.__NANOFLOW_FORCE_CLEAR_CACHE__)window.__NANOFLOW_FORCE_CLEAR_CACHE__();else{caches.keys().then(function(k){return Promise.all(k.map(function(n){return caches.delete(n)}))}).then(function(){location.reload()})}" style="padding:0.5rem 1rem;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;">清除缓存</button>' +
+              '</div>' +
               '</div>';
           }
         }
