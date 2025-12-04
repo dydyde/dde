@@ -11,6 +11,7 @@ import { MigrationService } from './services/migration.service';
 import { GlobalErrorHandler } from './services/global-error-handler.service';
 import { ModalService, type DeleteProjectData, type ConflictData, type LoginData } from './services/modal.service';
 import { DynamicModalService } from './services/dynamic-modal.service';
+import { SyncCoordinatorService } from './services/sync-coordinator.service';
 import { ToastContainerComponent } from './components/toast-container.component';
 import { SyncStatusComponent } from './components/sync-status.component';
 import { OfflineBannerComponent } from './components/offline-banner.component';
@@ -92,6 +93,7 @@ export class AppComponent implements OnInit, OnDestroy {
   errorHandler = inject(GlobalErrorHandler);
   modal = inject(ModalService);
   dynamicModal = inject(DynamicModalService);
+  private syncCoordinator = inject(SyncCoordinatorService);
   
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -239,6 +241,19 @@ export class AppComponent implements OnInit, OnDestroy {
   readonly showMigrationModal = computed(() => this.modal.isOpen('migration'));
   readonly showConflictModal = computed(() => this.modal.isOpen('conflict'));
   
+  /** 
+   * 显示未登录提示界面
+   * 条件：Supabase 已配置 + 用户未登录 + 登录模态框未打开 + 会话检查完成
+   * 用于解决移动端关闭登录模态框后白屏的问题
+   */
+  readonly showLoginRequired = computed(() => {
+    return this.auth.isConfigured && 
+           !this.store.currentUserId() && 
+           !this.modal.isOpen('login') && 
+           !this.isCheckingSession() &&
+           !this.bootstrapFailed();
+  });
+  
   /** 删除项目目标 - 从 ModalService 获取 */
   readonly deleteProjectTarget = computed(() => {
     const data = this.modal.getData('deleteProject') as DeleteProjectData | undefined;
@@ -256,6 +271,9 @@ export class AppComponent implements OnInit, OnDestroy {
   // 搜索防抖定时器
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly SEARCH_DEBOUNCE_DELAY = 300; // 300ms 搜索防抖
+  
+  /** beforeunload 监听器引用 */
+  private beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null;
 
   constructor() {
     // 启动流程：先执行必要的同步初始化，再异步恢复会话
@@ -267,6 +285,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.setupConflictHandler();
     this.setupSidebarToggleListener();
     this.setupStorageFailureHandler();
+    this.setupBeforeUnloadHandler();
     
     // 异步恢复会话 - 失败会设置 bootstrapFailed 状态，模板层负责显示错误 UI
     this.bootstrapSession().catch(e => {
@@ -301,11 +320,34 @@ export class AppComponent implements OnInit, OnDestroy {
     // 移除全局事件监听器
     window.removeEventListener('toggle-sidebar', this.handleToggleSidebar);
     
+    // 移除 beforeunload 监听器
+    if (this.beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      this.beforeUnloadHandler = null;
+    }
+    
     // 清理搜索防抖定时器
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
     }
+  }
+  
+  /**
+   * 设置页面卸载前的数据保存处理器
+   * 确保用户刷新或关闭页面时，待处理的数据能够保存到本地
+   */
+  private setupBeforeUnloadHandler(): void {
+    if (typeof window === 'undefined') return;
+    
+    this.beforeUnloadHandler = () => {
+      // 立即刷新待处理的持久化数据到本地缓存
+      this.syncCoordinator.flushPendingPersist();
+      // 同时刷新撤销服务的待处理操作
+      this.undoService.flushPendingAction();
+    };
+    
+    window.addEventListener('beforeunload', this.beforeUnloadHandler);
   }
   
   /**

@@ -215,6 +215,25 @@ export class SyncCoordinatorService {
   }
   
   /**
+   * 立即刷新待处理的持久化
+   * 用于页面卸载前确保数据已保存
+   * 注意：这是同步方法，只保存到本地缓存
+   */
+  flushPendingPersist(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    
+    // 同步保存到本地缓存（不等待云端）
+    const projects = this.projectState.projects();
+    if (projects.length > 0) {
+      this.syncService.saveOfflineSnapshot(projects);
+      this.logger.info('页面卸载前已保存本地缓存', { projectCount: projects.length });
+    }
+  }
+  
+  /**
    * 设置远程变更回调
    */
   setupRemoteChangeCallbacks(
