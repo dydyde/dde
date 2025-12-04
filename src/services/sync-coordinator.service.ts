@@ -361,7 +361,9 @@ export class SyncCoordinatorService {
       if (!cloudProject) {
         const result = await this.syncService.saveProjectToCloud(offlineProject, userId);
         if (result.success) {
-          mergedProjects.push(offlineProject);
+          // 使用返回的新版本号更新项目
+          const syncedProject = { ...offlineProject, version: result.newVersion ?? offlineProject.version };
+          mergedProjects.push(syncedProject);
           syncedCount++;
           this.logger.info('离线新建项目已同步:', offlineProject.name);
         }
@@ -379,9 +381,11 @@ export class SyncCoordinatorService {
         
         const result = await this.syncService.saveProjectToCloud(projectToSync, userId);
         if (result.success) {
+          // 使用返回的新版本号更新项目
+          const syncedProject = { ...projectToSync, version: result.newVersion ?? projectToSync.version };
           const idx = mergedProjects.findIndex(p => p.id === offlineProject.id);
           if (idx !== -1) {
-            mergedProjects[idx] = projectToSync;
+            mergedProjects[idx] = syncedProject;
           }
           syncedCount++;
           this.logger.info('离线修改已同步:', offlineProject.name);
@@ -493,6 +497,11 @@ export class SyncCoordinatorService {
       
       const payload = action.payload as { project: Project };
       const result = await this.syncService.saveProjectToCloud(payload.project, userId);
+      if (result.success && result.newVersion !== undefined) {
+        this.projectState.updateProjects(ps => ps.map(p =>
+          p.id === payload.project.id ? { ...p, version: result.newVersion } : p
+        ));
+      }
       return result.success;
     });
     
@@ -509,6 +518,11 @@ export class SyncCoordinatorService {
       
       const payload = action.payload as { project: Project };
       const result = await this.syncService.saveProjectToCloud(payload.project, userId);
+      if (result.success && result.newVersion !== undefined) {
+        this.projectState.updateProjects(ps => ps.map(p =>
+          p.id === payload.project.id ? { ...p, version: result.newVersion } : p
+        ));
+      }
       return result.success;
     });
     
@@ -521,6 +535,11 @@ export class SyncCoordinatorService {
       if (!project) return false;
       
       const result = await this.syncService.saveProjectToCloud(project, userId);
+      if (result.success && result.newVersion !== undefined) {
+        this.projectState.updateProjects(ps => ps.map(p =>
+          p.id === project.id ? { ...p, version: result.newVersion } : p
+        ));
+      }
       return result.success;
     });
     
@@ -533,6 +552,11 @@ export class SyncCoordinatorService {
       if (!project) return false;
       
       const result = await this.syncService.saveProjectToCloud(project, userId);
+      if (result.success && result.newVersion !== undefined) {
+        this.projectState.updateProjects(ps => ps.map(p =>
+          p.id === project.id ? { ...p, version: result.newVersion } : p
+        ));
+      }
       return result.success;
     });
     
@@ -545,6 +569,11 @@ export class SyncCoordinatorService {
       if (!project) return false;
       
       const result = await this.syncService.saveProjectToCloud(project, userId);
+      if (result.success && result.newVersion !== undefined) {
+        this.projectState.updateProjects(ps => ps.map(p =>
+          p.id === project.id ? { ...p, version: result.newVersion } : p
+        ));
+      }
       return result.success;
     });
     
@@ -608,9 +637,13 @@ export class SyncCoordinatorService {
       );
       
       if (result.success) {
+        // 更新本地状态：updatedAt 和 version（如果有返回）
         this.projectState.updateProjects(ps => ps.map(p => 
-          p.id === project.id ? { ...p, updatedAt: now } : p
+          p.id === project.id 
+            ? { ...p, updatedAt: now, version: result.newVersion ?? p.version } 
+            : p
         ));
+        console.log('[Sync] 本地版本号已更新', { projectId: project.id, newVersion: result.newVersion });
       }
     } catch (error) {
       this.logger.error('持久化项目时发生异常', { error });

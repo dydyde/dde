@@ -868,8 +868,9 @@ export class SyncService {
    * 使用版本号 + 服务端时间戳双重检测机制
    * Token 过期时自动保存本地数据防止丢失
    * 使用 RxJS concatMap 声明式队列防止并发保存导致版本号冲突
+   * @returns 成功时返回新版本号 newVersion，用于更新本地状态
    */
-  async saveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
+  async saveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
     if (!userId || !this.supabase.isConfigured) {
       return { success: true }; // 离线模式视为成功
     }
@@ -912,7 +913,7 @@ export class SyncService {
    * UPDATE ... WHERE version = expected_version
    * 添加执行超时控制防止网络挂起导致队列阻塞
    */
-  private async doSaveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
+  private async doSaveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
     this.syncState.update(s => ({ ...s, isSyncing: true }));
     
     // 使用 Promise.race 添加执行超时控制
@@ -947,7 +948,7 @@ export class SyncService {
   /**
    * 保存操作的内部实现（不带超时控制）
    */
-  private async doSaveProjectToCloudInternal(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project }> {
+  private async doSaveProjectToCloudInternal(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
     console.log('[Sync] 开始保存项目到云端', { projectId: project.id, projectName: project.name, userId });
     
     try {
@@ -1051,9 +1052,6 @@ export class SyncService {
       
       console.log('[Sync] 项目保存完成', { projectId: project.id, newVersion });
       
-      // 更新本地版本号
-      project.version = newVersion;
-      
       this.syncState.update(s => ({
         ...s,
         syncError: null,
@@ -1063,7 +1061,8 @@ export class SyncService {
         conflictData: null
       }));
       
-      return { success: true };
+      // 返回新版本号，让调用方更新本地状态
+      return { success: true, newVersion };
     } catch (e: unknown) {
       this.logger.error('Sync project failed', e);
       
