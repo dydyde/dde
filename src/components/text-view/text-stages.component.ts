@@ -245,12 +245,39 @@ export class TextStagesComponent {
     if (rootFilter !== 'all') {
       const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
       if (root) {
+        // DEBUG: 追踪带有 "?" displayId 的任务
+        const allStage1Tasks = stages.flatMap(s => s.tasks).filter(t => t.stage === 1 && !t.parentId);
+        const tasksWithQuestionMark = allStage1Tasks.filter(t => t.displayId === '?');
+        if (tasksWithQuestionMark.length > 0) {
+          console.warn('[visibleStages] Stage 1 roots with displayId="?":', 
+            tasksWithQuestionMark.map(t => ({ id: t.id.slice(-4), title: t.title || 'untitled' }))
+          );
+        }
+        
+        const beforeFilter = stages.flatMap(s => s.tasks);
         stages = stages.map(stage => ({
           ...stage,
           tasks: stage.tasks.filter(task => 
             task.id === root.id || task.displayId.startsWith(root.displayId + ',')
           )
         })).filter(stage => stage.tasks.length > 0);
+        const afterFilter = stages.flatMap(s => s.tasks);
+        
+        // DEBUG: 检查是否有任务因为 displayId 问题被过滤掉
+        if (beforeFilter.length !== afterFilter.length) {
+          const filteredOut = beforeFilter.filter(bt => !afterFilter.some(at => at.id === bt.id));
+          const invalidFiltered = filteredOut.filter(t => t.displayId === '?' || !t.displayId.startsWith(root.displayId));
+          if (invalidFiltered.length > 0) {
+            console.warn('[visibleStages] Tasks filtered out due to displayId mismatch:', {
+              rootDisplayId: root.displayId,
+              filteredTasks: invalidFiltered.map(t => ({
+                id: t.id.slice(-4),
+                displayId: t.displayId,
+                title: t.title || 'untitled'
+              }))
+            });
+          }
+        }
       }
     }
     

@@ -83,14 +83,21 @@ export class TextTaskCardComponent implements OnChanges {
   
   ngOnChanges(changes: SimpleChanges) {
     if (changes['task']) {
+      const prev = changes['task'].previousValue as Task | undefined;
       const curr = changes['task'].currentValue as Task;
-      // 只在 displayId 变成 "?" 时记录警告
-      if (curr?.displayId === '?' && curr?.stage === 1 && !curr?.parentId) {
-        console.warn('[TextTaskCard] Stage 1 root task has displayId="?":', {
+      
+      // 检测 displayId 从有效值变成 "?" 的情况
+      if (prev?.displayId && prev.displayId !== '?' && curr?.displayId === '?') {
+        console.warn('[TextTaskCard] displayId changed from valid to "?":', {
           taskId: curr.id.slice(-4),
+          prevDisplayId: prev.displayId,
+          currDisplayId: curr.displayId,
           title: curr.title || 'untitled',
+          stage: curr.stage,
+          parentId: curr.parentId?.slice(-4) || null,
           isFirstChange: changes['task'].isFirstChange()
         });
+        console.trace('[TextTaskCard] Stack trace');
       }
     }
   }

@@ -38,11 +38,36 @@ export class ProjectStateService {
     this.projects().find(p => p.id === this.activeProjectId()) || null
   );
 
-  readonly tasks = computed(() => this.activeProject()?.tasks || []);
+  readonly tasks = computed(() => {
+    const project = this.activeProject();
+    const tasks = project?.tasks || [];
+    
+    // DEBUG: 检查 stage 1 根任务的 displayId
+    const stage1Roots = tasks.filter(t => t.stage === 1 && !t.parentId && !t.deletedAt);
+    const invalidRoots = stage1Roots.filter(t => t.displayId === '?' || !t.displayId);
+    if (invalidRoots.length > 0) {
+      console.warn('[tasks computed] Stage 1 roots with invalid displayId:', {
+        projectId: project?.id?.slice(-4),
+        invalidRoots: invalidRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId, title: t.title || 'untitled' }))
+      });
+    }
+    
+    return tasks;
+  });
 
   readonly stages = computed(() => {
     const tasks = this.tasks();
     const assigned = tasks.filter(t => t.stage !== null && !t.deletedAt);
+    
+    // DEBUG: 在每次 stages 计算时检查 stage 1 根任务
+    const stage1Roots = assigned.filter(t => t.stage === 1 && !t.parentId);
+    const invalidRoots = stage1Roots.filter(t => t.displayId === '?' || !t.displayId);
+    if (invalidRoots.length > 0) {
+      console.warn('[stages computed] Stage 1 roots with invalid displayId:', 
+        invalidRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId, title: t.title || 'untitled' }))
+      );
+      console.trace('[stages computed] Call stack');
+    }
     
     const stagesMap = new Map<number, Task[]>();
     assigned.forEach(t => {
