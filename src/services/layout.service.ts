@@ -71,6 +71,12 @@ export class LayoutService {
     const stage1Count = tasks.filter(t => t.stage === 1).length;
     const stage1RootCount = tasks.filter(t => t.stage === 1 && !t.parentId).length;
     
+    // 如果项目没有任务，打印调用栈
+    if (tasks.length === 0) {
+      console.warn('[rebalance] EMPTY PROJECT - no tasks!', { projectId: project.id?.slice(-4) });
+      console.trace('[rebalance] Call stack for empty project');
+    }
+    
     // 如果没有 stage 1 根任务但有其他任务，打印警告和调用栈
     if (stage1RootCount === 0 && tasks.length > 0) {
       console.warn('[rebalance] WARNING: No stage 1 roots found!', {
@@ -83,7 +89,7 @@ export class LayoutService {
     }
     
     // DEBUG: 如果 stage1RootCount 为 0，打印所有任务的 stage 值
-    if (stage1RootCount === 0) {
+    if (stage1RootCount === 0 && tasks.length > 0) {
       console.warn('[rebalance] All task stages:', tasks.map(t => ({ id: t.id.slice(-4), stage: t.stage, stageType: typeof t.stage })));
     }
     
