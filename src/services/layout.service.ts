@@ -53,6 +53,22 @@ export class LayoutService {
    */
   rebalance(project: Project): Project {
     const tasks = project.tasks.map(t => ({ ...t }));
+    
+    // DEBUG: 追踪传入的任务
+    const stage1Count = tasks.filter(t => t.stage === 1).length;
+    const stage1RootCount = tasks.filter(t => t.stage === 1 && !t.parentId).length;
+    
+    // 如果没有 stage 1 根任务但有其他任务，打印警告和调用栈
+    if (stage1RootCount === 0 && tasks.length > 0) {
+      console.warn('[rebalance] WARNING: No stage 1 roots found!', {
+        totalTasks: tasks.length,
+        stage1Tasks: stage1Count,
+        projectId: project.id?.slice(-4),
+        taskSample: tasks.slice(0, 3).map(t => `${t.title || 'untitled'}(stage=${t.stage})`)
+      });
+      console.trace('[rebalance] Call stack');
+    }
+    
     const byId = new Map<string, Task>();
     tasks.forEach(t => byId.set(t.id, t));
 
@@ -117,21 +133,9 @@ export class LayoutService {
       .filter(t => t.stage === 1 && !t.parentId)
       .sort((a, b) => a.rank - b.rank);
 
-    // DEBUG: 追踪 displayId 分配
-    console.log('[rebalance] Stage 1 roots found:', stage1Roots.length, 
-      stage1Roots.map(t => `${t.title || 'untitled'}(id=${t.id.slice(-4)}, rank=${t.rank}, stage=${t.stage}, parentId=${t.parentId})`).join(', ')
-    );
-
     stage1Roots.forEach((t, idx) => {
       t.displayId = `${idx + 1}`;
     });
-
-    // DEBUG: 追踪 displayId 分配后
-    if (stage1Roots.length > 0) {
-      console.log('[rebalance] Stage 1 roots after assignment:', 
-        stage1Roots.map(t => `${t.title || 'untitled'}(displayId=${t.displayId})`).join(', ')
-      );
-    }
 
     const children = new Map<string, Task[]>();
     tasks.forEach(t => {

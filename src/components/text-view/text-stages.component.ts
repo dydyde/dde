@@ -236,17 +236,6 @@ export class TextStagesComponent {
     const rootFilter = this.store.stageViewRootFilter();
     let stages = this.store.stages();
     
-    // DEBUG: 追踪 stage 1 任务的 displayId
-    const stage1 = stages.find(s => s.stageNumber === 1);
-    if (stage1) {
-      const questionTasks = stage1.tasks.filter(t => t.displayId === '?');
-      if (questionTasks.length > 0) {
-        console.warn('[visibleStages] Found tasks with displayId="?" in stage 1:', 
-          questionTasks.map(t => `${t.title || 'untitled'}(id=${t.id.slice(-4)})`).join(', ')
-        );
-      }
-    }
-    
     // 应用阶段筛选
     if (stageFilter !== 'all') {
       stages = stages.filter(s => s.stageNumber === stageFilter);

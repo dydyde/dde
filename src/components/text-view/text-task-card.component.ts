@@ -32,8 +32,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       <div class="flex justify-between items-start"
            [ngClass]="{'mb-1': !isMobile, 'mb-0.5': isMobile}">
         <span class="font-mono font-medium text-retro-muted"
-              [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}"
-              [attr.data-debug-displayid]="task.displayId">
+              [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
           {{store.compressDisplayId(task.displayId)}}
         </span>
         <span class="text-retro-muted/60 font-light"
@@ -78,29 +77,23 @@ export class TextTaskCardComponent implements OnChanges {
   @Input() isSelected = false;
   @Input() isDragging = false;
   @Input() userId: string | null = null;
-  
-  ngOnChanges(changes: SimpleChanges) {
-    if (changes['task']) {
-      const prev = changes['task'].previousValue as Task | undefined;
-      const curr = changes['task'].currentValue as Task;
-      if (prev && curr && prev.displayId !== curr.displayId) {
-        console.log('[TextTaskCard] displayId changed:', {
-          taskId: curr.id.slice(-4),
-          from: prev.displayId,
-          to: curr.displayId
-        });
-      }
-      // 也记录每次 task 变化
-      console.log('[TextTaskCard] task input changed:', {
-        taskId: curr?.id?.slice(-4),
-        displayId: curr?.displayId,
-        isFirstChange: changes['task'].isFirstChange()
-      });
-    }
-  }
   @Input() projectId: string | null = null;
   @Input() connections: any = null;
   @Input() stageNumber = 0;
+  
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['task']) {
+      const curr = changes['task'].currentValue as Task;
+      // 只在 displayId 变成 "?" 时记录警告
+      if (curr?.displayId === '?' && curr?.stage === 1 && !curr?.parentId) {
+        console.warn('[TextTaskCard] Stage 1 root task has displayId="?":', {
+          taskId: curr.id.slice(-4),
+          title: curr.title || 'untitled',
+          isFirstChange: changes['task'].isFirstChange()
+        });
+      }
+    }
+  }
   
   @Output() select = new EventEmitter<Task>();
   @Output() addSibling = new EventEmitter<void>();
