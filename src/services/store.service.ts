@@ -493,33 +493,19 @@ export class StoreService {
   }
 
   updateViewState(projectId: string, viewState: { scale?: number; positionX?: number; positionY?: number }) {
-    this.projectState.updateProjects(projects => {
-      // DEBUG: 检查更新前的任务状态
-      const targetProject = projects.find(p => p.id === projectId);
-      if (targetProject) {
-        const stage1Roots = targetProject.tasks.filter(t => t.stage === 1 && !t.parentId && !t.deletedAt);
-        const invalidRoots = stage1Roots.filter(t => t.displayId === '?' || !t.displayId);
-        if (invalidRoots.length > 0) {
-          console.warn('[updateViewState] BEFORE update - Stage 1 roots with invalid displayId:', 
-            invalidRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId }))
-          );
-        }
+    this.projectState.updateProjects(projects => projects.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          viewState: {
+            scale: viewState.scale ?? p.viewState?.scale ?? 1,
+            positionX: viewState.positionX ?? p.viewState?.positionX ?? 0,
+            positionY: viewState.positionY ?? p.viewState?.positionY ?? 0
+          }
+        };
       }
-      
-      return projects.map(p => {
-        if (p.id === projectId) {
-          return {
-            ...p,
-            viewState: {
-              scale: viewState.scale ?? p.viewState?.scale ?? 1,
-              positionX: viewState.positionX ?? p.viewState?.positionX ?? 0,
-              positionY: viewState.positionY ?? p.viewState?.positionY ?? 0
-            }
-          };
-        }
-        return p;
-      });
-    });
+      return p;
+    }));
     this.syncCoordinator.schedulePersist();
   }
 

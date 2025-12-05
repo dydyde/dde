@@ -52,46 +52,12 @@ export class LayoutService {
    * 这是核心的布局算法，确保任务树的一致性
    */
   rebalance(project: Project): Project {
+    // 空项目直接返回
+    if (!project.tasks || project.tasks.length === 0) {
+      return project;
+    }
+    
     const tasks = project.tasks.map(t => ({ ...t }));
-    
-    // DEBUG: 追踪传入的任务 - 查找新任务 (displayId 为 '?')
-    const newTasks = tasks.filter(t => t.displayId === '?');
-    if (newTasks.length > 0) {
-      // 如果有超过5个任务的 displayId 是 '?'，说明问题不是新创建的任务
-      if (newTasks.length > 5) {
-        console.warn('[rebalance] INPUT - Too many tasks with displayId="?", likely a data issue:', newTasks.length);
-      } else {
-        console.log('[rebalance] INPUT - New tasks with displayId="?":', 
-          newTasks.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4) }))
-        );
-      }
-    }
-    
-    // DEBUG: 追踪传入的任务
-    const stage1Count = tasks.filter(t => t.stage === 1).length;
-    const stage1RootCount = tasks.filter(t => t.stage === 1 && !t.parentId).length;
-    
-    // 如果项目没有任务，打印调用栈
-    if (tasks.length === 0) {
-      console.warn('[rebalance] EMPTY PROJECT - no tasks!', { projectId: project.id?.slice(-4) });
-      console.trace('[rebalance] Call stack for empty project');
-    }
-    
-    // 如果没有 stage 1 根任务但有其他任务，打印警告和调用栈
-    if (stage1RootCount === 0 && tasks.length > 0) {
-      console.warn('[rebalance] WARNING: No stage 1 roots found!', {
-        totalTasks: tasks.length,
-        stage1Tasks: stage1Count,
-        projectId: project.id?.slice(-4),
-        taskSample: tasks.slice(0, 3).map(t => `${t.title || 'untitled'}(stage=${t.stage})`)
-      });
-      console.trace('[rebalance] Call stack');
-    }
-    
-    // DEBUG: 如果 stage1RootCount 为 0，打印所有任务的 stage 值
-    if (stage1RootCount === 0 && tasks.length > 0) {
-      console.warn('[rebalance] All task stages:', tasks.map(t => ({ id: t.id.slice(-4), stage: t.stage, stageType: typeof t.stage })));
-    }
     
     const byId = new Map<string, Task>();
     tasks.forEach(t => byId.set(t.id, t));
@@ -157,21 +123,9 @@ export class LayoutService {
       .filter(t => t.stage === 1 && !t.parentId)
       .sort((a, b) => a.rank - b.rank);
 
-    // DEBUG: 打印 stage1Roots 信息
-    console.log('[rebalance] stage1Roots BEFORE displayId assignment:', 
-      stage1Roots.length === 0 
-        ? `EMPTY! Total tasks: ${tasks.length}, stages: ${[...new Set(tasks.map(t => t.stage))].join(',')}` 
-        : stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4), displayId: t.displayId }))
-    );
-
     stage1Roots.forEach((t, idx) => {
       t.displayId = `${idx + 1}`;
     });
-
-    // DEBUG: 打印 stage1Roots 信息
-    console.log('[rebalance] stage1Roots AFTER displayId assignment:', 
-      stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, displayId: t.displayId }))
-    );
 
     const children = new Map<string, Task[]>();
     tasks.forEach(t => {
@@ -285,15 +239,6 @@ export class LayoutService {
         const position = sameStage.findIndex(s => s.id === t.id);
         t.order = position + 1;
       });
-
-    // DEBUG: 验证返回的任务是否都有正确的 displayId
-    const finalStage1Roots = tasks.filter(t => t.stage === 1 && !t.parentId);
-    const invalidFinalRoots = finalStage1Roots.filter(t => t.displayId === '?' || !t.displayId);
-    if (invalidFinalRoots.length > 0) {
-      console.error('[rebalance] RETURN - Stage 1 roots STILL have invalid displayId:', 
-        invalidFinalRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId, title: t.title || 'untitled' }))
-      );
-    }
 
     return { ...project, tasks };
   }

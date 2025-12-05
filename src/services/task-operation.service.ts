@@ -205,15 +205,6 @@ export class TaskOperationService {
         tasks: [...p.tasks, newTask]
       }));
     } else {
-      // DEBUG: 打印新任务详情
-      console.log('[addTask] Before rebalance - newTask:', {
-        id: newTask.id.slice(-4),
-        stage: newTask.stage,
-        stageType: typeof newTask.stage,
-        parentId: newTask.parentId?.slice(-4),
-        displayId: newTask.displayId
-      });
-      
       this.recordAndUpdate(p => this.layoutService.rebalance({
         ...p,
         tasks: [...p.tasks, newTask],
