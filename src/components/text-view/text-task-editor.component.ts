@@ -6,7 +6,6 @@ import { AttachmentService } from '../../services/attachment.service';
 import { ToastService } from '../../services/toast.service';
 import { Task, Attachment } from '../../models';
 import { renderMarkdownSafe } from '../../utils/markdown';
-import { AttachmentManagerComponent } from '../attachment-manager.component';
 import { TextTaskConnectionsComponent } from './text-task-connections.component';
 
 /**
@@ -22,7 +21,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
 @Component({
   selector: 'app-text-task-editor',
   standalone: true,
-  imports: [CommonModule, AttachmentManagerComponent, TextTaskConnectionsComponent],
+  imports: [CommonModule, TextTaskConnectionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="animate-collapse-open"

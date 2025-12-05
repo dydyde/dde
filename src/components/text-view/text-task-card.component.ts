@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges, ViewChild } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { Task } from '../../models';
@@ -54,6 +54,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       } @else {
         <!-- 展开编辑状态 -->
         <app-text-task-editor
+          #taskEditor
           [task]="task"
           [isMobile]="isMobile"
           [userId]="userId"
@@ -71,6 +72,8 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
 })
 export class TextTaskCardComponent implements OnChanges {
   readonly store = inject(StoreService);
+  
+  @ViewChild('taskEditor') taskEditor?: TextTaskEditorComponent;
   
   @Input({ required: true }) task!: Task;
   @Input() isMobile = false;
@@ -134,8 +137,7 @@ export class TextTaskCardComponent implements OnChanges {
   /**
    * 处理卡片点击
    * - 如果任务未选中：选中任务（展开）
-   * - 如果任务已选中：不做任何操作（避免意外收缩）
-   *   预览模式的切换由用户主动点击"预览"按钮或点击任务卡片外部空白区域触发
+   * - 如果任务已选中：切换到预览模式
    */
   onCardClick(event: Event) {
     const target = event.target as HTMLElement;
@@ -147,8 +149,11 @@ export class TextTaskCardComponent implements OnChanges {
     }
     
     if (this.isSelected) {
-      // 任务已展开，阻止事件冒泡，避免触发父组件的收缩逻辑
-      // 不再自动切换预览模式，让用户通过点击"预览"按钮或点击卡片外部来控制
+      // 任务已展开，切换到预览模式
+      if (this.taskEditor) {
+        this.taskEditor.setPreviewMode();
+      }
+      // 阻止事件冒泡，避免触发父组件的收缩逻辑
       event.stopPropagation();
     } else {
       // 任务未展开，触发选中事件

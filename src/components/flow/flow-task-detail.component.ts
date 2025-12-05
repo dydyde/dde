@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../../services/store.service';
 import { Task, Attachment } from '../../models';
-import { AttachmentManagerComponent } from '../attachment-manager.component';
 import { renderMarkdown } from '../../utils/markdown';
 
 /**
@@ -16,7 +15,7 @@ import { renderMarkdown } from '../../utils/markdown';
 @Component({
   selector: 'app-flow-task-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, AttachmentManagerComponent],
+  imports: [CommonModule, FormsModule],
   template: `
     <!-- 桌面端可拖动浮动面板 -->
     @if (!store.isMobile() && store.isFlowDetailOpen()) {

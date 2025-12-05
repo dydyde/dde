@@ -18,8 +18,12 @@ import { Task } from '../../models';
     }
   `],
   template: `
-    <!-- Top Palette Area (Resizable) -->
-    <div class="flex-none flex flex-col overflow-hidden transition-none" [style.height.px]="height()">
+    <!-- Top Palette Area (Resizable) - 空白区域支持滑动手势 -->
+    <div class="flex-none flex flex-col overflow-hidden transition-none" 
+         [style.height.px]="height()"
+         (touchstart)="onPaletteAreaTouchStart($event)"
+         (touchmove)="onPaletteAreaTouchMove($event)"
+         (touchend)="onPaletteAreaTouchEnd($event)">
         <!-- 1. 待完成区域 (To-Do) -->
         <div class="flex-none mx-2 sm:mx-4 mt-2 sm:mt-4 px-2 sm:px-4 pb-1 sm:pb-2 transition-all duration-300 overflow-hidden rounded-xl sm:rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
             <div (click)="store.isFlowUnfinishedOpen.set(!store.isFlowUnfinishedOpen())" 
@@ -93,25 +97,15 @@ import { Task } from '../../models';
         </div>
     </div>
 
-    <!-- Resizer Handle / 手机端滑动手势区域 -->
+    <!-- Resizer Handle -->
     <div class="h-2 sm:h-3 bg-transparent hover:bg-stone-200 cursor-row-resize z-20 flex-shrink-0 relative group transition-all flex items-center justify-center"
-         [class.h-6]="store.isMobile()"
+         [class.h-4]="store.isMobile()"
          [class.bg-stone-100]="store.isMobile()"
-         [class.touch-none]="!store.isMobile()"
          (mousedown)="startResize($event)"
-         (touchstart)="onGestureAreaTouchStart($event)"
-         (touchmove)="onGestureAreaTouchMove($event)"
-         (touchend)="onGestureAreaTouchEnd($event)">
+         (touchstart)="startResizeTouch($event)">
          <div class="w-10 sm:w-12 h-0.5 sm:h-1 rounded-full bg-stone-300 group-hover:bg-stone-400 transition-colors"
               [class.w-14]="store.isMobile()"
               [class.h-1]="store.isMobile()"></div>
-         <!-- 手机端滑动提示 -->
-         @if (store.isMobile()) {
-           <div class="absolute inset-0 flex items-center justify-between px-4 pointer-events-none">
-             <span class="text-[8px] text-stone-400 opacity-60">← 侧边栏</span>
-             <span class="text-[8px] text-stone-400 opacity-60">文本 →</span>
-           </div>
-         }
     </div>
   `
 })
@@ -452,17 +446,17 @@ export class FlowPaletteComponent implements OnDestroy {
     const threshold = 50; // 滑动阈值
     
     if (deltaX > threshold) {
-      // 向右滑动 → 切换到文本视图
+      // 向右滑动 → 切换到文本视图（文本视图在左侧，手指向右滑动=页面向左切换）
       this.swipeToText.emit();
     } else if (deltaX < -threshold) {
-      // 向左滑动 → 打开侧边栏
+      // 向左滑动 → 打开项目列表
       this.swipeToSidebar.emit();
     }
     
     this.gestureState.isSwiping = false;
   }
   
-  private startResizeTouch(e: TouchEvent) {
+  startResizeTouch(e: TouchEvent) {
     if (e.touches.length !== 1) return;
     e.preventDefault();
     this.isResizing = true;
@@ -502,5 +496,70 @@ export class FlowPaletteComponent implements OnDestroy {
     window.addEventListener('touchmove', this.resizeTouchMoveHandler, { passive: false });
     window.addEventListener('touchend', this.resizeTouchEndHandler);
     window.addEventListener('touchcancel', this.resizeTouchEndHandler);
+  }
+  
+  // ========== 调色板区域滑动手势（空白区域切换视图） ==========
+  
+  private paletteSwipeState = {
+    startX: 0,
+    startY: 0,
+    isSwiping: false
+  };
+  
+  /**
+   * 调色板区域触摸开始（用于空白区域滑动）
+   */
+  onPaletteAreaTouchStart(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    this.paletteSwipeState = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      isSwiping: false
+    };
+  }
+  
+  /**
+   * 调色板区域触摸移动
+   */
+  onPaletteAreaTouchMove(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - this.paletteSwipeState.startX;
+    const deltaY = Math.abs(touch.clientY - this.paletteSwipeState.startY);
+    const absDeltaX = Math.abs(deltaX);
+    
+    // 水平滑动距离大于垂直距离的 1.5 倍，认为是切换手势
+    if (absDeltaX > 20 && absDeltaX > deltaY * 1.5) {
+      this.paletteSwipeState.isSwiping = true;
+    }
+  }
+  
+  /**
+   * 调色板区域触摸结束
+   */
+  onPaletteAreaTouchEnd(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    if (!this.paletteSwipeState.isSwiping) return;
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - this.paletteSwipeState.startX;
+    const threshold = 50;
+    
+    if (deltaX > threshold) {
+      // 向右滑动 → 切换到文本视图（去左边）
+      e.stopPropagation(); // 阻止冒泡到 app.component，避免切换后侧边栏自动打开
+      this.swipeToText.emit();
+    } else if (deltaX < -threshold) {
+      // 向左滑动 → 打开项目栏（从右边滑出）
+      e.stopPropagation();
+      this.swipeToSidebar.emit();
+    }
+    
+    this.paletteSwipeState.isSwiping = false;
   }
 }

@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter, ChangeDetectionStrategy, Injector } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
@@ -43,7 +43,8 @@ import * as go from 'gojs';
   standalone: true,
   imports: [
     CommonModule, 
-    FormsModule, 
+    FormsModule,
+    DatePipe,
     FlowToolbarComponent, 
     FlowPaletteComponent, 
     FlowTaskDetailComponent,
@@ -78,7 +79,7 @@ import * as go from 'gojs';
         (taskTouchMove)="onUnassignedTouchMove($event.event)"
         (taskTouchEnd)="onUnassignedTouchEnd($event.event)"
         (swipeToText)="goBackToText.emit()"
-        (swipeToSidebar)="emitToggleSidebar()">
+        (swipeToSidebar)="toggleRightPanel()">
       </app-flow-palette>
 
       <!-- 流程图区域 -->
@@ -257,6 +258,79 @@ import * as go from 'gojs';
         (parentChildLink)="confirmParentChildLink()"
         (crossTreeLink)="confirmCrossTreeLink()">
       </app-flow-link-type-dialog>
+      
+      <!-- 移动端右侧滑出项目面板 -->
+      @if (store.isMobile()) {
+        <!-- 背景遮罩 -->
+        @if (isRightPanelOpen()) {
+          <div 
+            class="fixed inset-0 bg-black/30 z-40 animate-fade-in"
+            (click)="isRightPanelOpen.set(false)"
+            (touchstart)="onRightPanelBackdropTouchStart($event)"
+            (touchmove)="onRightPanelBackdropTouchMove($event)"
+            (touchend)="onRightPanelBackdropTouchEnd($event)">
+          </div>
+        }
+        
+        <!-- 右侧滑出项目面板 - 完全复刻左侧侧边栏样式 -->
+        <aside 
+          class="fixed top-0 right-0 h-full w-[180px] border-l flex flex-col shrink-0 transition-transform duration-300 ease-out shadow-[-4px_0_24px_rgba(0,0,0,0.08)] z-50 overflow-hidden"
+          style="background-color: var(--theme-sidebar-bg); border-color: var(--theme-border);"
+          [class.translate-x-full]="!isRightPanelOpen()"
+          [class.translate-x-0]="isRightPanelOpen()"
+          (touchstart)="onRightPanelTouchStart($event)"
+          (touchmove)="onRightPanelTouchMove($event)"
+          (touchend)="onRightPanelTouchEnd($event)">
+          
+          <!-- Panel Header - 复刻侧边栏头部 -->
+          <div class="flex justify-between items-center shrink-0 mx-3 mt-4 mb-3">
+            <h1 class="font-bold text-stone-800 tracking-tight font-serif text-base">NanoFlow</h1>
+            <button 
+              (click)="isRightPanelOpen.set(false)"
+              class="text-stone-400 hover:text-stone-600 w-6 h-6 flex items-center justify-center rounded-full transition-all active:bg-stone-200"
+              title="关闭" aria-label="关闭面板">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          
+          <!-- Project List - 完全复刻项目列表样式 -->
+          <div class="flex-1 overflow-y-auto space-y-1 px-2">
+            @for (proj of store.projects(); track proj.id) {
+              <div 
+                (click)="onRightPanelProjectClick(proj.id)"
+                class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100 px-2 py-2"
+                [class.bg-indigo-100]="store.activeProjectId() === proj.id"
+                [class.text-indigo-900]="store.activeProjectId() === proj.id"
+                [class.text-stone-500]="store.activeProjectId() !== proj.id">
+                <div class="flex items-center justify-between gap-1 min-w-0">
+                  <div class="font-medium transition-colors flex-1 min-w-0 truncate text-xs">
+                    {{ proj.name }}
+                  </div>
+                </div>
+                @if (store.activeProjectId() === proj.id) {
+                  <div class="text-[10px] text-indigo-400 mt-1 animate-fade-in leading-relaxed font-mono">
+                    {{ proj.createdDate | date:'MM/dd' }}
+                  </div>
+                }
+              </div>
+            } @empty {
+              <div class="text-center py-8 text-stone-400 text-xs italic">
+                暂无项目
+              </div>
+            }
+          </div>
+          
+          <!-- Panel Footer - 复刻侧边栏底部 -->
+          <div class="mb-4 shrink-0 space-y-2 mx-2">
+            <!-- 同步状态提示 -->
+            <div class="text-[10px] text-stone-400 text-center py-2">
+              共 {{ store.projects().length }} 个项目
+            </div>
+          </div>
+        </aside>
+      }
     </div>
   `
 })
@@ -305,6 +379,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   /** 小地图状态 */
   readonly isOverviewVisible = signal(true);
   readonly isOverviewCollapsed = signal(false);
+  
+  /** 右侧滑出面板状态（移动端） */
+  readonly isRightPanelOpen = signal(false);
   
   /** 小地图尺寸（移动端使用更小尺寸） */
   readonly overviewSize = computed(() => {
@@ -958,6 +1035,176 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   emitToggleSidebar(): void {
     window.dispatchEvent(new CustomEvent('toggle-sidebar'));
+  }
+  
+  /** 切换右侧面板（移动端） */
+  toggleRightPanel(): void {
+    if (this.store.isMobile()) {
+      this.isRightPanelOpen.update(v => !v);
+    }
+  }
+  
+  /** 右侧面板任务点击处理 */
+  onRightPanelTaskClick(taskId: string): void {
+    this.selectedTaskId.set(taskId);
+    this.centerOnNode(taskId, true);
+    this.isRightPanelOpen.set(false);
+  }
+  
+  /** 右侧面板项目点击处理 */
+  onRightPanelProjectClick(projectId: string): void {
+    this.store.activeProjectId.set(projectId);
+    this.isRightPanelOpen.set(false);
+  }
+  
+  // ========== 右侧面板滑动手势 ==========
+  
+  private rightPanelSwipeState = {
+    startX: 0,
+    startY: 0,
+    isSwiping: false
+  };
+  
+  onRightPanelTouchStart(e: TouchEvent): void {
+    if (e.touches.length !== 1) return;
+    this.rightPanelSwipeState = {
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+      isSwiping: false
+    };
+  }
+  
+  onRightPanelTouchMove(e: TouchEvent): void {
+    if (e.touches.length !== 1) return;
+    const deltaX = e.touches[0].clientX - this.rightPanelSwipeState.startX;
+    const deltaY = Math.abs(e.touches[0].clientY - this.rightPanelSwipeState.startY);
+    
+    // 向右滑动（正值）且水平距离大于垂直距离
+    if (deltaX > 30 && deltaX > deltaY * 1.5) {
+      this.rightPanelSwipeState.isSwiping = true;
+    }
+  }
+  
+  onRightPanelTouchEnd(e: TouchEvent): void {
+    if (!this.rightPanelSwipeState.isSwiping) return;
+    
+    const deltaX = e.changedTouches[0].clientX - this.rightPanelSwipeState.startX;
+    if (deltaX > 50) {
+      // 向右滑动超过阈值，关闭面板
+      this.isRightPanelOpen.set(false);
+    }
+    this.rightPanelSwipeState.isSwiping = false;
+  }
+  
+  onRightPanelBackdropTouchStart(e: TouchEvent): void {
+    this.onRightPanelTouchStart(e);
+  }
+  
+  onRightPanelBackdropTouchMove(e: TouchEvent): void {
+    this.onRightPanelTouchMove(e);
+  }
+  
+  onRightPanelBackdropTouchEnd(e: TouchEvent): void {
+    if (!this.rightPanelSwipeState.isSwiping) {
+      // 如果不是滑动，则是点击背景关闭
+      this.isRightPanelOpen.set(false);
+    } else {
+      this.onRightPanelTouchEnd(e);
+    }
+    this.rightPanelSwipeState.isSwiping = false;
+  }
+  
+  // ========== 流程图区域滑动手势（用于切换视图/打开任务列表） ==========
+  
+  private diagramAreaSwipeState = {
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    isSwiping: false,
+    isVerticalScroll: false  // 是否为垂直滚动（应由 GoJS 处理）
+  };
+  
+  /**
+   * 流程图区域触摸开始
+   * 记录起始位置，准备检测滑动手势
+   */
+  onDiagramAreaTouchStart(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    const touch = e.touches[0];
+    this.diagramAreaSwipeState = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startTime: Date.now(),
+      isSwiping: false,
+      isVerticalScroll: false
+    };
+  }
+  
+  /**
+   * 流程图区域触摸移动
+   * 检测是水平滑动还是垂直滚动
+   */
+  onDiagramAreaTouchMove(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    if (e.touches.length !== 1) return;
+    
+    // 如果已经确定是垂直滚动，让 GoJS 处理
+    if (this.diagramAreaSwipeState.isVerticalScroll) return;
+    
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - this.diagramAreaSwipeState.startX;
+    const deltaY = touch.clientY - this.diagramAreaSwipeState.startY;
+    const absDeltaX = Math.abs(deltaX);
+    const absDeltaY = Math.abs(deltaY);
+    
+    // 如果还没确定方向
+    if (!this.diagramAreaSwipeState.isSwiping && !this.diagramAreaSwipeState.isVerticalScroll) {
+      // 移动距离太小，继续等待
+      if (absDeltaX < 15 && absDeltaY < 15) return;
+      
+      // 判断是水平滑动还是垂直滚动
+      if (absDeltaX > absDeltaY * 1.5 && absDeltaX > 20) {
+        // 水平滑动 - 用于切换视图
+        this.diagramAreaSwipeState.isSwiping = true;
+      } else if (absDeltaY > absDeltaX) {
+        // 垂直滚动 - 让 GoJS 处理
+        this.diagramAreaSwipeState.isVerticalScroll = true;
+      }
+    }
+  }
+  
+  /**
+   * 流程图区域触摸结束
+   * 根据滑动方向执行相应操作
+   */
+  onDiagramAreaTouchEnd(e: TouchEvent): void {
+    if (!this.store.isMobile()) return;
+    
+    // 如果是垂直滚动或没有检测到滑动，不处理
+    if (this.diagramAreaSwipeState.isVerticalScroll || !this.diagramAreaSwipeState.isSwiping) {
+      return;
+    }
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - this.diagramAreaSwipeState.startX;
+    const deltaTime = Date.now() - this.diagramAreaSwipeState.startTime;
+    
+    // 快速滑动降低阈值，慢速滑动需要更大距离
+    const threshold = deltaTime < 300 ? 40 : 60;
+    
+    if (deltaX > threshold) {
+      // 向右滑动 → 打开任务列表面板
+      this.isRightPanelOpen.set(true);
+    } else if (deltaX < -threshold) {
+      // 向左滑动 → 切换到文本视图
+      this.goBackToText.emit();
+    }
+    
+    // 重置状态
+    this.diagramAreaSwipeState.isSwiping = false;
+    this.diagramAreaSwipeState.isVerticalScroll = false;
   }
   
   // ========== 私有辅助方法 ==========
