@@ -57,9 +57,14 @@ export class LayoutService {
     // DEBUG: 追踪传入的任务 - 查找新任务 (displayId 为 '?')
     const newTasks = tasks.filter(t => t.displayId === '?');
     if (newTasks.length > 0) {
-      console.log('[rebalance] INPUT - New tasks with displayId="?":', 
-        newTasks.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4) }))
-      );
+      // 如果有超过5个任务的 displayId 是 '?'，说明问题不是新创建的任务
+      if (newTasks.length > 5) {
+        console.warn('[rebalance] INPUT - Too many tasks with displayId="?", likely a data issue:', newTasks.length);
+      } else {
+        console.log('[rebalance] INPUT - New tasks with displayId="?":', 
+          newTasks.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4) }))
+        );
+      }
     }
     
     // DEBUG: 追踪传入的任务
@@ -75,6 +80,11 @@ export class LayoutService {
         taskSample: tasks.slice(0, 3).map(t => `${t.title || 'untitled'}(stage=${t.stage})`)
       });
       console.trace('[rebalance] Call stack');
+    }
+    
+    // DEBUG: 如果 stage1RootCount 为 0，打印所有任务的 stage 值
+    if (stage1RootCount === 0) {
+      console.warn('[rebalance] All task stages:', tasks.map(t => ({ id: t.id.slice(-4), stage: t.stage, stageType: typeof t.stage })));
     }
     
     const byId = new Map<string, Task>();
@@ -143,7 +153,9 @@ export class LayoutService {
 
     // DEBUG: 打印 stage1Roots 信息
     console.log('[rebalance] stage1Roots BEFORE displayId assignment:', 
-      stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4), displayId: t.displayId }))
+      stage1Roots.length === 0 
+        ? `EMPTY! Total tasks: ${tasks.length}, stages: ${[...new Set(tasks.map(t => t.stage))].join(',')}` 
+        : stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4), displayId: t.displayId }))
     );
 
     stage1Roots.forEach((t, idx) => {
