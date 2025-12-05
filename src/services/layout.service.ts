@@ -54,6 +54,14 @@ export class LayoutService {
   rebalance(project: Project): Project {
     const tasks = project.tasks.map(t => ({ ...t }));
     
+    // DEBUG: 追踪传入的任务 - 查找新任务 (displayId 为 '?')
+    const newTasks = tasks.filter(t => t.displayId === '?');
+    if (newTasks.length > 0) {
+      console.log('[rebalance] INPUT - New tasks with displayId="?":', 
+        newTasks.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4) }))
+      );
+    }
+    
     // DEBUG: 追踪传入的任务
     const stage1Count = tasks.filter(t => t.stage === 1).length;
     const stage1RootCount = tasks.filter(t => t.stage === 1 && !t.parentId).length;
@@ -133,9 +141,19 @@ export class LayoutService {
       .filter(t => t.stage === 1 && !t.parentId)
       .sort((a, b) => a.rank - b.rank);
 
+    // DEBUG: 打印 stage1Roots 信息
+    console.log('[rebalance] stage1Roots BEFORE displayId assignment:', 
+      stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, stage: t.stage, parentId: t.parentId?.slice(-4), displayId: t.displayId }))
+    );
+
     stage1Roots.forEach((t, idx) => {
       t.displayId = `${idx + 1}`;
     });
+
+    // DEBUG: 打印 stage1Roots 信息
+    console.log('[rebalance] stage1Roots AFTER displayId assignment:', 
+      stage1Roots.map(t => ({ id: t.id.slice(-4), title: t.title, displayId: t.displayId }))
+    );
 
     const children = new Map<string, Task[]>();
     tasks.forEach(t => {

@@ -419,6 +419,15 @@ export class TaskOperationAdapterService {
         // 使用锁定的项目ID进行匹配
         if (p.id === targetProjectId) {
           afterProject = mutator(p);
+          // DEBUG: 检查 mutator 返回的结果
+          const stage1Roots = afterProject.tasks.filter(t => t.stage === 'stage1');
+          const invalidDisplayIds = stage1Roots.filter(t => t.displayId === '?');
+          if (invalidDisplayIds.length > 0) {
+            console.warn('[recordAndUpdate] MUTATOR returned project with invalid displayId!', {
+              invalidTasks: invalidDisplayIds.map(t => ({ id: t.id, title: t.title, displayId: t.displayId })),
+              allStage1Roots: stage1Roots.map(t => ({ id: t.id, title: t.title, displayId: t.displayId }))
+            });
+          }
           return afterProject;
         }
         return p;
