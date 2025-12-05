@@ -2,6 +2,8 @@ import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetection
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../services/store.service';
+import { AttachmentService } from '../../services/attachment.service';
+import { ToastService } from '../../services/toast.service';
 import { Task, Attachment } from '../../models';
 import { renderMarkdownSafe } from '../../utils/markdown';
 import { AttachmentManagerComponent } from '../attachment-manager.component';
@@ -116,14 +118,14 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           </div>
         }
         
-        <!-- 附件管理 -->
-        @if (userId && projectId) {
+        <!-- 桌面端：附件管理独立显示 -->
+        @if (!isMobile && userId && projectId) {
           <app-attachment-manager
             [userId]="userId"
             [projectId]="projectId"
             [taskId]="task.id"
             [currentAttachments]="task.attachments"
-            [compact]="isMobile"
+            [compact]="false"
             (attachmentsChange)="onAttachmentsChange($event)"
             (error)="attachmentError.emit($event)">
           </app-attachment-manager>
@@ -155,6 +157,32 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               </svg>
               下级
             </button>
+            <!-- 移动端：附件按钮放在同一行 -->
+            @if (isMobile && userId && projectId) {
+              <label 
+                class="flex-1 cursor-pointer text-[10px] px-1.5 py-0.5 bg-stone-50 hover:bg-stone-100 text-stone-500 hover:text-stone-700 rounded-md border border-stone-200 transition-colors flex items-center justify-center gap-0.5"
+                [class.opacity-50]="isUploading()"
+                [class.pointer-events-none]="isUploading()">
+                <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                @if (isUploading()) {
+                  上传中
+                } @else {
+                  附件
+                }
+                @if (task.attachments && task.attachments.length > 0) {
+                  <span class="text-[8px] bg-indigo-100 text-indigo-600 px-0.5 rounded">{{ task.attachments.length }}</span>
+                }
+                <input 
+                  type="file" 
+                  class="hidden" 
+                  multiple 
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.md"
+                  (change)="onMobileFileSelect($event)"
+                  [disabled]="isUploading()">
+              </label>
+            }
             <button 
               (click)="deleteTask.emit()" 
               class="bg-stone-100 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
@@ -166,6 +194,55 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               </svg>
             </button>
           </div>
+          
+          <!-- 移动端：附件列表折叠区（如果有附件） -->
+          @if (isMobile && task.attachments && task.attachments.length > 0) {
+            <div class="mt-1.5">
+              <button 
+                (click)="toggleAttachmentList()"
+                class="w-full flex items-center justify-between px-2 py-1 bg-stone-50 hover:bg-stone-100 rounded text-[10px] text-stone-500 transition-colors">
+                <span class="flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                  {{ task.attachments.length }} 个附件
+                </span>
+                <svg 
+                  class="w-3 h-3 transition-transform" 
+                  [class.rotate-180]="showAttachmentList()"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              @if (showAttachmentList()) {
+                <div class="mt-1 p-1.5 bg-stone-50/50 rounded border border-stone-100 space-y-1 animate-collapse-open">
+                  @for (attachment of task.attachments; track attachment.id) {
+                    <div 
+                      class="group flex items-center gap-1.5 px-1.5 py-1 bg-white hover:bg-stone-50 rounded text-[10px] text-stone-600 border border-stone-100 transition-colors"
+                      [class.cursor-pointer]="attachment.type === 'image'"
+                      (click)="attachment.type === 'image' && previewImage(attachment)">
+                      @if (attachment.type === 'image' && attachment.thumbnailUrl) {
+                        <img [src]="attachment.thumbnailUrl" [alt]="attachment.name" class="w-5 h-5 object-cover rounded">
+                      } @else {
+                        <span class="w-5 h-5 flex items-center justify-center text-[8px] text-stone-400 uppercase bg-stone-100 rounded">{{ getFileExtension(attachment.name) }}</span>
+                      }
+                      <span class="flex-1 truncate">{{ attachment.name }}</span>
+                      <span class="text-[9px] text-stone-400">{{ formatFileSize(attachment.size) }}</span>
+                      <button 
+                        (click)="deleteAttachment(attachment, $event)"
+                        class="text-stone-400 hover:text-red-500 transition-colors p-0.5"
+                        title="删除">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
         }
       </div>
       
@@ -191,6 +268,8 @@ export class TextTaskEditorComponent {
   private readonly store = inject(StoreService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elementRef = inject(ElementRef);
+  private readonly attachmentService = inject(AttachmentService);
+  private readonly toast = inject(ToastService);
   
   @Input({ required: true }) task!: Task;
   @Input() isMobile = false;
@@ -206,6 +285,13 @@ export class TextTaskEditorComponent {
   @Output() openLinkedTask = new EventEmitter<{ task: Task; event: Event }>();
   
   readonly isPreview = signal(true);
+  readonly showAttachmentList = signal(false);
+  readonly isUploading = signal(false);
+  
+  /** 最大附件数量 */
+  private readonly maxAttachments = 5;
+  /** 最大文件大小 10MB */
+  private readonly maxFileSize = 10 * 1024 * 1024;
   
   /** 监听 document 点击事件，当点击组件外部时切换回预览模式 */
   @HostListener('document:click', ['$event'])
@@ -259,5 +345,109 @@ export class TextTaskEditorComponent {
   
   onAttachmentsChange(attachments: Attachment[]) {
     this.store.updateTaskAttachments(this.task.id, attachments);
+  }
+  
+  // ========== 移动端附件管理方法 ==========
+  
+  toggleAttachmentList() {
+    this.showAttachmentList.update(v => !v);
+  }
+  
+  getFileExtension(filename: string): string {
+    const ext = filename.split('.').pop() || '';
+    return ext.length > 4 ? ext.substring(0, 4) : ext;
+  }
+  
+  formatFileSize(bytes: number | undefined): string {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  }
+  
+  async onMobileFileSelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0 || !this.userId || !this.projectId) return;
+    
+    const currentCount = this.task.attachments?.length || 0;
+    const remaining = this.maxAttachments - currentCount;
+    
+    if (remaining <= 0) {
+      this.toast.warning('附件数量已达上限', `每个任务最多 ${this.maxAttachments} 个附件`);
+      input.value = '';
+      return;
+    }
+    
+    const filesToUpload = Array.from(files).slice(0, remaining);
+    
+    // 检查文件大小
+    for (const file of filesToUpload) {
+      if (file.size > this.maxFileSize) {
+        this.toast.warning('文件过大', `${file.name} 超过 10MB 限制`);
+        input.value = '';
+        return;
+      }
+    }
+    
+    this.isUploading.set(true);
+    
+    try {
+      const newAttachments: Attachment[] = [];
+      
+      for (const file of filesToUpload) {
+        const result = await this.attachmentService.uploadFile(
+          this.userId,
+          this.projectId,
+          this.task.id,
+          file
+        );
+        if (result.success && result.attachment) {
+          newAttachments.push(result.attachment);
+        } else if (result.error) {
+          this.attachmentError.emit(result.error);
+        }
+      }
+      
+      if (newAttachments.length > 0) {
+        const updatedAttachments = [...(this.task.attachments || []), ...newAttachments];
+        this.store.updateTaskAttachments(this.task.id, updatedAttachments);
+        this.toast.success('上传成功', `${newAttachments.length} 个文件已上传`);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : '上传失败';
+      this.attachmentError.emit(errorMsg);
+      this.toast.error('上传失败', errorMsg);
+    } finally {
+      this.isUploading.set(false);
+      input.value = '';
+    }
+  }
+  
+  async deleteAttachment(attachment: Attachment, event: Event) {
+    event.stopPropagation();
+    
+    if (!this.userId || !this.projectId) return;
+    
+    try {
+      // 使用软删除标记附件
+      const deletedAttachment = this.attachmentService.markAsDeleted(attachment);
+      
+      const updatedAttachments = (this.task.attachments || []).map(a => 
+        a.id === attachment.id ? deletedAttachment : a
+      );
+      this.store.updateTaskAttachments(this.task.id, updatedAttachments);
+      this.toast.success('删除成功', `${attachment.name} 已删除`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : '删除失败';
+      this.attachmentError.emit(errorMsg);
+      this.toast.error('删除失败', errorMsg);
+    }
+  }
+  
+  previewImage(attachment: Attachment) {
+    if (attachment.url) {
+      window.open(attachment.url, '_blank');
+    }
   }
 }

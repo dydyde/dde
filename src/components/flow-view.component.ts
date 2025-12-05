@@ -523,7 +523,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
    * 初始化小地图
    */
   private initOverview(): void {
-    if (this.store.isMobile() || !this.isOverviewVisible()) return;
+    if (!this.isOverviewVisible() || this.isOverviewCollapsed()) return;
     
     this.scheduleTimer(() => {
       if (this.overviewDiv?.nativeElement && this.diagram.isInitialized) {

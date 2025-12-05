@@ -15,7 +15,7 @@ import { Task } from '../../models';
   template: `
     <!-- 移动端顶部工具栏：侧边栏切换按钮 + 返回文本视图 -->
     @if (store.isMobile()) {
-      <div class="absolute top-2 left-2 z-10 flex items-center gap-2">
+      <div class="absolute top-2 left-2 z-30 flex items-center gap-2">
         <!-- 侧边栏/项目列表切换按钮 -->
         <button 
           (click)="toggleSidebar.emit()"

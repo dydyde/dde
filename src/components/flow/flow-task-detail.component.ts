@@ -91,8 +91,8 @@ import { renderMarkdown } from '../../utils/markdown';
       <div class="absolute top-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col"
            [style.max-height.vh]="drawerHeight()"
            style="transform: translateZ(0); backface-visibility: hidden;">
-        <!-- 标题栏 - 紧凑 -->
-        <div class="px-3 pt-2 pb-1 flex justify-between items-center flex-shrink-0">
+        <!-- 标题栏 - 左边留出空间避开导航按钮 -->
+        <div class="pl-28 pr-3 pt-2 pb-1 flex justify-between items-center flex-shrink-0">
           <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
           <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-0.5">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

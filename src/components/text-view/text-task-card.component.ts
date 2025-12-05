@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { Task } from '../../models';
@@ -32,7 +32,8 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       <div class="flex justify-between items-start"
            [ngClass]="{'mb-1': !isMobile, 'mb-0.5': isMobile}">
         <span class="font-mono font-medium text-retro-muted"
-              [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
+              [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}"
+              [attr.data-debug-displayid]="task.displayId">
           {{store.compressDisplayId(task.displayId)}}
         </span>
         <span class="text-retro-muted/60 font-light"
@@ -69,7 +70,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
     </div>
   `
 })
-export class TextTaskCardComponent {
+export class TextTaskCardComponent implements OnChanges {
   readonly store = inject(StoreService);
   
   @Input({ required: true }) task!: Task;
@@ -77,6 +78,26 @@ export class TextTaskCardComponent {
   @Input() isSelected = false;
   @Input() isDragging = false;
   @Input() userId: string | null = null;
+  
+  ngOnChanges(changes: SimpleChanges) {
+    if (changes['task']) {
+      const prev = changes['task'].previousValue as Task | undefined;
+      const curr = changes['task'].currentValue as Task;
+      if (prev && curr && prev.displayId !== curr.displayId) {
+        console.log('[TextTaskCard] displayId changed:', {
+          taskId: curr.id.slice(-4),
+          from: prev.displayId,
+          to: curr.displayId
+        });
+      }
+      // 也记录每次 task 变化
+      console.log('[TextTaskCard] task input changed:', {
+        taskId: curr?.id?.slice(-4),
+        displayId: curr?.displayId,
+        isFirstChange: changes['task'].isFirstChange()
+      });
+    }
+  }
   @Input() projectId: string | null = null;
   @Input() connections: any = null;
   @Input() stageNumber = 0;

@@ -117,9 +117,21 @@ export class LayoutService {
       .filter(t => t.stage === 1 && !t.parentId)
       .sort((a, b) => a.rank - b.rank);
 
+    // DEBUG: 追踪 displayId 分配
+    console.log('[rebalance] Stage 1 roots found:', stage1Roots.length, 
+      stage1Roots.map(t => `${t.title || 'untitled'}(id=${t.id.slice(-4)}, rank=${t.rank}, stage=${t.stage}, parentId=${t.parentId})`).join(', ')
+    );
+
     stage1Roots.forEach((t, idx) => {
       t.displayId = `${idx + 1}`;
     });
+
+    // DEBUG: 追踪 displayId 分配后
+    if (stage1Roots.length > 0) {
+      console.log('[rebalance] Stage 1 roots after assignment:', 
+        stage1Roots.map(t => `${t.title || 'untitled'}(displayId=${t.displayId})`).join(', ')
+      );
+    }
 
     const children = new Map<string, Task[]>();
     tasks.forEach(t => {

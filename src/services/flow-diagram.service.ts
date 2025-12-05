@@ -300,6 +300,20 @@ export class FlowDiagramService {
       // 启用自动缩放逻辑
       this.setupOverviewAutoScale();
       
+      // 延迟刷新确保视口框正确定位
+      // 解决首次拖动时视口框位置不正确的问题
+      setTimeout(() => {
+        if (this.overview && this.diagram && !this.isDestroyed) {
+          // 强制 Overview 重新计算视口框位置
+          this.overview.updateAllTargetBindings();
+          // 重新居中到文档内容
+          const docBounds = this.diagram.documentBounds;
+          if (docBounds.isReal() && docBounds.width > 0 && docBounds.height > 0) {
+            this.overview.centerRect(docBounds);
+          }
+        }
+      }, 50);
+      
       this.logger.info('Overview 初始化成功（支持实时自适应）');
     } catch (error) {
       this.logger.error('Overview 初始化失败:', error);
@@ -395,6 +409,10 @@ export class FlowDiagramService {
     let lastExpansionFactor = 1;
     this.lastOverviewScale = baseScale;
     this.overview.scale = baseScale;
+    
+    // 确保初始时 Overview 正确居中到文档内容
+    const nodeBounds = getNodesBounds();
+    this.overview.centerRect(nodeBounds);
     
     // 监听文档变化：只在节点增删时重新计算基准缩放
     this.addTrackedListener('DocumentBoundsChanged', () => {

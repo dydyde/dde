@@ -43,6 +43,15 @@ export class ProjectStateService {
   readonly stages = computed(() => {
     const tasks = this.tasks();
     const assigned = tasks.filter(t => t.stage !== null && !t.deletedAt);
+    
+    // DEBUG: 追踪 stage 1 任务的 displayId
+    const stage1Tasks = assigned.filter(t => t.stage === 1);
+    if (stage1Tasks.some(t => t.displayId === '?')) {
+      console.warn('[stages computed] Found task with displayId="?" in stage 1:', 
+        stage1Tasks.map(t => `${t.title || 'untitled'}(id=${t.id.slice(-4)}, displayId=${t.displayId})`).join(', ')
+      );
+    }
+    
     const stagesMap = new Map<number, Task[]>();
     assigned.forEach(t => {
       if (!stagesMap.has(t.stage!)) stagesMap.set(t.stage!, []);
