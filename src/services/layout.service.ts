@@ -250,6 +250,15 @@ export class LayoutService {
         t.order = position + 1;
       });
 
+    // DEBUG: 验证返回的任务是否都有正确的 displayId
+    const finalStage1Roots = tasks.filter(t => t.stage === 1 && !t.parentId);
+    const invalidFinalRoots = finalStage1Roots.filter(t => t.displayId === '?' || !t.displayId);
+    if (invalidFinalRoots.length > 0) {
+      console.error('[rebalance] RETURN - Stage 1 roots STILL have invalid displayId:', 
+        invalidFinalRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId, title: t.title || 'untitled' }))
+      );
+    }
+
     return { ...project, tasks };
   }
 

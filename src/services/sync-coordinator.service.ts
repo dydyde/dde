@@ -809,9 +809,20 @@ export class SyncCoordinatorService {
     const userId = this.authService.currentUserId();
     if (!userId) {
       // 未登录时仅保存到本地，但需要更新本地状态的 updatedAt
-      this.projectState.updateProjects(ps => ps.map(p => 
-        p.id === project.id ? { ...p, updatedAt: now } : p
-      ));
+      this.projectState.updateProjects(ps => {
+        // DEBUG: 检查更新前的任务状态
+        const targetProject = ps.find(p => p.id === project.id);
+        if (targetProject) {
+          const stage1Roots = targetProject.tasks.filter(t => t.stage === 1 && !t.parentId && !t.deletedAt);
+          const invalidRoots = stage1Roots.filter(t => t.displayId === '?' || !t.displayId);
+          if (invalidRoots.length > 0) {
+            console.warn('[doPersistActiveProject offline] BEFORE update - Stage 1 roots with invalid displayId:', 
+              invalidRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId }))
+            );
+          }
+        }
+        return ps.map(p => p.id === project.id ? { ...p, updatedAt: now } : p);
+      });
       return;
     }
 
@@ -823,11 +834,24 @@ export class SyncCoordinatorService {
       
       if (result.success) {
         // 更新本地状态：updatedAt 和 version（如果有返回）
-        this.projectState.updateProjects(ps => ps.map(p => 
-          p.id === project.id 
-            ? { ...p, updatedAt: now, version: result.newVersion ?? p.version } 
-            : p
-        ));
+        this.projectState.updateProjects(ps => {
+          // DEBUG: 检查更新前的任务状态
+          const targetProject = ps.find(p => p.id === project.id);
+          if (targetProject) {
+            const stage1Roots = targetProject.tasks.filter(t => t.stage === 1 && !t.parentId && !t.deletedAt);
+            const invalidRoots = stage1Roots.filter(t => t.displayId === '?' || !t.displayId);
+            if (invalidRoots.length > 0) {
+              console.warn('[doPersistActiveProject success] BEFORE update - Stage 1 roots with invalid displayId:', 
+                invalidRoots.map(t => ({ id: t.id.slice(-4), displayId: t.displayId }))
+              );
+            }
+          }
+          return ps.map(p => 
+            p.id === project.id 
+              ? { ...p, updatedAt: now, version: result.newVersion ?? p.version } 
+              : p
+          );
+        });
         // 同步成功后，再次保存快照以确保版本号同步
         this.syncService.saveOfflineSnapshot(this.projectState.projects());
         console.log('[Sync] 本地版本号已更新', { projectId: project.id, newVersion: result.newVersion });
