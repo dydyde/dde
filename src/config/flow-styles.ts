@@ -98,37 +98,37 @@ export interface FlowStyleConfig {
  */
 export const DEFAULT_FLOW_STYLES: FlowStyleConfig = {
   node: {
-    background: 'white',
-    selectedBorder: '#0d9488', // teal-600
-    defaultBorder: '#e7e5e4', // stone-200
-    unassignedBackground: '#dbeafe', // blue-100 - 蓝色系，与绿色已完成形成对比
-    unassignedBorder: '#3b82f6', // blue-500
-    completedBackground: '#dcfce7', // green-100 - 更鲜艳的绿色
-    searchHighlightBackground: '#fef08a', // yellow-200
-    searchHighlightBorder: '#eab308', // yellow-500
+    background: '#FFFFFF', // White nodes on cream canvas
+    selectedBorder: '#4A8C8C', // retro.teal
+    defaultBorder: '#78716C', // retro.muted
+    unassignedBackground: '#EBE7D9', // retro.panel
+    unassignedBorder: '#C15B3E', // retro.rust
+    completedBackground: '#E2E8C0', // Light olive
+    searchHighlightBackground: '#B89C48', // retro.gold
+    searchHighlightBorder: '#C15B3E', // retro.rust
   },
   text: {
-    displayIdColor: '#78716C', // stone-500
-    titleColor: '#57534e', // stone-600
-    unassignedTitleColor: '#1d4ed8', // blue-700
+    displayIdColor: '#78716C', // retro.muted
+    titleColor: '#44403C', // retro.dark
+    unassignedTitleColor: '#C15B3E', // retro.rust
     font: {
-      displayId: 'bold 9px sans-serif',
-      title: '400 12px sans-serif',
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
     },
   },
   link: {
-    parentChildColor: '#94a3b8', // slate-400
-    crossTreeColor: '#6366f1', // indigo-500
-    descriptionBackground: '#f5f3ff', // violet-50
-    descriptionBorder: '#8b5cf6', // violet-500
-    descriptionText: '#6d28d9', // violet-700
+    parentChildColor: '#78716C', // retro.muted
+    crossTreeColor: '#C15B3E', // retro.rust
+    descriptionBackground: '#F5F2E9', // retro.canvas
+    descriptionBorder: '#4A8C8C', // retro.teal
+    descriptionText: '#44403C', // retro.dark
   },
   port: {
-    hoverColor: '#a8a29e', // stone-400
+    hoverColor: '#4A8C8C', // retro.teal
     defaultColor: 'transparent',
   },
   canvas: {
-    background: '#F9F8F6', // warm gray
+    background: '#F5F2E9', // retro.canvas
   },
 };
 
@@ -151,8 +151,8 @@ export const OCEAN_FLOW_STYLES: FlowStyleConfig = {
     titleColor: '#0c4a6e', // sky-900
     unassignedTitleColor: '#4338ca', // indigo-700
     font: {
-      displayId: 'bold 9px sans-serif',
-      title: '400 12px sans-serif',
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
     },
   },
   link: {
@@ -190,8 +190,8 @@ export const FOREST_FLOW_STYLES: FlowStyleConfig = {
     titleColor: '#14532d', // green-900
     unassignedTitleColor: '#b45309', // amber-700
     font: {
-      displayId: 'bold 9px sans-serif',
-      title: '400 12px sans-serif',
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
     },
   },
   link: {
@@ -229,8 +229,8 @@ export const SUNSET_FLOW_STYLES: FlowStyleConfig = {
     titleColor: '#7c2d12', // orange-900
     unassignedTitleColor: '#be185d', // pink-700
     font: {
-      displayId: 'bold 9px sans-serif',
-      title: '400 12px sans-serif',
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
     },
   },
   link: {
@@ -268,8 +268,8 @@ export const LAVENDER_FLOW_STYLES: FlowStyleConfig = {
     titleColor: '#581c87', // purple-900
     unassignedTitleColor: '#c026d3', // fuchsia-600
     font: {
-      displayId: 'bold 9px sans-serif',
-      title: '400 12px sans-serif',
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
     },
   },
   link: {

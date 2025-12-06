@@ -248,7 +248,7 @@ function showStartupError(title: string, description: string, err: any) {
   
   // 显示用户可见的错误界面
   const errorDiv = document.createElement('div');
-  errorDiv.style.cssText = 'position:fixed;inset:0;background:#fff;color:#333;padding:2rem;font-family:sans-serif;z-index:99998;overflow:auto;';
+  errorDiv.style.cssText = 'position:fixed;inset:0;background:#fff;color:#333;padding:2rem;font-family:"LXGW WenKai", sans-serif;z-index:99998;overflow:auto;';
   errorDiv.innerHTML = `
     <div style="max-width:600px;margin:0 auto;">
       <h1 style="color:#dc2626;margin-bottom:1rem;font-size:1.5rem;">${title}</h1>

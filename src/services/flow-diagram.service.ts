@@ -198,7 +198,9 @@ export class FlowDiagramService {
       // 初始化模型
       this.diagram!.model = new go.GraphLinksModel([], [], {
         linkKeyProperty: 'key',
-        nodeKeyProperty: 'key'
+        nodeKeyProperty: 'key',
+        linkFromPortIdProperty: 'fromPortId',  // ⚠️ 关键：告诉 GoJS 我们用 fromPortId 存储端口信息
+        linkToPortIdProperty: 'toPortId'       // ⚠️ 关键：告诉 GoJS 我们用 toPortId 存储端口信息
       });
       
       // 设置事件监听器
@@ -267,18 +269,18 @@ export class FlowDiagramService {
         { locationSpot: go.Spot.Center },
         $(go.Shape, "RoundedRectangle",
           {
-            fill: "#374151",  // 深灰色，在白色背景上明显
-            stroke: "#1F2937",
+            fill: "#44403C",  // retro.dark
+            stroke: "#44403C",
             strokeWidth: 1,
             minSize: new go.Size(8, 6)  // 最小尺寸，确保可见
           },
           new go.Binding("fill", "status", (status: string) => {
             // 根据状态使用不同颜色
             switch (status) {
-              case 'done': return "#059669";     // 绿色
-              case 'in-progress': return "#3B82F6"; // 蓝色
-              case 'blocked': return "#DC2626";  // 红色
-              default: return "#6B7280";         // 灰色
+              case 'done': return "#8B9A46";     // retro.olive
+              case 'in-progress': return "#4A8C8C"; // retro.teal
+              case 'blocked': return "#C15B3E";  // retro.rust
+              default: return "#78716C";         // retro.muted
             }
           })
         )
@@ -286,7 +288,7 @@ export class FlowDiagramService {
       
       // 简化的连接线模板
       this.overview.linkTemplate = $(go.Link,
-        $(go.Shape, { stroke: "#9CA3AF", strokeWidth: 1 })
+        $(go.Shape, { stroke: "#78716C", strokeWidth: 1 })
       );
       
       // 关键：让 Overview 只显示实际的文档内容，不包含 scrollMargin
@@ -634,7 +636,7 @@ export class FlowDiagramService {
       // 使用 GoJS 的 makeImageData 方法生成 base64 图片
       const imgData = this.diagram.makeImageData({
         scale: 2, // 2x 分辨率，更清晰
-        background: '#F9F8F6', // 使用流程图背景色
+        background: '#F5F2E9', // 使用流程图背景色
         type: 'image/png',
         maxSize: new go.Size(4096, 4096) // 限制最大尺寸
       }) as string;
@@ -674,7 +676,7 @@ export class FlowDiagramService {
       // 使用 GoJS 的 makeSvg 方法生成 SVG
       const svg = this.diagram.makeSvg({
         scale: 1,
-        background: '#F9F8F6',
+        background: '#F5F2E9',
         maxSize: new go.Size(4096, 4096)
       });
       
@@ -972,7 +974,15 @@ export class FlowDiagramService {
       
       const model = this.diagram.model as any;
       model.mergeNodeDataArray(diagramData.nodeDataArray);
-      model.mergeLinkDataArray(diagramData.linkDataArray);
+      
+      // ========== 确保所有连接线使用主端口（空字符串）==========
+      // 这样才能启用 Perimeter Intersection（边界滑动）效果
+      const linkDataWithPorts = diagramData.linkDataArray.map(link => ({
+        ...link,
+        fromPortId: "",  // 空字符串 = 主节点端口
+        toPortId: ""     // 空字符串 = 主节点端口
+      }));
+      model.mergeLinkDataArray(linkDataWithPorts);
       
       // 移除不存在的节点和连接线
       const nodeKeys = new Set(diagramData.nodeDataArray.map(n => n.key));
@@ -995,6 +1005,11 @@ export class FlowDiagramService {
           }
         });
       }
+      
+      // 强制刷新所有链接路由（确保端口 Side Spot 分散计算生效）
+      this.diagram.links.each((link: go.Link) => {
+        link.invalidateRoute();
+      });
       
       // 首次加载完成后，在移动端自动适应内容
       if (this.isFirstLoad && diagramData.nodeDataArray.length > 0) {
@@ -1051,16 +1066,73 @@ export class FlowDiagramService {
   
   /**
    * 设置节点模板
+   * 
+   * 设计：
+   * - 主体区域只能拖动，不能拉线
+   * - 四边有明确可见的"连接手柄"（小方块），只有点击手柄才能拉线
+   * - 连接线分散到各边（使用 Side spots）
    */
   private setupNodeTemplate($: any): void {
     if (!this.diagram) return;
     
     const self = this;
+    const isMobile = this.store.isMobile();
+    const portSize = isMobile ? 14 : 10;  // 连接手柄大小
+    
+    /**
+     * 创建边缘连接手柄
+     * @param name 端口名称
+     * @param spot 位置（Top/Bottom/Left/Right）
+     */
+    /**
+     * 获取边缘 Spot（用于连接线方向）
+     */
+    function makePort(name: string, spot: go.Spot): go.Shape {
+      // ========== 边缘触发端口（紫色小圆点）==========
+      // 作用：仅作为 UI 交互手柄，用户点击它触发 LinkingTool
+      // 
+      // 关键设计：
+      // - 这个端口 **不参与** 连接线的视觉锚点计算
+      // - fromSpot/toSpot 设为 None，避免在小圆点边界上打转
+      // - 实际连接点由主节点（portId: ""）+ getLinkPoint 计算
+      // - 结果：点击紫色小框，线在整个圆角矩形边界上滑动
+      return $(go.Shape, "Circle", {
+        fill: "transparent",       // 默认透明
+        stroke: null,              // 默认无边框
+        strokeWidth: 1,
+        desiredSize: new go.Size(portSize, portSize),
+        alignment: spot,
+        alignmentFocus: go.Spot.Center,  // 关键修复：端口中心对齐到节点边缘，而不是端口边缘
+        portId: name,              // T, B, L, R - 仅用于识别点击位置
+        fromLinkable: true,        // 允许触发连线（作为起点）
+        toLinkable: true,          // 也允许作为终点（findTargetPort 会重定向到主端口）
+        fromSpot: go.Spot.None,    // 不在端口边界计算
+        toSpot: go.Spot.None,      // 不在端口边界计算
+        isActionable: false,       // 关键：让端口不阻挡其他操作，仅响应 LinkingTool
+        cursor: "crosshair",       // 十字光标表示可连接
+        // 鼠标悬停效果
+        mouseEnter: (e: any, port: go.Shape) => {
+          if (e.diagram.isReadOnly) return;
+          port.fill = "#4A8C8C";   // retro.teal
+          port.stroke = "#44403C"; // retro.dark
+        },
+        mouseLeave: (e: any, port: go.Shape) => {
+          port.fill = "transparent";
+          port.stroke = null;
+        }
+      });
+    }
     
     this.diagram.nodeTemplate = $(go.Node, "Spot",
       {
         locationSpot: go.Spot.Center,
         selectionAdorned: true,
+        // ========== 关键：让节点本身可以作为连接目标 ==========
+        // 即使鼠标在节点的任何位置，都能被 LinkingTool 检测到
+        fromLinkable: false,       // 不从节点本身拉线（从边缘端口拉）
+        toLinkable: true,          // 允许连接到节点（任何位置）
+        fromLinkableDuplicates: false,
+        toLinkableDuplicates: true,
         click: (e: any, node: any) => {
           if (e.diagram.lastInput.dragging) return;
           self.zone.run(() => {
@@ -1075,14 +1147,61 @@ export class FlowDiagramService {
       },
       new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
       
-      // 主面板
-      this.configService.getNodeMainPanelConfig($),
+      // ========== 主面板（蓝色大背景框）==========
+      // 作用：作为连线的真正起点/终点，配合 getLinkPoint 实现边界滑动
+      $(go.Panel, "Auto",
+        {
+          name: "BODY",
+          // 关键：让整个 Panel 可以接受连接
+          portId: "",              // 主体端口（空字符串）- 真正的连线计算端口
+          fromLinkable: false,     // 默认不能从主体拉线（由 doActivate 临时启用）
+          toLinkable: true,        // 允许连接到主体（整个节点区域都可接受连接）
+          fromSpot: go.Spot.AllSides, // 出线动态寻找离目标最近的边界点
+          toSpot: go.Spot.AllSides,   // 入线动态寻找离源头最近的边界点
+          cursor: "move"           // 移动光标
+        },
+        new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => 
+          isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH),
+        $(go.Shape, "RoundedRectangle", {
+          name: "SHAPE",
+          fill: "white",
+          stroke: "#78716C",       // retro.muted
+          strokeWidth: 1,
+          parameter1: 10,
+          isPanelMain: true        // 标记为主元素，不阻挡其他元素的鼠标事件
+          // ========== go.Spot.AllSides - 核心配置 ==========
+          // 这就是你描述的"水珠在玻璃边缘滑动"的效果
+          // 算法名称：Perimeter Intersection（周界交点计算）
+          // 原理：连接线不死死定在一个坐标点，而是动态计算与节点边界的交点
+        },
+        new go.Binding("fill", "color"),
+        new go.Binding("stroke", "", (data: any, obj: any) => {
+          if (obj.part.isSelected) return data.selectedBorderColor || "#4A8C8C";
+          return data.borderColor || "#78716C";
+        }).ofObject(),
+        new go.Binding("strokeWidth", "borderWidth")),
+        
+        $(go.Panel, "Vertical",
+          new go.Binding("margin", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 10 : 16),
+          $(go.TextBlock, { font: "bold 9px \"LXGW WenKai Screen\", sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
+            new go.Binding("text", "displayId"),
+            new go.Binding("stroke", "displayIdColor"),
+            new go.Binding("visible", "isUnassigned", (isUnassigned: boolean) => !isUnassigned)),
+          $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px \"LXGW WenKai Screen\", sans-serif", stroke: "#44403C" },
+            new go.Binding("text", "title"),
+            new go.Binding("font", "isUnassigned", (isUnassigned: boolean) => 
+              isUnassigned ? "500 11px \"LXGW WenKai Screen\", sans-serif" : "400 12px \"LXGW WenKai Screen\", sans-serif"),
+            new go.Binding("stroke", "titleColor"),
+            new go.Binding("maxSize", "isUnassigned", (isUnassigned: boolean) => 
+              isUnassigned ? new go.Size(120, NaN) : new go.Size(160, NaN)))
+        )
+      ),
       
-      // 端口
-      this.configService.createPort($, "T", go.Spot.Top, true, true),
-      this.configService.createPort($, "L", go.Spot.Left, true, true),
-      this.configService.createPort($, "R", go.Spot.Right, true, true),
-      this.configService.createPort($, "B", go.Spot.Bottom, true, true)
+      // ========== 边缘连接手柄（小圆点）==========
+      makePort("T", go.Spot.Top),
+      makePort("B", go.Spot.Bottom),
+      makePort("L", go.Spot.Left),
+      makePort("R", go.Spot.Right)
     );
   }
   
@@ -1094,17 +1213,481 @@ export class FlowDiagramService {
     
     const self = this;
     const isMobile = this.store.isMobile();
+    const allowedPortIds = ["T", "B", "L", "R"];
+    const rawCaptureRadius = GOJS_CONFIG.LINK_CAPTURE_THRESHOLD ?? 80;
+    const TARGET_CAPTURE_RADIUS = this.store.isMobile()
+      ? Math.min(Math.max(rawCaptureRadius, 28), 60)
+      : Math.min(Math.max(rawCaptureRadius, 16), 36);
+    const pointerTolerance = this.store.isMobile() ? 6 : 3;
     
+    /**
+     * ========== Perimeter Intersection（周界交点计算）算法 ==========
+     * 
+     * 这就是你看到的"水珠在玻璃边缘滑动"的核心实现
+     * 
+     * 原理：
+     * 1. 射线：从节点中心指向目标点（鼠标位置）画一条虚拟射线
+     * 2. 求交：计算这条射线与节点矩形边界的交点
+     * 3. 渲染：将交点作为连接线的实际起点/终点
+     * 
+     * 效果：当你移动鼠标时，交点会沿着矩形边框自动移动，
+     *      就像水珠在玻璃边缘滑动一样，总是寻找离鼠标最近的那个点
+     * 
+     * @param node - 节点对象
+     * @param targetPoint - 目标点（通常是鼠标位置或对方节点位置）
+     * @returns 节点边界上的交点坐标
+     */
+    const computeNodeEdgePoint = (node: go.Node, targetPoint: go.Point): go.Point => {
+      // 获取节点主体面板（BODY）的边界
+      // 关键：我们要计算的是整个蓝色大框的边界，而不是紫色小圆点的边界
+      const bodyPanel = node.findObject("BODY") as go.Panel;
+      
+      // 后备方案：如果 BODY 面板不存在，尝试使用节点的实际边界
+      let bounds: go.Rect;
+      
+      if (bodyPanel) {
+        bounds = bodyPanel.getDocumentBounds();
+        // 调试：验证我们使用的是主节点边界，而不是端口边界
+      } else {
+        // 使用节点自身的边界作为后备
+        bounds = node.actualBounds;
+        if (!bounds.isReal() || bounds.width === 0 || bounds.height === 0) {
+          // 如果连边界都没有，返回节点中心
+          return node.getDocumentPoint(go.Spot.Center);
+        }
+        // 转换为文档坐标
+        const loc = node.location;
+        bounds = new go.Rect(
+          loc.x - bounds.width / 2,
+          loc.y - bounds.height / 2,
+          bounds.width,
+          bounds.height
+        );
+      }
+      
+      if (!bounds.isReal()) {
+        return node.getDocumentPoint(go.Spot.Center);
+      }
+      
+      // 计算从节点中心指向目标点的方向向量
+      const center = new go.Point(bounds.centerX, bounds.centerY);
+      const dx = targetPoint.x - center.x;
+      const dy = targetPoint.y - center.y;
+      
+      if (dx === 0 && dy === 0) return center;
+      
+      // ========== 射线与矩形边界求交算法 ==========
+      // 计算射线 (center + t * direction) 与矩形边界的交点
+      const halfWidth = bounds.width / 2;
+      const halfHeight = bounds.height / 2;
+      
+      // 计算到达各边所需的参数 t（射线参数方程的参数）
+      // 射线方程：Point = center + t * (dx, dy)
+      // 当射线到达矩形边界时，找到最小的 t 值
+      let t = Number.POSITIVE_INFINITY;
+      
+      if (dx !== 0) {
+        const tRight = halfWidth / Math.abs(dx);
+        const tLeft = halfWidth / Math.abs(dx);
+        t = Math.min(t, dx > 0 ? tRight : tLeft);
+      }
+      
+      if (dy !== 0) {
+        const tBottom = halfHeight / Math.abs(dy);
+        const tTop = halfHeight / Math.abs(dy);
+        t = Math.min(t, dy > 0 ? tBottom : tTop);
+      }
+      
+      // 计算边界上的交点：这就是连接线的实际起点/终点
+      // 这个点会随着目标位置（鼠标）的移动而沿边界滑动
+      return new go.Point(center.x + dx * t, center.y + dy * t);
+    };
+
+    const getNodeBodyBounds = (node: go.Node): go.Rect | null => {
+      const bodyPanel = node.findObject("BODY") as go.Panel;
+      if (bodyPanel) {
+        const panelBounds = bodyPanel.getDocumentBounds();
+        if (panelBounds.isReal()) {
+          return panelBounds;
+        }
+      }
+      const bounds = node.actualBounds;
+      return bounds.isReal() ? bounds : null;
+    };
+
+    const isPointerNearBody = (node: go.Node, pointer: go.Point, tolerance: number): boolean => {
+      const bounds = getNodeBodyBounds(node);
+      if (!bounds) return false;
+      const expanded = bounds.copy();
+      expanded.inflate(tolerance, tolerance);
+      return expanded.containsPoint(pointer);
+    };
+
+    const distanceToBodySquared = (node: go.Node, pointer: go.Point): number => {
+      const bounds = getNodeBodyBounds(node);
+      if (!bounds) return Number.POSITIVE_INFINITY;
+      const clampedX = Math.min(Math.max(pointer.x, bounds.x), bounds.right);
+      const clampedY = Math.min(Math.max(pointer.y, bounds.y), bounds.bottom);
+      const dx = pointer.x - clampedX;
+      const dy = pointer.y - clampedY;
+      return dx * dx + dy * dy;
+    };
+
+    // ========== getLinkPoint - 连接线端点计算函数 ==========
+    // 这是 GoJS 每次渲染连接线时调用的回调函数
+    // 配合 go.Spot.AllSides 使用，实现动态边界滑动效果
+    // 
+    // 关键修复：传入的 node 参数可能是端口对象，我们需要获取真正的 Node
+    // ========== getLinkPoint - 连接线端点计算函数 ==========
+    // 这是 GoJS 每次渲染连接线时调用的回调函数
+    // 配合 go.Spot.AllSides 使用，实现动态边界滑动效果
+    // 
+    // 关键：需要处理两种情况
+    // 1. 临时连接线（拖动时）：fromNode/toNode 可能是 undefined，需要从 port 向上查找
+    // 2. 永久连接线：fromNode/toNode 是实际节点
+    const freeAngleLinkPoint: go.Link['getLinkPoint'] = function(this: go.Link, node, port, spot, from, _ortho, otherNode, otherPort) {
+      // ========== 多重策略查找实际节点 ==========
+      let actualNode: go.Node | null = null;
+      
+      // 策略1: 从连接线的 fromNode/toNode 获取（永久连接线）
+      // 注意：需要验证节点是否有效（有 data 或有 BODY 面板）
+      if (from) {
+        if (this.fromNode) {
+          const hasData = !!(this.fromNode as any).data;
+          const hasBody = !!(this.fromNode as any).findObject?.('BODY');
+          if (hasData || hasBody) {
+            actualNode = this.fromNode;
+          }
+        }
+      } else {
+        if (this.toNode) {
+          const hasData = !!(this.toNode as any).data;
+          const hasBody = !!(this.toNode as any).findObject?.('BODY');
+          if (hasData || hasBody) {
+            actualNode = this.toNode;
+          }
+        }
+      }
+      
+      // 策略2: 使用传入的 node 参数
+      if (!actualNode && node instanceof go.Node) {
+        const hasData = !!(node as any).data;
+        const hasBody = !!(node as any).findObject?.('BODY');
+        if (hasData || hasBody) {
+          actualNode = node;
+        }
+      }
+      
+      // 策略3: 从 port.part 获取节点（port 是节点的一部分）
+      if (!actualNode && port && (port as any).part instanceof go.Node) {
+        const partNode = (port as any).part;
+        const hasData = !!(partNode as any).data;
+        const hasBody = !!(partNode as any).findObject?.('BODY');
+        if (hasData || hasBody) {
+          actualNode = partNode;
+        }
+      }
+      
+      // 策略4: 临时连接线的特殊处理 - 从 LinkingTool 获取原始节点
+      if (!actualNode && this.diagram) {
+        const linkingTool = this.diagram.toolManager.linkingTool;
+        if (linkingTool.isActive) {
+          // 根据是起点还是终点，选择不同的端口
+          let originalPort = from 
+            ? ((linkingTool as any).originalFromPort || (linkingTool as any)._tempMainPort)
+            : (linkingTool as any).originalToPort;
+          
+          // 如果 originalPort 是字符串（节点key），需要查找节点
+          if (typeof originalPort === 'string') {
+            const foundNode = this.diagram.findNodeForKey(originalPort);
+            actualNode = foundNode;
+          } else if (originalPort && originalPort.part instanceof go.Node) {
+            // 如果是端口对象，获取其所属节点
+            actualNode = originalPort.part;
+          }
+        }
+      }
+      
+      if (!actualNode) {
+        // 后备方案：如果是终点且还在拖动，使用鼠标位置作为目标
+        if (!from && this.diagram?.lastInput?.documentPoint) {
+          return this.diagram.lastInput.documentPoint;
+        }
+        // 最终后备：返回默认点
+        return new go.Point();
+      }
+      
+      const doc = actualNode.diagram;
+      
+      // 获取目标点（可能是鼠标位置、对方端口或对方节点中心）
+      const target = otherPort?.getDocumentPoint(go.Spot.Center)
+        || otherNode?.getDocumentPoint(go.Spot.Center)
+        || doc?.lastInput?.documentPoint
+        || actualNode.getDocumentPoint(go.Spot.Center);
+      
+      // 调用 Perimeter Intersection 算法计算边界交点
+      return computeNodeEdgePoint(actualNode, target);
+    };
+    
+    // 配置拖动时的临时连接线样式
+    const linkingTool = this.diagram.toolManager.linkingTool;
+    const relinkingTool = this.diagram.toolManager.relinkingTool;
+
+    // 只允许从四个边缘小圆点开始拉线，避免从主体区域误触导致无法拖动节点
+    const originalCanStart = linkingTool.canStart;
+    linkingTool.canStart = function() {
+      if (!originalCanStart.call(this)) return false;
+      const dia = this.diagram;
+      if (!dia) return false;
+      const input = dia.lastInput;
+      if (!input) return false;
+      const port = dia.findObjectAt(input.documentPoint, (obj: any) => {
+        if (obj && typeof obj.portId === "string" && obj.portId.length > 0 && allowedPortIds.includes(obj.portId)) {
+          return obj;
+        }
+        return null;
+      }, null) as any;
+      if (!port) return false;
+      return allowedPortIds.includes(port.portId);
+    };
+    
+    // ========== "偷梁换柱"技术：解决触发者与表现者分离问题 ==========
+    // 
+    // 问题：用户期望的交互逻辑
+    //   - 触发：点击紫色小圆点（边缘端口）开始拖拽
+    //   - 表现：连接线沿着蓝色大框（主节点）的边界滑动
+    // 
+    // 矛盾：如果直接从紫色小圆点拉线
+    //   - 线只会绕着小圆点自己的微小边界转，而不是绕着整个节点转
+    // 
+    // 解决方案：偷梁换柱
+    //   1. 用户点击紫色小圆点 → 触发 LinkingTool（触发器）
+    //   2. 激活后立即替换起点 → 改用主节点端口（portId: ""）作为真正起点
+    //   3. 主节点配合 getLinkPoint → 计算边界交点，实现沿边滑动效果
+    // 
+    // 这样就实现了："点击紫色小框，但线绕着蓝色大框转"
+    
+    const originalDoActivate = linkingTool.doActivate;
+    linkingTool.doActivate = function() {
+      originalDoActivate.call(this);
+      
+      const startPort = (this as any).startPort 
+        || (this as any).originalFromPort 
+        || (this as any).fromPort;
+      
+      let edgePortObj: any = null;
+      
+      if (startPort && typeof startPort === 'object' && startPort.portId) {
+        edgePortObj = startPort;
+      } else if (startPort && typeof startPort === 'string' && allowedPortIds.includes(startPort)) {
+        const originalNode = (this as any).originalFromNode || (this as any).fromNode;
+        if (originalNode instanceof go.Node) {
+          edgePortObj = originalNode.findPort(startPort);
+        }
+      }
+      
+      if (edgePortObj && allowedPortIds.includes(edgePortObj.portId)) {
+        const node = edgePortObj.part;
+        if (node instanceof go.Node) {
+          const mainPort = node.findPort("");
+          if (mainPort) {
+            (this as any)._tempMainPort = mainPort;
+            (this as any)._savedFromLinkable = mainPort.fromLinkable;
+            (this as any)._savedToLinkable = mainPort.toLinkable;
+            
+            mainPort.fromLinkable = true;
+            // 保持 toLinkable = true，允许其他连接线连接到此节点
+            
+            (this as any).startPort = mainPort;
+            (this as any).originalFromPort = mainPort;
+            (this as any).fromPort = mainPort;
+            
+            // 修改临时连接线，使用主节点端口
+            if (this.temporaryLink) {
+              (this.temporaryLink as any).fromNode = node;
+              this.temporaryLink.fromPortId = "";
+              this.temporaryLink.fromSpot = go.Spot.AllSides;
+              this.temporaryLink.toSpot = go.Spot.AllSides;
+              this.temporaryLink.invalidateRoute();
+            }
+          }
+        }
+      }
+    };
+
+    // 重写 doDeactivate：恢复主节点端口状态
+    const originalDoDeactivate = linkingTool.doDeactivate;
+    linkingTool.doDeactivate = function() {
+      // 恢复主体端口的原始配置（fromLinkable = false）
+      const mainPort = (this as any)._tempMainPort;
+      if (mainPort) {
+        mainPort.fromLinkable = (this as any)._savedFromLinkable;
+        mainPort.toLinkable = (this as any)._savedToLinkable;
+        (this as any)._tempMainPort = null;
+      }
+      originalDoDeactivate.call(this);
+    };
+
+    // ========== findTargetPort 重写：解决边缘端口阻挡连接问题 ==========
+    // 问题：边缘端口或节点边界可能形成"透明墙"阻挡连接
+    // 解决：为 LinkingTool / RelinkingTool 提供统一的智能捕获逻辑
+    const radiusSquared = TARGET_CAPTURE_RADIUS * TARGET_CAPTURE_RADIUS;
+    const isRealNode = (node: go.Node | null, excludeNode: go.Node | null): node is go.Node => {
+      if (!node || node === excludeNode) return false;
+      const hasData = !!(node as any).data;
+      const hasBody = !!node.findObject?.('BODY');
+      if (!hasData && !hasBody) return false;
+      const mainPort = node.findPort("");
+      return !!(mainPort && (mainPort as any).toLinkable);
+    };
+    const getMainPort = (node: go.Node | null): go.GraphObject | null => {
+      if (!node) return null;
+      const mainPort = node.findPort("");
+      if (mainPort && (mainPort as any).toLinkable) {
+        return mainPort;
+      }
+      return null;
+    };
+    const normalizePort = (port: go.GraphObject | null): go.GraphObject | null => {
+      if (!port) return null;
+      const node = port.part;
+      if (node instanceof go.Node) {
+        const portId = port.portId || '';
+        if (portId === "") {
+          return (port as any).toLinkable ? port : getMainPort(node);
+        }
+        if (allowedPortIds.includes(portId)) {
+          return getMainPort(node) || port;
+        }
+      }
+      return port;
+    };
+    const findNodeNearPointer = (tool: go.LinkingTool, fromEnd: boolean): go.Node | null => {
+      const diagram = tool.diagram;
+      const pointer = diagram?.lastInput?.documentPoint;
+      if (!diagram || !pointer) return null;
+      const toolAny = tool as any;
+      const excludeNode = fromEnd ? toolAny.toNode : toolAny.fromNode;
+      const directParts = diagram.findPartsAt(pointer, true);
+      let found: go.Node | null = null;
+      directParts.each((part: go.Part) => {
+        if (!found && part instanceof go.Node && isRealNode(part, excludeNode) && isPointerNearBody(part, pointer, pointerTolerance)) {
+          found = part;
+        }
+      });
+      if (found) return found;
+      const searchRect = new go.Rect(
+        pointer.x - TARGET_CAPTURE_RADIUS,
+        pointer.y - TARGET_CAPTURE_RADIUS,
+        TARGET_CAPTURE_RADIUS * 2,
+        TARGET_CAPTURE_RADIUS * 2
+      );
+      let closest: go.Node | null = null;
+      let closestDist = Number.POSITIVE_INFINITY;
+      diagram.findPartsIn(searchRect, true, true).each((part: go.Part) => {
+        if (!(part instanceof go.Node) || !isRealNode(part, excludeNode)) return;
+        if (!isPointerNearBody(part, pointer, pointerTolerance)) return;
+        const dist = distanceToBodySquared(part, pointer);
+        if (dist <= radiusSquared && dist < closestDist) {
+          closestDist = dist;
+          closest = part;
+        }
+      });
+      if (closest) return closest;
+      diagram.nodes.each((node: go.Node) => {
+        if (!isRealNode(node, excludeNode)) return;
+        if (!isPointerNearBody(node, pointer, pointerTolerance)) return;
+        const dist = distanceToBodySquared(node, pointer);
+        if (dist <= radiusSquared && dist < closestDist) {
+          closestDist = dist;
+          closest = node;
+        }
+      });
+      return closest;
+    };
+    const enhanceTargetFinding = (
+      tool: go.LinkingTool,
+      original: go.LinkingTool['findTargetPort']
+    ): void => {
+      tool.findTargetPort = function(fromEnd: boolean) {
+        const node = findNodeNearPointer(this, fromEnd);
+        const directPort = getMainPort(node);
+        if (directPort) {
+          return directPort;
+        }
+        return normalizePort(original.call(this, fromEnd));
+      };
+    };
+    const originalFindTargetPort = linkingTool.findTargetPort;
+    enhanceTargetFinding(linkingTool, originalFindTargetPort);
+    const originalRelinkingFindTargetPort = relinkingTool.findTargetPort;
+    enhanceTargetFinding(
+      relinkingTool as unknown as go.LinkingTool,
+      originalRelinkingFindTargetPort as unknown as go.LinkingTool['findTargetPort']
+    );
+    
+    // ========== 关键配置：扩大端口检测范围 ==========
+    // portGravity: 端口的"引力"范围，数值越大越容易被检测到
+    const portGravity = Math.max(4, pointerTolerance * 2);
+    linkingTool.portGravity = portGravity;
+    (relinkingTool as any).portGravity = portGravity;
+    
+    // 优化拖拽体验：解除端口方向限制
+    (linkingTool as any).temporaryFromSpot = go.Spot.AllSides;
+    (linkingTool as any).temporaryToSpot = go.Spot.AllSides;
+
+    // ========== 配置临时连接线 ==========
+    // 拖拽过程中显示的虚线，配合 getLinkPoint 实现动态边界滑动
+    linkingTool.temporaryLink = $(go.Link,
+      { 
+        layerName: "Tool", 
+        getLinkPoint: freeAngleLinkPoint,  // 关键：使用自定义的边界交点计算
+        curve: go.Link.Bezier
+      },
+      $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
+      $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+    );
+    
+    // ========== 配置 RelinkingTool（重连工具）==========
+    // 确保重新连接时也使用相同的动态边界滑动逻辑
+    (relinkingTool as any).fromHandleArchetype = $(go.Shape, "Diamond", {
+      desiredSize: new go.Size(10, 10),
+      fill: "#4A8C8C",
+      stroke: "#44403C",
+      cursor: "crosshair"
+    });
+    (relinkingTool as any).toHandleArchetype = $(go.Shape, "Diamond", {
+      desiredSize: new go.Size(10, 10),
+      fill: "#4A8C8C",
+      stroke: "#44403C",
+      cursor: "crosshair"
+    });
+    
+    // 重连时使用相同的临时线配置（带边界滑动）
+    relinkingTool.temporaryLink = $(go.Link,
+      { 
+        layerName: "Tool", 
+        getLinkPoint: freeAngleLinkPoint,  // 重连时也启用边界滑动
+        curve: go.Link.Bezier
+      },
+      $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
+      $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+    );
+    
+    // ========== 最终连接线模板 ==========
+    // 创建连接后的永久连接线，同样使用 getLinkPoint 保持边界滑动效果
     this.diagram.linkTemplate = $(go.Link,
       {
-        routing: go.Link.AvoidsNodes,
-        curve: go.Link.JumpOver,
-        corner: 12,
+        routing: go.Link.Normal,
+        curve: go.Link.Bezier,
+        getLinkPoint: freeAngleLinkPoint,  // 关键：永久连接线也使用边界滑动算法
         toShortLength: 4,
+        fromEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
+        toEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
         relinkableFrom: true,
         relinkableTo: true,
         reshapable: true,
-        resegmentable: true,
+        resegmentable: false,
         click: (e: any, link: any) => {
           e.diagram.select(link);
         },
@@ -1160,9 +1743,9 @@ export class FlowDiagramService {
       }),
       $(go.Panel, "Horizontal",
         { margin: 3, defaultAlignment: go.Spot.Center },
-        $(go.TextBlock, "🔗", { font: "8px sans-serif" }),
+        $(go.TextBlock, "🔗", { font: "8px \"LXGW WenKai Screen\", sans-serif" }),
         $(go.TextBlock, {
-          font: "500 8px sans-serif",
+          font: "500 8px \"LXGW WenKai Screen\", sans-serif",
           stroke: "#6d28d9",
           maxSize: new go.Size(50, 14),
           overflow: go.TextBlock.OverflowEllipsis,
@@ -1218,7 +1801,28 @@ export class FlowDiagramService {
     });
     
     // 连接线绘制/重连
-    this.addTrackedListener('LinkDrawn', (e: any) => this.handleLinkGestureInternal(e));
+    this.addTrackedListener('LinkDrawn', (e: any) => {
+      const link = e.subject;
+      
+      if (!environment.production) {
+        console.log('🔗 LinkDrawn 事件', {
+          link存在: !!link,
+          linkData存在: !!link?.data,
+          fromNode: link?.fromNode?.data?.key,
+          toNode: link?.toNode?.data?.key,
+          fromPortId: link?.fromPortId,
+          toPortId: link?.toPortId
+        });
+      }
+      
+      if (link && link.data) {
+        const model = this.diagram!.model as go.GraphLinksModel;
+        model.setDataProperty(link.data, 'fromPortId', '');
+        model.setDataProperty(link.data, 'toPortId', '');
+        link.invalidateRoute();
+      }
+      this.handleLinkGestureInternal(e);
+    });
     this.addTrackedListener('LinkRelinked', (e: any) => this.handleLinkGestureInternal(e));
     
     // 背景点击

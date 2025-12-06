@@ -6,6 +6,9 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"LXGW WenKai"', 'sans-serif'],
+      },
       colors: {
         canvas: '#F5F2E9',
         panel: '#EBE7D9',

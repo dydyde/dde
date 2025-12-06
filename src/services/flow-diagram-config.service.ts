@@ -308,25 +308,44 @@ export class FlowDiagramConfigService {
   }
   
   // ========== 模板工厂方法 ==========
-  
+
   /**
-   * 创建端口形状
+   * 创建端口
+   * 使用圆点端口，悬停时显示边框发光效果
+   * 
+   * 设计原则：
+   * - 端口仅作为交互手柄（UI Handle），不参与连接线锚点计算
+   * - fromSpot/toSpot 设为 None，避免在端口微小边界上计算
+   * - 实际锚点由主节点 + getLinkPoint 在节点边界（Perimeter）上计算
    */
-  createPort($: any, name: string, spot: any, output: boolean, input: boolean): go.Shape {
+  createPort($: any, name: string, spot: go.Spot, output: boolean, input: boolean, isMobile: boolean = false): go.Shape {
+    const portSize = isMobile ? 12 : 8;
+    
     return $(go.Shape, "Circle", {
       fill: "transparent",
-      stroke: null,
-      desiredSize: new go.Size(this.nodeConfig.portSize, this.nodeConfig.portSize),
+      stroke: "transparent",
+      strokeWidth: 2,
+      desiredSize: new go.Size(portSize, portSize),
       alignment: spot,
       alignmentFocus: spot,
       portId: name,
       fromLinkable: output,
       toLinkable: input,
       cursor: "pointer",
-      fromSpot: spot,
-      toSpot: spot,
-      mouseEnter: (e: any, port: any) => { if (!e.diagram.isReadOnly) port.fill = "#a8a29e"; },
-      mouseLeave: (e: any, port: any) => port.fill = "transparent"
+      // ========== 关键：端口不设置 Spot ==========
+      // 让连接线锚点在主节点边界计算，而不是在端口边界
+      fromSpot: go.Spot.None,
+      toSpot: go.Spot.None,
+      // 鼠标悬停时显示边框发光
+      mouseEnter: (e: any, port: go.Shape) => {
+        if (e.diagram.isReadOnly) return;
+        port.stroke = "#6366f1";
+        port.fill = "rgba(99, 102, 241, 0.15)";
+      },
+      mouseLeave: (e: any, port: go.Shape) => {
+        port.stroke = "transparent";
+        port.fill = "transparent";
+      }
     });
   }
   
@@ -342,10 +361,12 @@ export class FlowDiagramConfigService {
         stroke: "#e7e5e4",
         strokeWidth: 1,
         parameter1: this.nodeConfig.cornerRadius,
-        portId: "",
-        fromLinkable: false,
-        toLinkable: false,
-        cursor: "move"
+        portId: "",              // 主体端口（用于连接线终点计算）
+        fromLinkable: false,     // 不直接从主体拉线（由边缘小圆点触发后切换）
+        toLinkable: true,        // 允许连接到主体（配合 findTargetPort 实现边界吸附）
+        cursor: "move",
+        fromSpot: go.Spot.AllSides,  // Perimeter Intersection：动态计算边界交点
+        toSpot: go.Spot.AllSides     // 让连接线像水珠一样沿边界滑动
       },
       new go.Binding("fill", "color"),
       new go.Binding("stroke", "", (data: any, obj: any) => {
@@ -356,14 +377,14 @@ export class FlowDiagramConfigService {
       
       $(go.Panel, "Vertical",
         new go.Binding("margin", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 10 : 16),
-        $(go.TextBlock, { font: "bold 9px sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
+        $(go.TextBlock, { font: "bold 9px 'LXGW WenKai Screen', sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
           new go.Binding("text", "displayId"),
           new go.Binding("stroke", "displayIdColor"),
           new go.Binding("visible", "isUnassigned", (isUnassigned: boolean) => !isUnassigned)),
-        $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px sans-serif", stroke: "#57534e" },
+        $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px 'LXGW WenKai Screen', sans-serif", stroke: "#57534e" },
           new go.Binding("text", "title"),
           new go.Binding("font", "isUnassigned", (isUnassigned: boolean) => 
-            isUnassigned ? "500 11px sans-serif" : "400 12px sans-serif"),
+            isUnassigned ? "500 11px 'LXGW WenKai Screen', sans-serif" : "400 12px 'LXGW WenKai Screen', sans-serif"),
           new go.Binding("stroke", "titleColor"),
           new go.Binding("maxSize", "isUnassigned", (isUnassigned: boolean) => 
             isUnassigned ? new go.Size(120, NaN) : new go.Size(160, NaN)))
@@ -410,9 +431,9 @@ export class FlowDiagramConfigService {
     }),
     $(go.Panel, "Horizontal",
       { margin: 3, defaultAlignment: go.Spot.Center },
-      $(go.TextBlock, "🔗", { font: "8px sans-serif" }),
+      $(go.TextBlock, "🔗", { font: "8px 'LXGW WenKai Screen', sans-serif" }),
       $(go.TextBlock, {
-        font: "500 8px sans-serif",
+        font: "500 8px 'LXGW WenKai Screen', sans-serif",
         stroke: "#6d28d9",
         maxSize: new go.Size(50, 14),
         overflow: go.TextBlock.OverflowEllipsis,

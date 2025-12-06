@@ -330,8 +330,22 @@ export const GOJS_CONFIG = {
   ASSIGNED_NODE_WIDTH: 200,
   /** 连接线捕获阈值（像素） */
   LINK_CAPTURE_THRESHOLD: 120,
-  /** 端口大小 */
+  /** 端口大小（已废弃，保留向后兼容） */
   PORT_SIZE: 10,
+  /** 端口触控热区厚度 - 桌面端 */
+  PORT_HITAREA_DESKTOP: 10,
+  /** 端口触控热区厚度 - 移动端 */
+  PORT_HITAREA_MOBILE: 16,
+  /** 端口高亮条视觉厚度 */
+  PORT_VISUAL_HIGHLIGHT: 4,
+  /** 端口角落内缩距离（解决角落重叠） */
+  PORT_CORNER_INSET: 2,
+  /** 连接线端点最小线段长度 */
+  LINK_END_SEGMENT_LENGTH: 22,
+  /** 端口高亮颜色（主题色 indigo 半透明） */
+  PORT_HIGHLIGHT_COLOR: 'rgba(99, 102, 241, 0.25)',
+  /** 端口高亮动画过渡时间（毫秒） */
+  PORT_HIGHLIGHT_TRANSITION_MS: 150,
   /** 位置保存防抖延迟（毫秒） */
   POSITION_SAVE_DEBOUNCE: 300,
   /** 详情面板默认右边距 */

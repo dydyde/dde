@@ -60,7 +60,7 @@ import * as go from 'gojs';
       flex-direction: column;
       flex: 1;
       min-height: 0;
-      background-color: #F9F8F6;
+      background-color: #F5F2E9;
     }
   `],
   template: `
@@ -83,7 +83,7 @@ import * as go from 'gojs';
       </app-flow-palette>
 
       <!-- 流程图区域 -->
-      <div class="flex-1 min-h-0 relative overflow-hidden bg-[#F9F8F6] border-t border-stone-200/50">
+      <div class="flex-1 min-h-0 relative overflow-hidden bg-[#F5F2E9] border-t border-[#78716C]/50">
         @if (!diagram.error()) {
           <div #diagramDiv data-testid="flow-diagram" class="absolute inset-0 w-full h-full z-0 flow-canvas-container"></div>
           

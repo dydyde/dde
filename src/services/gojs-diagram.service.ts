@@ -7,6 +7,104 @@ import { GOJS_CONFIG } from '../config/constants';
 import { getFlowStyles, FlowStyleConfig, FlowTheme } from '../config/flow-styles';
 import * as go from 'gojs';
 
+// ---------------------------------------------------------
+// 1. 数学算法：计算矩形边界上离目标点最近的点
+// ---------------------------------------------------------
+function getClosestPointOnNodeBounds(node: go.Node, p: go.Point): go.Point {
+  const b = node.actualBounds;
+  
+  // 1. 将目标点(p)限制在矩形范围内 (Clamp)
+  // 这处理了鼠标在节点外部的情况：直接投影到最近的边上
+  let x = Math.max(b.x, Math.min(p.x, b.x + b.width));
+  let y = Math.max(b.y, Math.min(p.y, b.y + b.height));
+
+  // 2. 如果点在矩形内部（极少情况，或者鼠标回到了节点内），
+  // 强制“推”到最近的边上
+  if (x > b.x && x < b.x + b.width && y > b.y && y < b.y + b.height) {
+    const distLeft = x - b.x;
+    const distRight = (b.x + b.width) - x;
+    const distTop = y - b.y;
+    const distBottom = (b.y + b.height) - y;
+    
+    const min = Math.min(distLeft, distRight, distTop, distBottom);
+    
+    if (min === distLeft) x = b.x;
+    else if (min === distRight) x = b.x + b.width;
+    else if (min === distTop) y = b.y;
+    else y = b.y + b.height;
+  }
+
+  return new go.Point(x, y);
+}
+
+// ---------------------------------------------------------
+// 2. 自定义 LinkingTool
+// ---------------------------------------------------------
+class DynamicLinkingTool extends go.LinkingTool {
+  private _isDynamic: boolean = false;
+
+  constructor() {
+    super();
+  }
+
+  // 重写：激活工具时检查是否是从“拉出点”开始
+  override doActivate() {
+    this._isDynamic = false;
+    const port = this.findLinkablePort();
+    
+    // 只有从 ID 为 "T", "B", "L", "R" 的端口拖拽才启用特殊逻辑
+    if (port && ["T", "B", "L", "R"].includes(port.portId)) {
+      this._isDynamic = true;
+    }
+
+    super.doActivate();
+
+    // 关键：如果是动态模式，告诉临时链接不要自动计算 Spot，完全由我们控制坐标
+    if (this._isDynamic && this.temporaryLink) {
+      this.temporaryLink.fromSpot = go.Spot.None;
+    }
+  }
+
+  // 重写：鼠标移动时实时计算起点
+  override doMouseMove() {
+    // 让父类处理目标点（鼠标位置）的更新
+    super.doMouseMove();
+
+    if (this._isDynamic && this.isActive && this.temporaryLink) {
+      const node = this.originalFromNode;
+      if (node) {
+        const mousePt = this.diagram.lastInput.documentPoint;
+        
+        // 计算：基于【节点主体】边界的最近点
+        const edgePt = getClosestPointOnNodeBounds(node, mousePt);
+
+        // 设置临时链接的起点（索引0）
+        this.temporaryLink.setPointAt(0, edgePt);
+      }
+    }
+  }
+
+  // 重写：链接创建完成时，固定最终位置
+  override insertLink(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): go.Link | null {
+    // 先让父类创建链接
+    const newLink = super.insertLink(fromNode, fromPort, toNode, toPort);
+
+    if (newLink && this._isDynamic) {
+      const mousePt = this.diagram.lastInput.documentPoint;
+      const edgePt = getClosestPointOnNodeBounds(fromNode, mousePt);
+      
+      // 将绝对坐标转换为相对 Spot (0-1)，以便适应节点大小变化
+      const b = fromNode.actualBounds;
+      const spotX = (edgePt.x - b.x) / b.width;
+      const spotY = (edgePt.y - b.y) / b.height;
+
+      // 应用 Spot。这样链接就会“记住”它在圆角矩形边上的位置
+      newLink.fromSpot = new go.Spot(spotX, spotY);
+    }
+    return newLink;
+  }
+}
+
 export interface DiagramCallbacks {
   onNodeClick: (taskId: string) => void;
   onNodeDoubleClick: (taskId: string) => void;
@@ -82,8 +180,20 @@ export class GoJSDiagramService {
         "initialAutoScale": go.Diagram.None,
         "scrollMode": go.Diagram.InfiniteScroll, // 无限画布
         "scrollMargin": new go.Margin(500, 500, 500, 500), // 大边距支持无限滚动
-        "draggingTool.isGridSnapEnabled": false
+        "draggingTool.isGridSnapEnabled": false,
+        linkingTool: new DynamicLinkingTool()
       });
+      
+      // 配置 LinkingTool 样式
+      const linkingTool = this.diagram.toolManager.linkingTool;
+      (linkingTool as any).temporaryFromSpot = go.Spot.AllSides;
+      (linkingTool as any).temporaryToSpot = go.Spot.AllSides;
+      linkingTool.temporaryLink = $(go.Link,
+        { layerName: "Tool" },
+        { curve: go.Link.Bezier },
+        $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
+        $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+      );
       
       // 设置节点移动监听
       this.setupDiagramListeners();
@@ -205,6 +315,11 @@ export class GoJSDiagramService {
       
       this.diagram.skipsUndoManager = false;
       this.diagram.commitTransaction('update');
+      
+      // 强制刷新所有链接路由（确保端口 Side Spot 分散计算生效）
+      this.diagram.links.each((link: go.Link) => {
+        link.invalidateRoute();
+      });
       
       // 恢复选中状态
       this.restoreSelection(selectedKeys);
@@ -364,22 +479,38 @@ export class GoJSDiagramService {
   
   private createNodeTemplate($: any): go.Node {
     const self = this;
+    const isMobile = this.store.isMobile();
+    const portSize = isMobile ? 14 : 10;  // 连接手柄大小
     
-    function makePort(name: string, spot: any, output: boolean, input: boolean) {
+    /**
+     * 创建边缘连接手柄
+     * @param name 端口名称
+     * @param spot 位置（Top/Bottom/Left/Right）
+     */
+    function makePort(name: string, spot: go.Spot): go.Shape {
       return $(go.Shape, "Circle", {
-        fill: "transparent",
-        stroke: null,
-        desiredSize: new go.Size(10, 10),
+        fill: "transparent",       // 默认透明
+        stroke: null,              // 默认无边框
+        strokeWidth: 1,
+        desiredSize: new go.Size(portSize, portSize),
         alignment: spot,
         alignmentFocus: spot,
         portId: name,
-        fromLinkable: output,
-        toLinkable: input,
-        cursor: "pointer",
-        fromSpot: spot,
-        toSpot: spot,
-        mouseEnter: (e: any, port: any) => { if (!e.diagram.isReadOnly) port.fill = "#a8a29e"; },
-        mouseLeave: (e: any, port: any) => port.fill = "transparent"
+        fromLinkable: true,
+        toLinkable: true,
+        fromSpot: go.Spot.AllSides, // 允许从任意角度出线
+        toSpot: go.Spot.AllSides,   // 允许从任意角度入线
+        cursor: "crosshair",       // 十字光标表示可连接
+        // 鼠标悬停效果
+        mouseEnter: (e: any, port: go.Shape) => {
+          if (e.diagram.isReadOnly) return;
+          port.fill = "#4A8C8C";   // retro.teal
+          port.stroke = "#44403C"; // retro.dark
+        },
+        mouseLeave: (e: any, port: go.Shape) => {
+          port.fill = "transparent";
+          port.stroke = null;
+        }
       });
     }
     
@@ -404,48 +535,52 @@ export class GoJSDiagramService {
     },
     new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
     
-    // 主内容面板
+    // 主内容面板 - 只能拖动，不能拉线
     $(go.Panel, "Auto",
       new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => 
         isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH),
       $(go.Shape, "RoundedRectangle", {
         fill: "white",
-        stroke: "#e7e5e4",
+        stroke: "#78716C",       // retro.muted
         strokeWidth: 1,
         parameter1: 10,
-        portId: "",
-        fromLinkable: false,
-        toLinkable: false,
-        cursor: "move"
+        portId: "",              // 主体端口
+        fromLinkable: false,     // 不能从主体拉线
+        toLinkable: false,       // 不能连到主体
+        cursor: "move",          // 移动光标
+        fromLinkable: false,     // 不能从主体拉线
+        toLinkable: true,        // 允许连到主体
+        fromSpot: go.Spot.AllSides, // 允许从任意角度出线
+        toSpot: go.Spot.AllSides    // 允许从任意角度入线
       },
       new go.Binding("fill", "color"),
       new go.Binding("stroke", "", (data: any, obj: any) => {
-        if (obj.part.isSelected) return data.selectedBorderColor || "#0d9488";
-        return data.borderColor || "#e7e5e4";
+        if (obj.part.isSelected) return data.selectedBorderColor || "#4A8C8C";
+        return data.borderColor || "#78716C";
       }).ofObject(),
       new go.Binding("strokeWidth", "borderWidth")),
       
       $(go.Panel, "Vertical",
         new go.Binding("margin", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 10 : 16),
-        $(go.TextBlock, { font: "bold 9px sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
+        $(go.TextBlock, { font: "bold 9px \"LXGW WenKai Screen\", sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
           new go.Binding("text", "displayId"),
           new go.Binding("stroke", "displayIdColor"),
           new go.Binding("visible", "isUnassigned", (isUnassigned: boolean) => !isUnassigned)),
-        $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px sans-serif", stroke: "#57534e" },
+        $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px \"LXGW WenKai Screen\", sans-serif", stroke: "#44403C" },
           new go.Binding("text", "title"),
           new go.Binding("font", "isUnassigned", (isUnassigned: boolean) => 
-            isUnassigned ? "500 11px sans-serif" : "400 12px sans-serif"),
+            isUnassigned ? "500 11px \"LXGW WenKai Screen\", sans-serif" : "400 12px \"LXGW WenKai Screen\", sans-serif"),
           new go.Binding("stroke", "titleColor"),
           new go.Binding("maxSize", "isUnassigned", (isUnassigned: boolean) => 
             isUnassigned ? new go.Size(120, NaN) : new go.Size(160, NaN)))
       )
     ),
     
-    // 端口
-    makePort("T", go.Spot.Top, true, true),
-    makePort("L", go.Spot.Left, true, true),
-    makePort("R", go.Spot.Right, true, true),
-    makePort("B", go.Spot.Bottom, true, true)
+      // 四个边缘连接手柄（小圆点）
+    makePort("T", go.Spot.Top),
+    makePort("B", go.Spot.Bottom),
+    makePort("L", go.Spot.Left),
+    makePort("R", go.Spot.Right)
     );
   }
   
@@ -453,14 +588,15 @@ export class GoJSDiagramService {
     const self = this;
     
     return $(go.Link, {
-      routing: go.Link.AvoidsNodes,
-      curve: go.Link.JumpOver,
-      corner: 12,
+      routing: go.Link.Normal,
+      curve: go.Link.Bezier,
       toShortLength: 4,
+      fromEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
+      toEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
       relinkableFrom: true,
       relinkableTo: true,
       reshapable: true,
-      resegmentable: true,
+      resegmentable: false,
       click: (e: any, link: any) => {
         e.diagram.select(link);
       },
@@ -511,7 +647,7 @@ export class GoJSDiagramService {
     }),
     $(go.TextBlock, {
       margin: new go.Margin(2, 4, 2, 4),
-      font: "9px sans-serif",
+      font: "9px \"LXGW WenKai Screen\", sans-serif",
       stroke: "#4f46e5",
       maxSize: new go.Size(80, NaN),
       overflow: go.TextBlock.OverflowEllipsis
