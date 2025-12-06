@@ -209,10 +209,12 @@ export class RemoteChangeHandlerService {
         this.projectState.updateProjects(projects =>
           projects.map(p => {
             if (p.id !== projectId) return p;
-            return {
+            const updatedProject = {
               ...p,
               tasks: p.tasks.filter(t => t.id !== taskId)
             };
+            // 删除任务后需要重新计算 displayId，因为其他任务的编号可能会变化
+            return this.syncCoordinator.validateAndRebalance(updatedProject);
           })
         );
         break;
@@ -256,13 +258,18 @@ export class RemoteChangeHandlerService {
                 if (p.id !== projectId) return p;
 
                 const existingTaskIndex = p.tasks.findIndex(t => t.id === taskId);
+                let updatedProject: Project;
                 if (existingTaskIndex >= 0) {
                   const updatedTasks = [...p.tasks];
                   updatedTasks[existingTaskIndex] = remoteTask;
-                  return { ...p, tasks: updatedTasks };
+                  updatedProject = { ...p, tasks: updatedTasks };
                 } else {
-                  return { ...p, tasks: [...p.tasks, remoteTask] };
+                  updatedProject = { ...p, tasks: [...p.tasks, remoteTask] };
                 }
+                
+                // 重新计算 displayId 等派生属性
+                // 单任务更新时也需要 rebalance，因为 displayId 依赖树结构
+                return this.syncCoordinator.validateAndRebalance(updatedProject);
               })
             );
           })

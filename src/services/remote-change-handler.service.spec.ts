@@ -60,6 +60,7 @@ const mockSyncCoordinator = {
   setupRemoteChangeCallbacks: vi.fn(),
   hasPendingLocalChanges: vi.fn().mockReturnValue(false),
   getLastPersistAt: vi.fn().mockReturnValue(0),
+  validateAndRebalance: vi.fn((project: Project) => project),
 };
 
 const mockUndoService = {
