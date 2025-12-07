@@ -111,6 +111,9 @@ export class SyncCoordinatorService {
   
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   
+  /** 本地自动保存定时器 - 保守模式：每秒自动保存到本地 */
+  private localAutosaveTimer: ReturnType<typeof setInterval> | null = null;
+  
   /** 
    * 冲突事件 Subject - 使用发布-订阅模式替代回调
    * 
@@ -132,11 +135,36 @@ export class SyncCoordinatorService {
     this.setupQueueSyncCoordination();
     this.setupActionQueueProcessors();
     this.validateRequiredProcessors();
+    this.startLocalAutosave();
     
     this.destroyRef.onDestroy(() => {
       if (this.persistTimer) {
         clearTimeout(this.persistTimer);
       }
+      if (this.localAutosaveTimer) {
+        clearInterval(this.localAutosaveTimer);
+      }
+    });
+  }
+  
+  // ========== 公共方法 ==========
+  
+  /**
+   * 启动本地自动保存
+   * 保守模式核心机制：定期保存到本地，确保用户数据永不丢失
+   */
+  private startLocalAutosave(): void {
+    // 每秒自动保存到本地缓存
+    this.localAutosaveTimer = setInterval(() => {
+      const projects = this.projectState.projects();
+      if (projects.length > 0) {
+        // 静默保存，不打扰用户
+        this.syncService.saveOfflineSnapshot(projects);
+      }
+    }, SYNC_CONFIG.LOCAL_AUTOSAVE_INTERVAL);
+    
+    this.logger.info('本地自动保存已启动', { 
+      interval: `${SYNC_CONFIG.LOCAL_AUTOSAVE_INTERVAL}ms` 
     });
   }
   
@@ -816,7 +844,8 @@ export class SyncCoordinatorService {
     }
 
     try {
-      const result = await this.syncService.saveProjectToCloud(
+      // 使用智能同步：根据变更量自动选择增量或全量同步
+      const result = await this.syncService.saveProjectSmart(
         { ...project, updatedAt: now },
         userId
       );
@@ -833,6 +862,14 @@ export class SyncCoordinatorService {
         // 同步成功后，再次保存快照以确保版本号同步
         this.syncService.saveOfflineSnapshot(this.projectState.projects());
         console.log('[Sync] 本地版本号已更新', { projectId: project.id, newVersion: result.newVersion });
+        
+        // 如果有验证警告，记录日志但不打扰用户
+        if (result.validationWarnings && result.validationWarnings.length > 0) {
+          this.logger.warn('同步完成但有警告', {
+            projectId: project.id,
+            warnings: result.validationWarnings
+          });
+        }
       } else if (result.conflict && result.remoteData) {
         // 版本冲突处理：发布冲突事件供 UI 层处理
         this.conflict$.next({
@@ -841,6 +878,16 @@ export class SyncCoordinatorService {
           projectId: project.id
         });
         this.logger.warn('检测到数据冲突，等待用户解决', { projectId: project.id });
+      } else if (result.validationWarnings && result.validationWarnings.length > 0) {
+        // 验证失败导致同步中止
+        this.logger.error('同步验证失败', {
+          projectId: project.id,
+          warnings: result.validationWarnings
+        });
+        this.toastService.error(
+          '同步验证失败',
+          '检测到潜在的数据丢失风险，已中止同步。数据已保存到本地。'
+        );
       }
     } catch (error) {
       this.logger.error('持久化项目时发生异常', { error });

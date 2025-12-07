@@ -4,6 +4,7 @@ import { concatMap, tap } from 'rxjs/operators';
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { SupabaseClientService } from './supabase-client.service';
 import { TaskRepositoryService } from './task-repository.service';
+import { ChangeTrackerService, ProjectChangeSummary } from './change-tracker.service';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
 import { ConflictStorageService, ConflictRecord } from './conflict-storage.service';
@@ -63,6 +64,7 @@ export interface RemoteTaskChangePayload {
 export class SyncService {
   private supabase = inject(SupabaseClientService);
   private taskRepo = inject(TaskRepositoryService);
+  private changeTracker = inject(ChangeTrackerService);
   private logger = inject(LoggerService).category('Sync');
   private toast = inject(ToastService);
   private conflictStorage = inject(ConflictStorageService);
@@ -83,6 +85,19 @@ export class SyncService {
   
   /** 是否正在加载远程数据 */
   readonly isLoadingRemote = signal(false);
+  
+  /** 同步进度信息（用于UI反馈） */
+  readonly syncProgress = signal<{
+    current: number;
+    total: number;
+    phase: 'idle' | 'saving-projects' | 'saving-tasks' | 'saving-connections' | 'loading';
+    message: string;
+  }>({
+    current: 0,
+    total: 0,
+    phase: 'idle',
+    message: ''
+  });
   
   /** 实时订阅通道 */
   private realtimeChannel: RealtimeChannel | null = null;
@@ -113,14 +128,18 @@ export class SyncService {
   /** 任务级别的变更回调 - 用于细粒度更新 */
   private onTaskChangeCallback: ((payload: RemoteTaskChangePayload) => void) | null = null;
   
-  /** 保存队列最大长度 - 防止内存泄漏 */
-  private static readonly MAX_SAVE_QUEUE_SIZE = 50;
+  /** 
+   * 保守模式：永不丢弃保存请求
+   * 移除队列大小限制，改为持久化到IndexedDB
+   * 用户数据是最高优先级，宁可慢也不能丢
+   */
+  private static readonly SAVE_QUEUE_TIMEOUT = 0; // 禁用超时丢弃
   
-  /** 保存队列超时时间 (毫秒) - 8秒，超时后强制解锁 */
-  private static readonly SAVE_QUEUE_TIMEOUT = 8000;
+  /** 单次保存操作执行超时时间 (毫秒) - 增加到60秒，适应慢速网络 */
+  private static readonly SAVE_EXECUTION_TIMEOUT = 60000;
   
-  /** 单次保存操作执行超时时间 (毫秒) - 30秒，防止网络挂起导致队列永久阻塞 */
-  private static readonly SAVE_EXECUTION_TIMEOUT = 30000;
+  /** 本地自动保存间隔（毫秒） */
+  private static readonly LOCAL_AUTOSAVE_INTERVAL = SYNC_CONFIG.LOCAL_AUTOSAVE_INTERVAL;
   
   // ========== RxJS 声明式保存队列 ==========
   // 使用 Subject + concatMap 替代手动锁，彻底消除死锁和忘记解锁的 Bug
@@ -172,15 +191,14 @@ export class SyncService {
       concatMap(async (request) => {
         this.saveQueueStats.pendingCount--;
         
-        // 超时检查：如果请求等待太久，跳过并返回成功（数据已在本地）
+        // 保守模式：永不跳过请求，确保所有数据都尝试同步
         const waitTime = Date.now() - request.enqueuedAt;
-        if (waitTime > SyncService.SAVE_QUEUE_TIMEOUT) {
-          this.logger.warn('保存请求等待超时，跳过', {
+        if (waitTime > 10000) {
+          // 只记录警告，但仍然处理
+          this.logger.warn('保存请求等待时间较长', {
             projectId: request.project.id,
             waitTime: `${waitTime}ms`
           });
-          request.resolve({ success: true }); // 乐观返回成功，数据已在本地
-          return;
         }
         
         try {
@@ -880,30 +898,30 @@ export class SyncService {
    */
   async saveProjectToCloud(project: Project, userId: string): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
     if (!userId || !this.supabase.isConfigured) {
-      return { success: true }; // 离线模式视为成功
-    }
-    
-    // 检查队列是否溢出
-    if (this.saveQueueStats.pendingCount >= SyncService.MAX_SAVE_QUEUE_SIZE) {
-      this.saveQueueStats.overflowCount++;
-      this.logger.warn(`保存队列溢出：丢弃请求（累计丢弃 ${this.saveQueueStats.overflowCount}）`, {
-        pendingCount: this.saveQueueStats.pendingCount,
-        maxSize: SyncService.MAX_SAVE_QUEUE_SIZE
-      });
-      
-      // 通知用户同步压力过大（只在首次溢出时提示，避免刷屏）
-      if (this.saveQueueStats.overflowCount === 1) {
-        this.toast.warning(
-          '同步队列繁忙',
-          '部分中间状态已跳过，最新更改将继续同步'
-        );
-      }
-      
-      // 乐观返回成功，数据已在本地
+      // 离线模式：立即保存到本地缓存
+      this.saveOfflineSnapshot([project]);
       return { success: true };
     }
     
-    // 将请求加入声明式队列
+    // 保守模式：永不丢弃，先保存到本地作为安全网
+    this.saveOfflineSnapshot([project]);
+    
+    // 检查队列积压情况，仅警告但不阻止
+    if (this.saveQueueStats.pendingCount > 20) {
+      this.logger.warn('同步队列积压', {
+        pendingCount: this.saveQueueStats.pendingCount
+      });
+      
+      // 只在队列首次积压时提示用户
+      if (this.saveQueueStats.pendingCount === 21) {
+        this.toast.info(
+          '数据已保存到本地',
+          '云端同步正在进行，您可以继续编辑'
+        );
+      }
+    }
+    
+    // 将请求加入声明式队列，无论队列多长都处理
     return new Promise((resolve, reject) => {
       this.saveQueue$.next({
         project,
@@ -1006,45 +1024,100 @@ export class SyncService {
           if (remoteProject) {
             const remoteVersion = remoteProject.version ?? 0;
             
-            // 自动修复策略：如果只是版本号差异且内容相同，自动同步版本号
+            // 保守策略：优先检查是否可以自动合并
             const localTaskIds = new Set(project.tasks.map(t => t.id));
             const remoteTaskIds = new Set(remoteProject.tasks.map(t => t.id));
             const tasksDifferent = localTaskIds.size !== remoteTaskIds.size ||
               [...localTaskIds].some(id => !remoteTaskIds.has(id));
             
-            // 如果任务列表相同，可能只是版本号不同步，尝试用远程版本号重试
+            // 策略1：任务列表相同，只是版本号不同步 - 自动修复
             if (!tasksDifferent && currentVersion < remoteVersion) {
-              this.logger.info('检测到版本号不同步，尝试自动修复', {
+              this.logger.info('检测到版本号不同步，自动使用远程版本号重试', {
                 projectId: project.id,
                 localVersion: currentVersion,
                 remoteVersion
               });
               
-              // 用远程版本号重试更新
-              const retryVersion = remoteVersion + 1;
-              const { data: retryResult, error: retryError } = await this.supabase.client()
+              // 用远程版本号重试更新，最多重试3次
+              for (let retry = 0; retry < 3; retry++) {
+                const currentRemoteVersion = remoteVersion + retry;
+                const retryVersion = currentRemoteVersion + 1;
+                const { data: retryResult, error: retryError } = await this.supabase.client()
+                  .from('projects')
+                  .update({
+                    title: project.name,
+                    description: project.description,
+                    version: retryVersion
+                  })
+                  .eq('id', project.id)
+                  .eq('version', currentRemoteVersion)
+                  .select('id')
+                  .maybeSingle();
+                
+                if (!retryError && retryResult) {
+                  this.logger.info('版本号自动修复成功', { 
+                    projectId: project.id, 
+                    newVersion: retryVersion,
+                    retries: retry
+                  });
+                  // 继续保存任务
+                  const tasksResult = await this.taskRepo.saveTasks(project.id, project.tasks);
+                  if (tasksResult.success) {
+                    return { success: true, newVersion: retryVersion };
+                  }
+                }
+                
+                // 重试失败，等待100ms后继续
+                if (retry < 2) {
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                }
+              }
+            }
+            
+            // 策略2：本地有新任务 - 优先保留本地（保守策略）
+            const localOnlyTasks = [...localTaskIds].filter(id => !remoteTaskIds.has(id));
+            const remoteOnlyTasks = [...remoteTaskIds].filter(id => !localTaskIds.has(id));
+            
+            if (localOnlyTasks.length > 0 && remoteOnlyTasks.length === 0) {
+              // 只有本地新增，远程没有新增 - 强制使用本地版本
+              this.logger.info('本地有新增内容，强制同步到云端', {
+                projectId: project.id,
+                localNewTasks: localOnlyTasks.length
+              });
+              
+              const forceVersion = Math.max(currentVersion, remoteVersion) + 1;
+              const { data: forceResult, error: forceError } = await this.supabase.client()
                 .from('projects')
                 .update({
                   title: project.name,
                   description: project.description,
-                  version: retryVersion
+                  version: forceVersion
                 })
                 .eq('id', project.id)
                 .eq('version', remoteVersion)
                 .select('id')
                 .maybeSingle();
               
-              if (!retryError && retryResult) {
-                this.logger.info('版本号自动修复成功', { projectId: project.id, newVersion: retryVersion });
-                // 继续保存任务（跳过下面的冲突处理）
+              if (!forceError && forceResult) {
                 const tasksResult = await this.taskRepo.saveTasks(project.id, project.tasks);
                 if (tasksResult.success) {
-                  return { success: true, newVersion: retryVersion };
+                  return { success: true, newVersion: forceVersion };
                 }
               }
             }
             
-            // 真正的冲突：需要用户介入
+            // 策略3：真正的冲突 - 保存到本地并通知用户
+            this.logger.warn('检测到数据冲突，已保存到本地', { 
+              projectId: project.id,
+              localTasks: localTaskIds.size,
+              remoteTasks: remoteTaskIds.size,
+              localOnlyTasks: localOnlyTasks.length,
+              remoteOnlyTasks: remoteOnlyTasks.length
+            });
+            
+            // 先保存到本地缓存确保数据不丢失
+            this.saveOfflineSnapshot([project]);
+            
             const conflictData = { 
               local: project, 
               remote: remoteProject,
@@ -1086,20 +1159,40 @@ export class SyncService {
       
       // 批量保存任务
       console.log('[Sync] 保存任务，数量:', project.tasks.length);
+      this.syncProgress.set({
+        current: 0,
+        total: project.tasks.length,
+        phase: 'saving-tasks',
+        message: `正在保存 ${project.tasks.length} 个任务...`
+      });
+      
       const tasksResult = await this.taskRepo.saveTasks(project.id, project.tasks);
       if (!tasksResult.success) {
         console.error('[Sync] 保存任务失败:', tasksResult.error);
+        this.syncProgress.set({ current: 0, total: 0, phase: 'idle', message: '' });
         throw new Error(tasksResult.error);
       }
       
       // 同步连接
+      console.log('[Sync] 保存连接，数量:', project.connections.length);
+      this.syncProgress.set({
+        current: 0,
+        total: project.connections.length,
+        phase: 'saving-connections',
+        message: `正在保存 ${project.connections.length} 个连接...`
+      });
+      
       const connectionsResult = await this.taskRepo.syncConnections(project.id, project.connections);
       if (!connectionsResult.success) {
         console.error('[Sync] 同步连接失败:', connectionsResult.error);
+        this.syncProgress.set({ current: 0, total: 0, phase: 'idle', message: '' });
         throw new Error(connectionsResult.error);
       }
       
       console.log('[Sync] 项目保存完成', { projectId: project.id, newVersion });
+      
+      // 清除进度
+      this.syncProgress.set({ current: 0, total: 0, phase: 'idle', message: '' });
       
       this.syncState.update(s => ({
         ...s,
@@ -1234,6 +1327,344 @@ export class SyncService {
       syncError: `同步失败: ${errorMessage || '未知错误'}`,
       offlineMode: true
     }));
+  }
+
+  // ========== 增量同步 ==========
+
+  /**
+   * 增量保存项目到云端
+   * 只同步有变更的任务和连接，显著减少网络传输和数据库操作
+   * 
+   * @param project 完整项目数据（用于回退和本地缓存）
+   * @param userId 用户ID
+   * @param changes 变更摘要（由 ChangeTrackerService 提供）
+   * @returns 同步结果
+   */
+  async saveProjectIncrementally(
+    project: Project, 
+    userId: string,
+    changes: ProjectChangeSummary
+  ): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number; stats?: { tasks: number; connections: number }; validationWarnings?: string[] }> {
+    if (!userId || !this.supabase.isConfigured) {
+      return { success: true };
+    }
+
+    // 如果没有变更，直接返回成功
+    if (!changes.hasChanges) {
+      this.logger.debug('无增量变更，跳过同步', { projectId: project.id });
+      return { success: true };
+    }
+
+    // 同步前验证：检查是否会丢失数据
+    const validation = this.changeTracker.validateChanges(
+      project.id,
+      project.tasks,
+      project.connections
+    );
+
+    if (!validation.valid) {
+      this.logger.error('增量同步验证失败，禁止同步', {
+        projectId: project.id,
+        errors: validation.errors
+      });
+      
+      // 验证失败，不执行同步，避免数据丢失
+      return {
+        success: false,
+        validationWarnings: [
+          '增量同步验证失败，为避免数据丢失已中止同步',
+          ...validation.errors
+        ]
+      };
+    }
+
+    // 记录警告但继续执行
+    const validationWarnings = validation.warnings;
+    if (validationWarnings.length > 0) {
+      this.logger.warn('增量同步验证有警告', {
+        projectId: project.id,
+        warnings: validationWarnings
+      });
+    }
+
+    // 记录变更摘要
+    this.logger.info(this.changeTracker.generateChangeReport(project.id));
+
+    this.syncState.update(s => ({ ...s, isSyncing: true }));
+
+    try {
+      const currentVersion = project.version ?? 0;
+      const newVersion = currentVersion + 1;
+
+      // 1. 检查并更新项目版本号（乐观锁）
+      const { data: existingData, error: checkError } = await this.supabase.client()
+        .from('projects')
+        .select('id, version')
+        .eq('id', project.id)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
+
+      const isUpdate = !!existingData;
+
+      if (isUpdate) {
+        // 使用乐观锁更新版本号
+        const { data: updateResult, error: updateError } = await this.supabase.client()
+          .from('projects')
+          .update({
+            title: project.name,
+            description: project.description,
+            version: newVersion
+          })
+          .eq('id', project.id)
+          .eq('version', currentVersion)
+          .select('id')
+          .maybeSingle();
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        // 版本号不匹配 - 可能有冲突
+        if (!updateResult) {
+          // 加载远程数据检查是否真的有冲突
+          const remoteProject = await this.loadSingleProject(project.id, userId);
+          if (remoteProject) {
+            const remoteVersion = remoteProject.version ?? 0;
+            
+            // 简单策略：如果远程版本更高，返回冲突让上层处理
+            if (remoteVersion > currentVersion) {
+              this.logger.warn('增量同步检测到版本冲突', {
+                projectId: project.id,
+                localVersion: currentVersion,
+                remoteVersion
+              });
+              return { success: false, conflict: true, remoteData: remoteProject };
+            }
+          }
+        }
+      } else {
+        // 创建新项目
+        const { error: insertError } = await this.supabase.client()
+          .from('projects')
+          .insert({
+            id: project.id,
+            owner_id: userId,
+            title: project.name,
+            description: project.description,
+            created_date: project.createdDate || nowISO(),
+            version: newVersion
+          });
+
+        if (insertError) {
+          throw insertError;
+        }
+      }
+
+      // 2. 增量同步任务
+      const taskStats = { created: 0, updated: 0, deleted: 0 };
+      
+      if (changes.tasksToCreate.length > 0 || 
+          changes.tasksToUpdate.length > 0 || 
+          changes.taskIdsToDelete.length > 0) {
+        
+        this.syncProgress.set({
+          current: 0,
+          total: changes.totalChanges,
+          phase: 'saving-tasks',
+          message: `正在增量保存 ${changes.tasksToCreate.length + changes.tasksToUpdate.length} 个任务...`
+        });
+
+        const tasksResult = await this.taskRepo.saveTasksIncremental(
+          project.id,
+          changes.tasksToCreate,
+          changes.tasksToUpdate,
+          changes.taskIdsToDelete
+        );
+
+        if (!tasksResult.success) {
+          throw new Error(tasksResult.error);
+        }
+
+        if (tasksResult.stats) {
+          taskStats.created = tasksResult.stats.created;
+          taskStats.updated = tasksResult.stats.updated;
+          taskStats.deleted = tasksResult.stats.deleted;
+        }
+      }
+
+      // 3. 增量同步连接
+      const connStats = { created: 0, updated: 0, deleted: 0 };
+      
+      if (changes.connectionsToCreate.length > 0 || 
+          changes.connectionsToUpdate.length > 0 || 
+          changes.connectionsToDelete.length > 0) {
+        
+        this.syncProgress.set({
+          current: 0,
+          total: changes.connectionsToCreate.length + changes.connectionsToUpdate.length + changes.connectionsToDelete.length,
+          phase: 'saving-connections',
+          message: `正在增量保存 ${changes.connectionsToCreate.length + changes.connectionsToUpdate.length} 个连接...`
+        });
+
+        const connectionsResult = await this.taskRepo.syncConnectionsIncremental(
+          project.id,
+          changes.connectionsToCreate,
+          changes.connectionsToUpdate,
+          changes.connectionsToDelete
+        );
+
+        if (!connectionsResult.success) {
+          throw new Error(connectionsResult.error);
+        }
+
+        if (connectionsResult.stats) {
+          connStats.created = connectionsResult.stats.created;
+          connStats.updated = connectionsResult.stats.updated;
+          connStats.deleted = connectionsResult.stats.deleted;
+        }
+      }
+
+      // 清除进度
+      this.syncProgress.set({ current: 0, total: 0, phase: 'idle', message: '' });
+
+      // 清除已同步的变更记录
+      this.changeTracker.clearProjectChanges(project.id);
+
+      this.syncState.update(s => ({
+        ...s,
+        syncError: null,
+        offlineMode: false,
+        sessionExpired: false,
+        hasConflict: false,
+        conflictData: null
+      }));
+
+      const totalTasks = taskStats.created + taskStats.updated + taskStats.deleted;
+      const totalConns = connStats.created + connStats.updated + connStats.deleted;
+
+      this.logger.info('增量同步完成', {
+        projectId: project.id,
+        newVersion,
+        taskStats,
+        connStats,
+        validationWarnings: validationWarnings.length > 0 ? validationWarnings : undefined
+      });
+
+      return { 
+        success: true, 
+        newVersion,
+        stats: { tasks: totalTasks, connections: totalConns },
+        validationWarnings: validationWarnings.length > 0 ? validationWarnings : undefined
+      };
+
+    } catch (e: unknown) {
+      this.logger.error('增量同步失败', e);
+      
+      // 保存到本地缓存
+      this.saveOfflineSnapshot([project]);
+      
+      this.syncState.update(s => ({
+        ...s,
+        syncError: extractErrorMessage(e),
+        offlineMode: true
+      }));
+
+      // 清除进度
+      this.syncProgress.set({ current: 0, total: 0, phase: 'idle', message: '' });
+      
+      return { success: false };
+    } finally {
+      this.syncState.update(s => ({ ...s, isSyncing: false }));
+    }
+  }
+
+  /**
+   * 智能同步：根据变更量选择全量或增量
+   * 
+   * 策略：
+   * - 变更数量 < 阈值：使用增量同步
+   * - 变更数量 >= 阈值 或 无变更追踪数据：使用全量同步
+   * - 新项目：使用全量同步
+   * - 检测到高风险：强制使用全量同步
+   */
+  async saveProjectSmart(
+    project: Project, 
+    userId: string
+  ): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number; validationWarnings?: string[] }> {
+    // 获取变更摘要
+    const changes = this.changeTracker.getProjectChanges(project.id);
+    
+    // 决策阈值：当变更数量超过任务总数的50%时，使用全量同步更高效
+    const INCREMENTAL_THRESHOLD_RATIO = 0.5;
+    const totalTasks = project.tasks.length;
+    const changeCount = changes.totalChanges;
+    
+    // 检测数据丢失风险
+    const riskAnalysis = this.changeTracker.detectDataLossRisks(
+      project.id,
+      project.tasks,
+      project.connections
+    );
+
+    // 如果检测到高风险，强制使用全量同步
+    if (riskAnalysis.hasRisk) {
+      const highRisks = riskAnalysis.risks.filter(r => r.severity === 'high');
+      if (highRisks.length > 0) {
+        this.logger.warn('检测到高风险数据丢失风险，强制使用全量同步', {
+          projectId: project.id,
+          risks: highRisks.map(r => r.description)
+        });
+        
+        const result = await this.saveProjectToCloud(project, userId);
+        if (result.success) {
+          this.changeTracker.clearProjectChanges(project.id);
+        }
+        return {
+          ...result,
+          validationWarnings: highRisks.map(r => `[高风险] ${r.description}`)
+        };
+      }
+    }
+    
+    // 使用增量同步的条件
+    const useIncremental = 
+      changes.hasChanges &&                                    // 有追踪到的变更
+      changeCount > 0 &&                                       // 变更数量大于0
+      (totalTasks === 0 || changeCount / totalTasks < INCREMENTAL_THRESHOLD_RATIO); // 变更比例小于阈值
+    
+    if (useIncremental) {
+      this.logger.debug('使用增量同步', {
+        projectId: project.id,
+        changeCount,
+        totalTasks,
+        ratio: totalTasks > 0 ? (changeCount / totalTasks).toFixed(2) : 'N/A'
+      });
+      
+      return this.saveProjectIncrementally(project, userId, changes);
+    } else {
+      this.logger.debug('使用全量同步', {
+        projectId: project.id,
+        reason: !changes.hasChanges ? '无变更追踪' : `变更比例过高 (${changeCount}/${totalTasks})`
+      });
+      
+      // 全量同步后清除变更追踪
+      const result = await this.saveProjectToCloud(project, userId);
+      if (result.success) {
+        this.changeTracker.clearProjectChanges(project.id);
+      }
+      return result;
+    }
+  }
+
+  /**
+   * 获取 ChangeTracker 服务实例
+   * 供外部服务使用以追踪变更
+   */
+  getChangeTracker(): ChangeTrackerService {
+    return this.changeTracker;
   }
 
   /**

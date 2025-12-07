@@ -263,6 +263,8 @@ export class ActionQueueService {
    * - low: 日志/埋点类，失败后静默丢弃
    * - normal: 普通操作（默认），正常重试和死信处理
    * - critical: 关键操作，失败时通知用户
+   * 
+   * 智能合并：对同一实体的连续操作进行合并，减少网络请求
    */
   enqueue(action: EnqueueParams): string {
     // 设置默认优先级：项目操作为 critical，任务为 normal，偏好为 low
@@ -279,9 +281,66 @@ export class ActionQueueService {
     };
     
     this.pendingActions.update(queue => {
-      let newQueue = [...queue, queuedAction];
+      let newQueue = [...queue];
       
-      // 分级队列管理：低优先级操作优先淘汰
+      // ========== 智能合并：对同一实体的操作去重 ==========
+      // 策略：
+      // 1. 如果队列中已有同一实体的update操作，替换为最新的
+      // 2. 如果队列中有delete操作，忽略后续的update
+      // 3. create之后的update可以合并
+      const existingIndex = newQueue.findIndex(a => 
+        a.entityType === action.entityType &&
+        a.entityId === action.entityId &&
+        a.retryCount === 0 // 只合并未开始重试的操作
+      );
+      
+      if (existingIndex !== -1) {
+        const existing = newQueue[existingIndex];
+        
+        // 场景1: 队列中有delete，新操作是update/create → 忽略新操作（实体已删除）
+        if (existing.type === 'delete' && (action.type === 'update' || action.type === 'create')) {
+          this.logger.debug(`忽略已删除实体的操作`, { 
+            entityType: action.entityType, 
+            entityId: action.entityId 
+          });
+          return queue; // 不添加新操作
+        }
+        
+        // 场景2: 队列中有update，新操作也是update → 合并为一次update
+        if (existing.type === 'update' && action.type === 'update') {
+          this.logger.debug(`合并重复的update操作`, { 
+            entityType: action.entityType, 
+            entityId: action.entityId 
+          });
+          newQueue[existingIndex] = { ...queuedAction, id: existing.id }; // 保留原ID
+          return newQueue;
+        }
+        
+        // 场景3: 队列中有create，新操作是update → 合并到create中
+        if (existing.type === 'create' && action.type === 'update') {
+          this.logger.debug(`合并create后的update`, { 
+            entityType: action.entityType, 
+            entityId: action.entityId 
+          });
+          newQueue[existingIndex] = { ...queuedAction, type: 'create', id: existing.id };
+          return newQueue;
+        }
+        
+        // 场景4: 队列中有create，新操作是delete → 直接移除create（实体从未存在）
+        if (existing.type === 'create' && action.type === 'delete') {
+          this.logger.debug(`取消未同步的create操作`, { 
+            entityType: action.entityType, 
+            entityId: action.entityId 
+          });
+          newQueue.splice(existingIndex, 1);
+          return newQueue;
+        }
+      }
+      
+      // 没有合并机会，正常添加
+      newQueue.push(queuedAction);
+      
+      // ========== 分级队列管理：低优先级操作优先淘汰 ==========
       if (newQueue.length > LOCAL_QUEUE_CONFIG.MAX_QUEUE_SIZE) {
         // 先尝试淘汰低优先级操作
         const lowPriorityActions = newQueue.filter(a => a.priority === 'low');
@@ -612,23 +671,25 @@ export class ActionQueueService {
    * 处理重试逻辑
    * @returns 'retry' | 'dead-letter' 表示操作后续状态
    * 
-   * 改进：移除同步延迟等待，改为异步调度重试
-   * 这样不会阻塞后续操作的处理
+   * 改进：
+   * 1. 根据错误类型分类处理（网络错误 vs 业务错误 vs 权限错误）
+   * 2. 动态调整重试延迟（网络错误快速重试，其他错误指数退避）
+   * 3. 移除同步等待，改为异步调度
    */
   private handleRetry(action: QueuedAction, error: string): 'retry' | 'dead-letter' {
-    // 检测错误类型
-    const isBusinessErr = this.isBusinessError(error);
+    // ========== 错误分类 ==========
+    const errorType = this.classifyError(error);
     
-    // 业务错误直接移入死信队列，不重试
-    if (isBusinessErr) {
-      console.warn('Business error detected, moving to dead letter:', error);
-      this.moveToDeadLetter(action, `业务错误: ${error}`);
+    // 业务错误和权限错误直接移入死信队列，不重试
+    if (errorType === 'business' || errorType === 'permission') {
+      console.warn(`${errorType === 'business' ? '业务' : '权限'}错误，不可重试:`, error);
+      this.moveToDeadLetter(action, `${errorType === 'business' ? '业务' : '权限'}错误: ${error}`);
       return 'dead-letter';
     }
     
     // 超过最大重试次数
     if (action.retryCount >= LOCAL_QUEUE_CONFIG.MAX_RETRIES) {
-      console.error('Action exceeded max retries, moving to dead letter:', {
+      console.error('超过最大重试次数，移入死信队列:', {
         actionId: action.id,
         type: action.type,
         entityType: action.entityType,
@@ -636,24 +697,109 @@ export class ActionQueueService {
         error
       });
       this.moveToDeadLetter(action, `超过最大重试次数 (${LOCAL_QUEUE_CONFIG.MAX_RETRIES}): ${error}`);
+      
+      // Critical操作失败时通知用户
+      if (action.priority === 'critical') {
+        this.toast.error(
+          '重要操作失败',
+          `${this.getActionLabel(action)} 失败，请检查网络后重试`
+        );
+      }
+      
       return 'dead-letter';
     }
     
     // 更新重试次数和错误信息
     this.pendingActions.update(queue => 
       queue.map(a => a.id === action.id 
-        ? { ...a, retryCount: a.retryCount + 1, lastError: error, errorType: 'network' as const }
+        ? { ...a, retryCount: a.retryCount + 1, lastError: error, errorType }
         : a
       )
     );
     this.saveQueueToStorage();
     
-    // 异步调度重试：使用 setTimeout 延迟后重新触发处理
-    // 这样不会阻塞当前处理循环
-    const delay = QUEUE_CONFIG.RETRY_BASE_DELAY * Math.pow(2, action.retryCount);
+    // ========== 动态重试延迟策略 ==========
+    let delay: number;
+    if (errorType === 'network') {
+      // 网络错误：快速重试（线性增长，避免拥塞）
+      delay = Math.min(
+        QUEUE_CONFIG.RETRY_BASE_DELAY * (action.retryCount + 1),
+        5000 // 最多5秒
+      );
+    } else if (errorType === 'timeout') {
+      // 超时错误：中等延迟
+      delay = QUEUE_CONFIG.RETRY_BASE_DELAY * Math.pow(1.5, action.retryCount);
+    } else {
+      // 其他错误：指数退避
+      delay = QUEUE_CONFIG.RETRY_BASE_DELAY * Math.pow(2, action.retryCount);
+    }
+    
+    this.logger.debug(`调度重试`, {
+      actionId: action.id,
+      errorType,
+      retryCount: action.retryCount + 1,
+      delay: `${delay}ms`
+    });
+    
+    // 异步调度重试
     this.scheduleRetry(delay);
     
     return 'retry';
+  }
+  
+  /**
+   * 错误分类
+   * @returns 'network' | 'timeout' | 'permission' | 'business' | 'unknown'
+   */
+  private classifyError(errorMessage: string): 'network' | 'timeout' | 'permission' | 'business' | 'unknown' {
+    const msg = errorMessage.toLowerCase();
+    
+    // 网络错误
+    if (msg.includes('network') || 
+        msg.includes('failed to fetch') || 
+        msg.includes('networkerror') ||
+        msg.includes('connection') ||
+        msg.includes('offline')) {
+      return 'network';
+    }
+    
+    // 超时错误
+    if (msg.includes('timeout') || 
+        msg.includes('timed out') ||
+        msg.includes('deadline exceeded')) {
+      return 'timeout';
+    }
+    
+    // 权限错误
+    if (msg.includes('permission') ||
+        msg.includes('unauthorized') ||
+        msg.includes('forbidden') ||
+        msg.includes('401') ||
+        msg.includes('403') ||
+        msg.includes('jwt') ||
+        msg.includes('token') ||
+        msg.includes('policy')) {
+      return 'permission';
+    }
+    
+    // 业务错误（数据约束等）
+    if (msg.includes('unique constraint') ||
+        msg.includes('foreign key') ||
+        msg.includes('not found') ||
+        msg.includes('duplicate') ||
+        msg.includes('invalid')) {
+      return 'business';
+    }
+    
+    return 'unknown';
+  }
+  
+  /**
+   * 旧的业务错误检测（保留兼容性）
+   * @deprecated 使用 classifyError 替代
+   */
+  private isBusinessError(error: string): boolean {
+    return this.classifyError(error) === 'business';
   }
   
   /** 重试调度定时器 */

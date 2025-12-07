@@ -477,69 +477,80 @@ export class TaskRepositoryService {
       }
       
       // 2. 构建对比集合（使用 source-target 作为唯一标识）
-      const existingSet = new Set(existingConnections.map(c => `${c.source}|${c.target}`));
-      const newSet = new Set(connections.map(c => `${c.source}|${c.target}`));
+      const existingSet = new Set(existingConnections.map((c: Connection) => `${c.source}|${c.target}`));
+      const newSet = new Set(connections.map((c: Connection) => `${c.source}|${c.target}`));
       
       // 3. 找出需要删除的连接（在数据库中存在但本地不存在）
-      const toDelete = existingConnections.filter(c => !newSet.has(`${c.source}|${c.target}`));
+      const toDelete = existingConnections.filter((c: Connection) => !newSet.has(`${c.source}|${c.target}`));
       
       // 4. 找出需要新增的连接（在本地存在但数据库中不存在）
-      const toInsert = connections.filter(c => !existingSet.has(`${c.source}|${c.target}`));
+      const toInsert = connections.filter((c: Connection) => !existingSet.has(`${c.source}|${c.target}`));
       
       // 5. 找出需要更新的连接（两边都存在但描述可能变化）
-      const toUpdate = connections.filter(c => {
+      const toUpdate = connections.filter((c: Connection) => {
         const key = `${c.source}|${c.target}`;
         if (!existingSet.has(key)) return false;
-        const existing = existingConnections.find(e => e.source === c.source && e.target === c.target);
+        const existing = existingConnections.find((e: Connection) => e.source === c.source && e.target === c.target);
         return existing && existing.description !== c.description;
       });
 
-      // 6. 执行删除操作（带重试）
-      for (const conn of toDelete) {
-        let success = false;
-        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
-          const { error } = await this.supabase.client()
-            .from('connections')
-            .delete()
-            .eq('project_id', projectId)
-            .eq('source_id', conn.source)
-            .eq('target_id', conn.target);
+      // 6. 批量删除操作（提升性能）
+      if (toDelete.length > 0) {
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
+          const batch = toDelete.slice(i, i + BATCH_SIZE);
+          let success = false;
           
-          if (error) {
-            if (retry < MAX_RETRIES) {
-              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+          for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+            // 使用 IN 查询批量删除
+            const deleteKeys = batch.map(c => `(${c.source},${c.target})`);
+            const { error } = await this.supabase.client()
+              .from('connections')
+              .delete()
+              .eq('project_id', projectId)
+              .in('source_id', batch.map(c => c.source))
+              .in('target_id', batch.map(c => c.target));
+            
+            if (error) {
+              if (retry < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+              } else {
+                errors.push(`批量删除连接失败（${i}-${i + batch.length}）: ${error.message}`);
+              }
             } else {
-              errors.push(`删除连接失败 ${conn.source}->${conn.target}: ${error.message}`);
+              success = true;
             }
-          } else {
-            success = true;
           }
         }
       }
 
-      // 7. 执行插入操作（带重试）
+      // 7. 批量插入操作（提升性能）
       if (toInsert.length > 0) {
-        const connectionRows = toInsert.map(conn => ({
-          project_id: projectId,
-          source_id: conn.source,
-          target_id: conn.target,
-          description: conn.description
-        }));
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+          const batch = toInsert.slice(i, i + BATCH_SIZE);
+          const connectionRows = batch.map((conn: Connection) => ({
+            project_id: projectId,
+            source_id: conn.source,
+            target_id: conn.target,
+            description: conn.description
+          }));
 
-        let success = false;
-        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
-          const { error: insertError } = await this.supabase.client()
-            .from('connections')
-            .insert(connectionRows);
+          let success = false;
+          for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+            const { error: insertError } = await this.supabase.client()
+              .from('connections')
+              .insert(connectionRows);
 
-          if (insertError) {
-            if (retry < MAX_RETRIES) {
-              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            if (insertError) {
+              if (retry < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+              } else {
+                errors.push(`批量插入连接失败（${i}-${i + batch.length}）: ${insertError.message}`);
+              }
             } else {
-              errors.push(`插入连接失败: ${insertError.message}`);
+              success = true;
             }
-          } else {
-            success = true;
           }
         }
       }
@@ -735,5 +746,304 @@ export class TaskRepositoryService {
       target: row.target_id,
       description: row.description ?? undefined
     };
+  }
+
+  // ========== 增量同步方法 ==========
+
+  /**
+   * 增量保存任务（只保存变化的部分）
+   * 相比全量 saveTasks，此方法只处理指定的变更集
+   */
+  async saveTasksIncremental(
+    projectId: string,
+    tasksToCreate: Task[],
+    tasksToUpdate: Task[],
+    taskIdsToDelete: string[]
+  ): Promise<{ success: boolean; error?: string; stats?: { created: number; updated: number; deleted: number } }> {
+    if (!this.supabase.isConfigured) return { success: true };
+    
+    const stats = { created: 0, updated: 0, deleted: 0 };
+    const errors: string[] = [];
+    const BATCH_SIZE = 50;
+    const MAX_RETRIES = 2;
+
+    // 1. 批量删除任务
+    if (taskIdsToDelete.length > 0) {
+      for (let i = 0; i < taskIdsToDelete.length; i += BATCH_SIZE) {
+        const batch = taskIdsToDelete.slice(i, i + BATCH_SIZE);
+        let success = false;
+        
+        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+          const { error } = await this.supabase.client()
+            .from('tasks')
+            .delete()
+            .eq('project_id', projectId)
+            .in('id', batch);
+          
+          if (error) {
+            if (retry < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            } else {
+              errors.push(`批量删除任务失败（${i}-${i + batch.length}）: ${error.message}`);
+            }
+          } else {
+            success = true;
+            stats.deleted += batch.length;
+          }
+        }
+      }
+    }
+
+    // 2. 批量创建任务（使用 insert 而非 upsert，更明确语义）
+    if (tasksToCreate.length > 0) {
+      const createRows = tasksToCreate.map(task => this.mapTaskToRow(projectId, task));
+      
+      for (let i = 0; i < createRows.length; i += BATCH_SIZE) {
+        const batch = createRows.slice(i, i + BATCH_SIZE);
+        let success = false;
+        
+        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+          // 使用 upsert 以处理重复创建的边缘情况
+          const { error } = await this.supabase.client()
+            .from('tasks')
+            .upsert(batch, { onConflict: 'id' });
+          
+          if (error) {
+            if (retry < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            } else {
+              errors.push(`批量创建任务失败（${i}-${i + batch.length}）: ${error.message}`);
+            }
+          } else {
+            success = true;
+            stats.created += batch.length;
+          }
+        }
+      }
+    }
+
+    // 3. 批量更新任务
+    if (tasksToUpdate.length > 0) {
+      const updateRows = tasksToUpdate.map(task => this.mapTaskToRow(projectId, task));
+      
+      for (let i = 0; i < updateRows.length; i += BATCH_SIZE) {
+        const batch = updateRows.slice(i, i + BATCH_SIZE);
+        let success = false;
+        
+        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+          const { error } = await this.supabase.client()
+            .from('tasks')
+            .upsert(batch, { onConflict: 'id' });
+          
+          if (error) {
+            if (retry < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            } else {
+              errors.push(`批量更新任务失败（${i}-${i + batch.length}）: ${error.message}`);
+            }
+          } else {
+            success = true;
+            stats.updated += batch.length;
+          }
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      console.error('[TaskRepo] 增量保存任务部分失败:', errors);
+      return { 
+        success: false, 
+        error: errors.join('; '),
+        stats
+      };
+    }
+
+    console.log('[TaskRepo] 增量保存任务完成', stats);
+    return { success: true, stats };
+  }
+
+  /**
+   * 增量同步连接（只处理变化的部分）
+   */
+  async syncConnectionsIncremental(
+    projectId: string,
+    connectionsToCreate: Connection[],
+    connectionsToUpdate: Connection[],
+    connectionsToDelete: { source: string; target: string }[]
+  ): Promise<{ success: boolean; error?: string; stats?: { created: number; updated: number; deleted: number } }> {
+    if (!this.supabase.isConfigured) return { success: true };
+    
+    const stats = { created: 0, updated: 0, deleted: 0 };
+    const errors: string[] = [];
+    const BATCH_SIZE = 50;
+    const MAX_RETRIES = 2;
+
+    // 1. 批量删除连接
+    if (connectionsToDelete.length > 0) {
+      for (let i = 0; i < connectionsToDelete.length; i += BATCH_SIZE) {
+        const batch = connectionsToDelete.slice(i, i + BATCH_SIZE);
+        
+        for (const conn of batch) {
+          let success = false;
+          for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+            const { error } = await this.supabase.client()
+              .from('connections')
+              .delete()
+              .eq('project_id', projectId)
+              .eq('source_id', conn.source)
+              .eq('target_id', conn.target);
+            
+            if (error) {
+              if (retry < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+              } else {
+                errors.push(`删除连接失败 ${conn.source}->${conn.target}: ${error.message}`);
+              }
+            } else {
+              success = true;
+              stats.deleted++;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. 批量创建连接
+    if (connectionsToCreate.length > 0) {
+      for (let i = 0; i < connectionsToCreate.length; i += BATCH_SIZE) {
+        const batch = connectionsToCreate.slice(i, i + BATCH_SIZE);
+        const rows = batch.map(conn => ({
+          project_id: projectId,
+          source_id: conn.source,
+          target_id: conn.target,
+          description: conn.description
+        }));
+        
+        let success = false;
+        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+          const { error } = await this.supabase.client()
+            .from('connections')
+            .upsert(rows, { onConflict: 'project_id,source_id,target_id' });
+          
+          if (error) {
+            if (retry < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            } else {
+              errors.push(`批量创建连接失败（${i}-${i + batch.length}）: ${error.message}`);
+            }
+          } else {
+            success = true;
+            stats.created += batch.length;
+          }
+        }
+      }
+    }
+
+    // 3. 批量更新连接
+    if (connectionsToUpdate.length > 0) {
+      for (let i = 0; i < connectionsToUpdate.length; i += BATCH_SIZE) {
+        const batch = connectionsToUpdate.slice(i, i + BATCH_SIZE);
+        const rows = batch.map(conn => ({
+          project_id: projectId,
+          source_id: conn.source,
+          target_id: conn.target,
+          description: conn.description
+        }));
+        
+        let success = false;
+        for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
+          const { error } = await this.supabase.client()
+            .from('connections')
+            .upsert(rows, { onConflict: 'project_id,source_id,target_id' });
+          
+          if (error) {
+            if (retry < MAX_RETRIES) {
+              await new Promise(r => setTimeout(r, 100 * (retry + 1)));
+            } else {
+              errors.push(`批量更新连接失败（${i}-${i + batch.length}）: ${error.message}`);
+            }
+          } else {
+            success = true;
+            stats.updated += batch.length;
+          }
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      console.error('[TaskRepo] 增量同步连接部分失败:', errors);
+      return { 
+        success: false, 
+        error: errors.join('; '),
+        stats
+      };
+    }
+
+    console.log('[TaskRepo] 增量同步连接完成', stats);
+    return { success: true, stats };
+  }
+
+  /**
+   * 批量删除任务
+   */
+  async deleteTasks(projectId: string, taskIds: string[]): Promise<{ success: boolean; error?: string }> {
+    if (!this.supabase.isConfigured) return { success: true };
+    if (taskIds.length === 0) return { success: true };
+
+    const BATCH_SIZE = 50;
+    const errors: string[] = [];
+
+    for (let i = 0; i < taskIds.length; i += BATCH_SIZE) {
+      const batch = taskIds.slice(i, i + BATCH_SIZE);
+      
+      const { error } = await this.supabase.client()
+        .from('tasks')
+        .delete()
+        .eq('project_id', projectId)
+        .in('id', batch);
+      
+      if (error) {
+        errors.push(`批量删除任务失败（${i}-${i + batch.length}）: ${error.message}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      return { success: false, error: errors.join('; ') };
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * 批量删除连接
+   */
+  async deleteConnections(
+    projectId: string, 
+    connections: { source: string; target: string }[]
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.supabase.isConfigured) return { success: true };
+    if (connections.length === 0) return { success: true };
+
+    const errors: string[] = [];
+
+    // 连接没有好的批量删除方式（复合主键），逐个删除
+    for (const conn of connections) {
+      const { error } = await this.supabase.client()
+        .from('connections')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('source_id', conn.source)
+        .eq('target_id', conn.target);
+      
+      if (error) {
+        errors.push(`删除连接 ${conn.source}->${conn.target} 失败: ${error.message}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      return { success: false, error: errors.join('; ') };
+    }
+
+    return { success: true };
   }
 }

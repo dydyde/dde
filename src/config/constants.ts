@@ -22,22 +22,29 @@ export const LAYOUT_CONFIG = {
 
 /**
  * 同步配置
+ * 
+ * 保守模式设计理念：优先保证数据不丢失，降低实时性
+ * - 较长的防抖延迟，避免频繁同步导致冲突
+ * - 本地优先，云端作为备份
+ * - 永不主动丢弃用户数据
  */
 export const SYNC_CONFIG = {
-  /** 防抖延迟（毫秒） */
-  DEBOUNCE_DELAY: 800,
-  /** 编辑状态超时（毫秒） */
-  EDITING_TIMEOUT: 1500,
-  /** 远程变更处理延迟（毫秒） */
-  REMOTE_CHANGE_DELAY: 500,
-  /** 冲突检测时间阈值（毫秒）- 远端时间超过本地时间多少视为冲突 */
-  CONFLICT_TIME_THRESHOLD: 2000,
+  /** 防抖延迟（毫秒）- 增加到3秒，确保用户完成一轮编辑后再同步 */
+  DEBOUNCE_DELAY: 3000,
+  /** 编辑状态超时（毫秒）- 增加到5秒，给用户更多思考时间 */
+  EDITING_TIMEOUT: 5000,
+  /** 远程变更处理延迟（毫秒）- 增加到2秒，避免干扰本地编辑 */
+  REMOTE_CHANGE_DELAY: 2000,
+  /** 冲突检测时间阈值（毫秒）- 放宽到10秒，减少误判 */
+  CONFLICT_TIME_THRESHOLD: 10000,
   /** 重连基础延迟（毫秒） */
   RECONNECT_BASE_DELAY: 1000,
   /** 重连最大延迟（毫秒） */
   RECONNECT_MAX_DELAY: 30000,
-  /** 云端数据加载超时（毫秒）- 防止网络问题导致无限等待 */
-  CLOUD_LOAD_TIMEOUT: 15000,
+  /** 云端数据加载超时（毫秒）- 增加到30秒，避免网络慢时加载失败 */
+  CLOUD_LOAD_TIMEOUT: 30000,
+  /** 本地缓存保存频率（毫秒）- 每1秒自动保存到本地，防止数据丢失 */
+  LOCAL_AUTOSAVE_INTERVAL: 1000,
 } as const;
 
 /**

@@ -20,6 +20,7 @@ export { SyncService, type RemoteProjectChangePayload, type RemoteTaskChangePayl
 export { SyncCoordinatorService } from './sync-coordinator.service';
 export { ConflictResolutionService } from './conflict-resolution.service';
 export { ActionQueueService, type QueuedAction, type DeadLetterItem, type EnqueueParams } from './action-queue.service';
+export { ChangeTrackerService, type ChangeRecord, type ChangeType, type EntityType, type ProjectChangeSummary } from './change-tracker.service';
 
 // 认证服务
 export { AuthService, type AuthResult, type AuthState } from './auth.service';

@@ -32,6 +32,7 @@
 import { Injectable, inject } from '@angular/core';
 import { TaskOperationService } from './task-operation.service';
 import { SyncCoordinatorService } from './sync-coordinator.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { UndoService } from './undo.service';
 import { UiStateService } from './ui-state.service';
 import { ProjectStateService } from './project-state.service';
@@ -39,7 +40,7 @@ import { LayoutService } from './layout.service';
 import { OptimisticStateService } from './optimistic-state.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
-import { Project, Task, Attachment } from '../models';
+import { Project, Task, Attachment, Connection } from '../models';
 import { Result, OperationError } from '../utils/result';
 
 @Injectable({
@@ -48,6 +49,7 @@ import { Result, OperationError } from '../utils/result';
 export class TaskOperationAdapterService {
   private taskOps = inject(TaskOperationService);
   private syncCoordinator = inject(SyncCoordinatorService);
+  private changeTracker = inject(ChangeTrackerService);
   private undoService = inject(UndoService);
   private uiState = inject(UiStateService);
   private projectState = inject(ProjectStateService);
@@ -414,6 +416,10 @@ export class TaskOperationAdapterService {
       const beforeSnapshot = this.undoService.createProjectSnapshot(project);
       const currentVersion = project.version ?? 0;
       
+      // 保存更新前的状态用于变更追踪
+      const beforeTaskMap = new Map(project.tasks.map(t => [t.id, t]));
+      const beforeConnectionSet = new Set(project.connections.map(c => `${c.source}|${c.target}`));
+      
       let afterProject: Project | null = null;
       this.projectState.updateProjects(projects => projects.map(p => {
         // 使用锁定的项目ID进行匹配
@@ -431,6 +437,9 @@ export class TaskOperationAdapterService {
           projectId: targetProjectId,
           data: { before: beforeSnapshot, after: afterSnapshot }
         }, currentVersion);
+        
+        // 追踪变更
+        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionSet, afterProject);
       }
       
       this.syncCoordinator.markLocalChanges('structure');
@@ -464,6 +473,10 @@ export class TaskOperationAdapterService {
       const beforeSnapshot = this.undoService.createProjectSnapshot(project);
       const currentVersion = project.version ?? 0;
       
+      // 保存更新前的状态用于变更追踪
+      const beforeTaskMap = new Map(project.tasks.map(t => [t.id, t]));
+      const beforeConnectionSet = new Set(project.connections.map(c => `${c.source}|${c.target}`));
+      
       let afterProject: Project | null = null;
       this.projectState.updateProjects(projects => projects.map(p => {
         if (p.id === targetProjectId) {
@@ -481,6 +494,9 @@ export class TaskOperationAdapterService {
           projectVersion: currentVersion,
           data: { before: beforeSnapshot, after: afterSnapshot }
         });
+        
+        // 追踪变更
+        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionSet, afterProject);
       }
       
       this.syncCoordinator.markLocalChanges('content');
@@ -488,5 +504,98 @@ export class TaskOperationAdapterService {
     } finally {
       this.isUpdating = false;
     }
+  }
+  
+  /**
+   * 追踪项目变更，记录到 ChangeTrackerService
+   * 
+   * 通过对比更新前后的状态，自动识别：
+   * - 新增的任务/连接
+   * - 修改的任务/连接
+   * - 删除的任务/连接
+   */
+  private trackChanges(
+    projectId: string,
+    beforeTaskMap: Map<string, Task>,
+    beforeConnectionSet: Set<string>,
+    afterProject: Project
+  ): void {
+    // 追踪任务变更
+    const afterTaskIds = new Set<string>();
+    
+    for (const task of afterProject.tasks) {
+      afterTaskIds.add(task.id);
+      
+      const beforeTask = beforeTaskMap.get(task.id);
+      
+      if (!beforeTask) {
+        // 新增任务
+        this.changeTracker.trackTaskCreate(projectId, task);
+      } else {
+        // 检查是否有变更
+        const changedFields = this.getChangedTaskFields(beforeTask, task);
+        if (changedFields.length > 0) {
+          this.changeTracker.trackTaskUpdate(projectId, task, changedFields);
+        }
+      }
+    }
+    
+    // 检查删除的任务
+    for (const [taskId, _] of beforeTaskMap) {
+      if (!afterTaskIds.has(taskId)) {
+        this.changeTracker.trackTaskDelete(projectId, taskId);
+      }
+    }
+    
+    // 追踪连接变更
+    const afterConnectionSet = new Set<string>();
+    const afterConnectionMap = new Map<string, Connection>();
+    
+    for (const conn of afterProject.connections) {
+      const key = `${conn.source}|${conn.target}`;
+      afterConnectionSet.add(key);
+      afterConnectionMap.set(key, conn);
+      
+      if (!beforeConnectionSet.has(key)) {
+        // 新增连接
+        this.changeTracker.trackConnectionCreate(projectId, conn);
+      }
+      // 注意：连接的更新需要更细粒度的比较，这里简化处理
+    }
+    
+    // 检查删除的连接
+    for (const key of beforeConnectionSet) {
+      if (!afterConnectionSet.has(key)) {
+        const [source, target] = key.split('|');
+        this.changeTracker.trackConnectionDelete(projectId, source, target);
+      }
+    }
+  }
+  
+  /**
+   * 比较任务字段变更
+   */
+  private getChangedTaskFields(before: Task, after: Task): string[] {
+    const fields: string[] = [];
+    
+    // 比较关键字段
+    if (before.title !== after.title) fields.push('title');
+    if (before.content !== after.content) fields.push('content');
+    if (before.status !== after.status) fields.push('status');
+    if (before.stage !== after.stage) fields.push('stage');
+    if (before.parentId !== after.parentId) fields.push('parentId');
+    if (before.order !== after.order) fields.push('order');
+    if (before.rank !== after.rank) fields.push('rank');
+    if (before.x !== after.x) fields.push('x');
+    if (before.y !== after.y) fields.push('y');
+    if (before.priority !== after.priority) fields.push('priority');
+    if (before.dueDate !== after.dueDate) fields.push('dueDate');
+    if (before.deletedAt !== after.deletedAt) fields.push('deletedAt');
+    
+    // 比较数组字段（简化比较）
+    if (JSON.stringify(before.tags) !== JSON.stringify(after.tags)) fields.push('tags');
+    if (JSON.stringify(before.attachments) !== JSON.stringify(after.attachments)) fields.push('attachments');
+    
+    return fields;
   }
 }
