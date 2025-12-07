@@ -65,8 +65,8 @@ export interface QueuedAction<T extends ActionPayload = ActionPayload> {
   timestamp: number;
   retryCount: number;
   lastError?: string;
-  /** 错误类型：network=网络错误可重试，business=业务错误不可重试 */
-  errorType?: 'network' | 'business';
+  /** 错误类型：network=网络错误可重试，business=业务错误不可重试，timeout=超时，unknown=未知错误 */
+  errorType?: 'network' | 'business' | 'timeout' | 'unknown';
   /** 操作优先级：决定失败后的处理策略 */
   priority?: OperationPriority;
 }
@@ -552,16 +552,6 @@ export class ActionQueueService {
   // ========== 私有方法 ==========
   
   /**
-   * 检测是否为业务错误（不可重试）
-   */
-  private isBusinessError(errorMessage: string): boolean {
-    const lowerMessage = errorMessage.toLowerCase();
-    return LOCAL_QUEUE_CONFIG.BUSINESS_ERROR_PATTERNS.some(pattern => 
-      lowerMessage.includes(pattern)
-    );
-  }
-  
-  /**
    * 移动操作到死信队列
    * 根据操作优先级采取不同策略：
    * - low: 静默丢弃，不进入死信队列
@@ -794,6 +784,23 @@ export class ActionQueueService {
     return 'unknown';
   }
   
+  /**
+   * 获取操作的可读标签
+   */
+  private getActionLabel(action: QueuedAction): string {
+    const typeLabels = {
+      create: '创建',
+      update: '更新',
+      delete: '删除'
+    };
+    const entityLabels = {
+      project: '项目',
+      task: '任务',
+      preference: '偏好设置'
+    };
+    return `${typeLabels[action.type]}${entityLabels[action.entityType]}`;
+  }
+
   /**
    * 旧的业务错误检测（保留兼容性）
    * @deprecated 使用 classifyError 替代
