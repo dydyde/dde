@@ -77,7 +77,7 @@ import { renderMarkdown } from '../../utils/markdown';
     @if (store.isMobile() && !store.isFlowDetailOpen()) {
       <button 
         (click)="store.isFlowDetailOpen.set(true)"
-        class="absolute top-2 right-2 z-20 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
+        class="absolute top-2 right-2 z-25 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
@@ -87,7 +87,7 @@ import { renderMarkdown } from '../../utils/markdown';
     
     <!-- 移动端顶部下拉抽屉面板 -->
     @if (store.isMobile() && store.isFlowDetailOpen()) {
-      <div class="absolute top-0 left-0 right-0 z-20 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col"
+      <div class="absolute top-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col"
            [style.max-height.vh]="drawerHeight()"
            style="transform: translateZ(0); backface-visibility: hidden;">
         <!-- 标题栏 - 左边留出空间避开导航按钮 -->

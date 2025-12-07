@@ -1135,11 +1135,14 @@ export class FlowDiagramService {
         toLinkableDuplicates: true,
         click: (e: any, node: any) => {
           if (e.diagram.lastInput.dragging) return;
+          // 防止双击时触发单击事件
+          if (e.diagram.lastInput.clickCount >= 2) return;
           self.zone.run(() => {
             self.nodeClickCallback?.(node.data.key, false);
           });
         },
         doubleClick: (e: any, node: any) => {
+          e.handled = true; // 标记事件已处理，防止触发单击
           self.zone.run(() => {
             self.nodeClickCallback?.(node.data.key, true);
           });
