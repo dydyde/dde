@@ -120,10 +120,9 @@ export class FlowDiagramConfigService {
       parentChildPairs.add(`${t.parentId}->${t.id}`);
     });
     
-    // 过滤显示的任务
-    const tasksToShow = tasks.filter(t => 
-      t.status !== 'archived' && (t.stage != null || (t.x !== 0 || t.y !== 0))
-    );
+    // 过滤显示的任务：只排除已归档的任务
+    // 待分配任务（stage === null）也应该显示，不应该因为坐标为(0,0)而被过滤
+    const tasksToShow = tasks.filter(t => t.status !== 'archived');
     
     let newNodeIndex = 0;
     const searchLower = searchQuery.toLowerCase().trim();

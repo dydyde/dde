@@ -1530,6 +1530,28 @@ export class FlowDiagramService {
       }
       originalDoDeactivate.call(this);
     };
+    
+    // ========== 连接验证：禁止节点连接到自身 ==========
+    const originalIsValidLink = linkingTool.isValidLink;
+    linkingTool.isValidLink = function(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): boolean {
+      // 阻止节点连接到自身
+      if (fromNode === toNode) {
+        return false;
+      }
+      // 调用原始验证逻辑
+      return originalIsValidLink.call(this, fromNode, fromPort, toNode, toPort);
+    };
+    
+    // 同样为 relinkingTool 添加验证
+    const originalRelinkIsValidLink = relinkingTool.isValidLink;
+    relinkingTool.isValidLink = function(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): boolean {
+      // 阻止节点连接到自身
+      if (fromNode === toNode) {
+        return false;
+      }
+      // 调用原始验证逻辑
+      return originalRelinkIsValidLink.call(this, fromNode, fromPort, toNode, toPort);
+    };
 
     // ========== findTargetPort 重写：解决边缘端口阻挡连接问题 ==========
     // 问题：边缘端口或节点边界可能形成"透明墙"阻挡连接
