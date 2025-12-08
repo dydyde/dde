@@ -376,6 +376,20 @@ export class ConflictResolutionService {
       }
     }
     
+    // 删除标记：任一方删除则删除（删除优先）
+    // 这样确保在任何一个标签页删除的任务，在合并时都会保持删除状态
+    if (local.deletedAt || remote.deletedAt) {
+      hasConflict = true;
+      // 使用最早的删除时间，或者如果只有一方删除，使用那个删除时间
+      if (local.deletedAt && remote.deletedAt) {
+        const localDeleteTime = new Date(local.deletedAt).getTime();
+        const remoteDeleteTime = new Date(remote.deletedAt).getTime();
+        mergedTask.deletedAt = localDeleteTime < remoteDeleteTime ? local.deletedAt : remote.deletedAt;
+      } else {
+        mergedTask.deletedAt = local.deletedAt || remote.deletedAt;
+      }
+    }
+    
     // 更新合并时间戳
     mergedTask.updatedAt = new Date().toISOString();
     

@@ -470,6 +470,68 @@ describe('ConflictResolutionService', () => {
       expect(task.x).toBe(100); // 保留本地位置
       expect(task.y).toBe(200);
     });
+
+    it('删除标记应该合并（任一方删除则删除）', () => {
+      const now = new Date().toISOString();
+      
+      // 场景1: 本地删除，远程未删除
+      const localProject1 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: now,
+          updatedAt: new Date('2024-01-01').toISOString(),
+        })],
+      });
+      const remoteProject1 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: null,
+          updatedAt: new Date('2024-01-02').toISOString(),
+        })],
+      });
+
+      const result1 = service.smartMerge(localProject1, remoteProject1);
+      expect(result1.project.tasks[0].deletedAt).toBe(now);
+
+      // 场景2: 本地未删除，远程删除
+      const localProject2 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: null,
+          updatedAt: new Date('2024-01-02').toISOString(),
+        })],
+      });
+      const remoteProject2 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: now,
+          updatedAt: new Date('2024-01-01').toISOString(),
+        })],
+      });
+
+      const result2 = service.smartMerge(localProject2, remoteProject2);
+      expect(result2.project.tasks[0].deletedAt).toBe(now);
+
+      // 场景3: 双方都删除（使用较早的删除时间）
+      const earlierTime = new Date('2024-01-01T10:00:00Z').toISOString();
+      const laterTime = new Date('2024-01-01T11:00:00Z').toISOString();
+      
+      const localProject3 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: laterTime,
+        })],
+      });
+      const remoteProject3 = createTestProject({
+        tasks: [createTestTask({
+          id: 'task-1',
+          deletedAt: earlierTime,
+        })],
+      });
+
+      const result3 = service.smartMerge(localProject3, remoteProject3);
+      expect(result3.project.tasks[0].deletedAt).toBe(earlierTime);
+    });
   });
 
   // ==================== 文本内容合并 ====================

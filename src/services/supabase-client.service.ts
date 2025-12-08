@@ -57,7 +57,20 @@ export class SupabaseClientService {
     }
 
     try {
-      this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+      this.supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          // 使用 localStorage 存储 session（更稳定，减少锁竞争）
+          storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+          // 自动刷新 token
+          autoRefreshToken: true,
+          // 持久化 session
+          persistSession: true,
+          // 检测会话过期
+          detectSessionInUrl: true,
+          // 流式会话（减少并发问题）
+          flowType: 'pkce'
+        }
+      });
     } catch (e) {
       console.error('Failed to initialize Supabase client:', e);
       this.configurationError.set('Supabase 客户端初始化失败');
