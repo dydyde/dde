@@ -180,9 +180,9 @@ async function startApplication() {
           withComponentInputBinding(),
           withHashLocation()
         ),
-        // Service Worker: 提供 provider 但禁用功能，避免 SwUpdate 注入失败
+        // Service Worker: 启用以检测应用更新
         provideServiceWorker('ngsw-worker.js', {
-          enabled: false,
+          enabled: !isDevMode(),
           registrationStrategy: 'registerWhenStable:30000'
         })
       ]
