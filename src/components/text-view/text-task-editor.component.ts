@@ -31,7 +31,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
       <!-- 主编辑区域 -->
       <div [ngClass]="{'flex-1 space-y-2': !isMobile, 'space-y-1.5': isMobile}">
         
-        <!-- 标题编辑 -->
+          <!-- 标题编辑 -->
         <input
           #titleInput
           data-title-input
@@ -40,6 +40,8 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           (input)="onTitleInput(titleInput.value)"
           (focus)="onInputFocus()"
           (blur)="onInputBlur()"
+          (mousedown)="isSelecting = true"
+          (mouseup)="isSelecting = false"
           class="w-full font-medium text-retro-dark border rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none touch-manipulation transition-colors"
           [ngClass]="{
             'text-sm p-2': !isMobile, 
@@ -83,6 +85,8 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (input)="onContentInput(contentInput.value)"
               (focus)="onInputFocus()"
               (blur)="onInputBlur()"
+              (mousedown)="isSelecting = true"
+              (mouseup)="isSelecting = false"
               class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-white resize-none touch-manipulation"
               [ngClass]="{'h-24 text-xs p-2 pr-14': !isMobile, 'h-28 text-[11px] p-2 pr-14': isMobile}"
               placeholder="输入 Markdown 内容..."></textarea>
@@ -101,6 +105,8 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (keydown.enter)="addQuickTodo(quickTodoInput)"
               (focus)="onInputFocus()"
               (blur)="onInputBlur()"
+              (mousedown)="isSelecting = true"
+              (mouseup)="isSelecting = false"
               class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
               [ngClass]="{'text-xs py-1.5 px-2': !isMobile, 'text-[11px] py-1 px-1.5': isMobile}"
               placeholder="输入待办内容，按回车添加...">
@@ -288,6 +294,9 @@ export class TextTaskEditorComponent {
   readonly showAttachmentList = signal(false);
   readonly isUploading = signal(false);
   
+  /** 标记是否正在进行文本选择操作 */
+  isSelecting = false;
+  
   /** 最大附件数量 */
   private readonly maxAttachments = 5;
   /** 最大文件大小 10MB */
@@ -303,19 +312,32 @@ export class TextTaskEditorComponent {
     // 如果已经是预览模式，无需处理
     if (this.isPreview()) return;
     
+    // 如果正在进行文本选择，不处理
+    if (this.isSelecting) return;
+    
+    // 检查是否有文本被选中（用户可能刚完成选择操作）
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      // 有文本被选中，不切换模式
+      return;
+    }
+    
     // 检查点击是否在编辑器组件内部
     const clickedInside = this.elementRef.nativeElement.contains(event.target as Node);
-    if (!clickedInside) {
-      // 检查是否点击在父任务卡片内（通过 data-task-id 属性判断）
-      const target = event.target as HTMLElement;
-      const clickedInTaskCard = target.closest(`[data-task-id="${this.task.id}"]`);
-      if (!clickedInTaskCard) {
-        // 点击完全在任务卡片外，切换到预览模式
-        this.isPreview.set(true);
-        this.previewModeChange.emit(true);
-      }
-      // 如果点击在任务卡片内但编辑器外，由 text-task-card 处理
+    
+    // 如果点击在编辑器内部，不做任何处理（允许正常的编辑操作，包括文本选择）
+    if (clickedInside) return;
+    
+    // 点击在编辑器外部，检查是否在任务卡片内
+    const target = event.target as HTMLElement;
+    const clickedInTaskCard = target.closest(`[data-task-id="${this.task.id}"]`);
+    
+    if (!clickedInTaskCard) {
+      // 点击完全在任务卡片外，切换到预览模式
+      this.isPreview.set(true);
+      this.previewModeChange.emit(true);
     }
+    // 如果点击在任务卡片内但编辑器外（如卡片头部），由 text-task-card 处理
   }
   
   ngOnInit() {
@@ -348,6 +370,10 @@ export class TextTaskEditorComponent {
   
   onInputBlur() {
     // 输入框失焦处理
+    // 延迟清除选择标记，确保点击事件已处理完毕
+    setTimeout(() => {
+      this.isSelecting = false;
+    }, 100);
   }
   
   onTitleInput(value: string) {

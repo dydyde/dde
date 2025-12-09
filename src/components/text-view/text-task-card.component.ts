@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges, ViewChild } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../services/store.service';
@@ -84,6 +84,7 @@ export class TextTaskCardComponent implements OnChanges {
   private readonly sanitizer = inject(DomSanitizer);
   
   @ViewChild('taskEditor') taskEditor?: TextTaskEditorComponent;
+  @ViewChild('taskEditor', { read: ElementRef }) taskEditorElement?: ElementRef<HTMLElement>;
   
   @Input({ required: true }) task!: Task;
   @Input() isMobile = false;
@@ -153,28 +154,52 @@ export class TextTaskCardComponent implements OnChanges {
   /**
    * 处理卡片点击
    * - 如果任务未选中：选中任务（展开）
-   * - 如果任务已选中：切换到预览模式
+   * - 如果任务已选中且点击卡片头部：切换到预览模式
    */
   onCardClick(event: Event) {
-    const target = event.target as HTMLElement;
+    const targetElement = event.target instanceof HTMLElement ? event.target : null;
     
-    // 如果点击的是输入框、文本框或按钮，直接阻止冒泡并返回
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.closest('input, textarea, button')) {
+    // 如果点击的是输入框、文本框或按钮，或者点击目标在这些元素内部，直接阻止冒泡并返回
+    if (targetElement && (
+        targetElement.tagName === 'INPUT' || 
+        targetElement.tagName === 'TEXTAREA' || 
+        targetElement.tagName === 'BUTTON' ||
+        targetElement.closest('input, textarea, button'))
+    ) {
       event.stopPropagation();
       return;
     }
     
     if (this.isSelected) {
-      // 任务已展开，切换到预览模式
-      if (this.taskEditor) {
-        this.taskEditor.setPreviewMode();
+      // 任务已展开，检查是否点击在编辑器区域内
+      const clickedInEditor = this.isClickInsideEditor(event.target);
+      
+      // 只有点击在编辑器区域外部（如卡片头部）时才切换到预览模式
+      if (!clickedInEditor) {
+        this.taskEditor?.setPreviewMode();
       }
-      // 阻止事件冒泡，避免触发父组件的收缩逻辑
+      // 无论如何都阻止事件冒泡，避免触发父组件的收缩逻辑
       event.stopPropagation();
     } else {
       // 任务未展开，触发选中事件
       this.select.emit(this.task);
     }
+  }
+
+  private isClickInsideEditor(target: EventTarget | null): boolean {
+    if (!target) return false;
+    const editorElement = this.taskEditorElement?.nativeElement;
+    if (!editorElement) return false;
+    
+    if (target instanceof Node && editorElement.contains(target)) {
+      return true;
+    }
+    
+    if (target instanceof Element) {
+      return !!target.closest('app-text-task-editor');
+    }
+    
+    return false;
   }
   
   onDragStart(event: DragEvent) {
