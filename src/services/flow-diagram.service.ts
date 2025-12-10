@@ -258,6 +258,10 @@ export class FlowDiagramService {
       // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
+        background: "rgba(15, 23, 42, 0.04)", // 淡色背景凸显热力块
+        drawsTemporaryLayers: false,
+        isEnabled: true,
+        isReadOnly: true,
         "animationManager.isEnabled": false
       });
       
@@ -265,16 +269,19 @@ export class FlowDiagramService {
       // Overview 专用节点模板：去掉文字，只留色块
       this.overview.nodeTemplate = $(go.Node, "Spot",
         {
-          locationSpot: go.Spot.Center
+          locationSpot: go.Spot.Center,
+          selectionAdorned: false,
+          layerName: "Background"
         },
         new go.Binding("location", "loc", go.Point.parse),
         $(go.Shape, "Rectangle",
           {
             name: "SHAPE",
-            width: 22,              // 稍大一点形成可视色块
-            height: 16,
+            width: 30,              // 更大的色块以形成"色斑"
+            height: 22,
             strokeWidth: 0,         // 去掉边框，减少视觉噪点
-            opacity: 0.9
+            opacity: 0.85,
+            stretch: go.GraphObject.Uniform
           },
           // 绑定血缘家族颜色
           new go.Binding("fill", "familyColor", (color: string) => color || "#64748b")
@@ -285,12 +292,13 @@ export class FlowDiagramService {
       this.overview.linkTemplate = $(go.Link,
         {
           routing: go.Link.Normal,  // 简化路由，提升性能
-          curve: go.Link.None       // 直线，减少计算
+          curve: go.Link.None,      // 直线，减少计算
+          layerName: "Background"
         },
         $(go.Shape,
           {
-            strokeWidth: 8,         // 【关键】极粗的线条
-            opacity: 0.75           // 半透明，重叠时颜色加深
+            strokeWidth: 10,        // 【关键】极粗的线条
+            opacity: 0.72           // 半透明，重叠时颜色加深
           },
           // 连线也绑定家族颜色
           new go.Binding("stroke", "familyColor", (color: string) => color || "#64748b")
@@ -451,6 +459,21 @@ export class FlowDiagramService {
     });
     
     this.logger.debug('Overview 自动缩放已启用');
+  }
+
+  /**
+   * 确保 Overview 的热力图模板拿到最新的血缘颜色绑定
+   */
+  private refreshOverviewHeatmap(): void {
+    if (!this.overview) return;
+
+    try {
+      this.overview.updateAllTargetBindings();
+      this.overview.invalidateLayout();
+      this.overview.requestUpdate();
+    } catch (error) {
+      this.logger.warn('刷新 Overview 热力图失败', error);
+    }
   }
   
   /**
@@ -1024,17 +1047,8 @@ export class FlowDiagramService {
         }
       }
       
-      // ========== Overview 数据同步调试 ==========
-      if (this.overview?.observed) {
-        const ovModel = this.overview.observed.model;
-        console.log('[Overview] Main diagram nodes:', ovModel.nodeDataArray?.length || 0);
-        console.log('[Overview] Main diagram links:', (ovModel as any).linkDataArray?.length || 0);
-        if (ovModel.nodeDataArray?.length > 0) {
-          console.log('[Overview] First node familyColor:', (ovModel.nodeDataArray[0] as any).familyColor);
-        }
-        // 尝试强制刷新 Overview
-        this.overview.updateAllTargetBindings();
-      }
+      // 刷新热力图小地图，确保最新颜色和粗线生效
+      this.refreshOverviewHeatmap();
       
       // 首次加载完成后，在移动端自动适应内容
       if (this.isFirstLoad && diagramData.nodeDataArray.length > 0) {
