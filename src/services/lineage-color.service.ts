@@ -116,9 +116,10 @@ export class LineageColorService {
     // 步骤2：追溯每个任务的始祖节点
     const lineageCache = new Map<string, { rootId: string; rootIndex: number }>();
     const rootNodes: string[] = []; // 按发现顺序记录始祖节点
-    
+
     for (const task of tasks) {
-      this.traceRootAncestor(task.id, taskMap, lineageCache, rootNodes);
+      // 忽略多父场景：当前假设严格树形结构
+      this.findRootId(task.id, taskMap, lineageCache, rootNodes);
     }
     
     // 步骤3：计算每个始祖节点的家族颜色
@@ -176,39 +177,30 @@ export class LineageColorService {
    * @param rootNodes 始祖节点列表（按发现顺序）
    * @returns 始祖节点 ID
    */
-  private traceRootAncestor(
+  private findRootId(
     taskId: string,
     taskMap: Map<string, Task>,
     cache: Map<string, { rootId: string; rootIndex: number }>,
     rootNodes: string[]
-  ): string {
-    // 检查缓存
+  ): { rootId: string; rootIndex: number } {
     const cached = cache.get(taskId);
-    if (cached) {
-      return cached.rootId;
-    }
-    
+    if (cached) return cached;
+
     const task = taskMap.get(taskId);
-    if (!task) {
-      // 任务不存在，将自己作为始祖
+
+    // 基线：缺失任务或无父节点，视为始祖
+    if (!task || !task.parentId) {
       const rootIndex = this.getOrAddRootIndex(taskId, rootNodes);
-      cache.set(taskId, { rootId: taskId, rootIndex });
-      return taskId;
+      const result = { rootId: taskId, rootIndex };
+      cache.set(taskId, result);
+      return result;
     }
-    
-    if (!task.parentId) {
-      // 没有父节点，这就是始祖
-      const rootIndex = this.getOrAddRootIndex(taskId, rootNodes);
-      cache.set(taskId, { rootId: taskId, rootIndex });
-      return taskId;
-    }
-    
-    // 递归追溯父节点
-    const rootId = this.traceRootAncestor(task.parentId, taskMap, cache, rootNodes);
-    const rootIndex = cache.get(rootId)?.rootIndex ?? 0;
-    cache.set(taskId, { rootId, rootIndex });
-    
-    return rootId;
+
+    // 递归追溯父节点，忽略多父情形（假定严格树）
+    const ancestor = this.findRootId(task.parentId, taskMap, cache, rootNodes);
+    const result = { rootId: ancestor.rootId, rootIndex: ancestor.rootIndex };
+    cache.set(taskId, result);
+    return result;
   }
   
   /**

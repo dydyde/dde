@@ -271,19 +271,16 @@ export class FlowDiagramService {
         $(go.Shape, "Rectangle",
           {
             name: "SHAPE",
-            width: 20,              // 强制固定大小，形成均匀的色块点
-            height: 14,
+            width: 22,              // 稍大一点形成可视色块
+            height: 16,
             strokeWidth: 0,         // 去掉边框，减少视觉噪点
             opacity: 0.9
           },
           // 绑定血缘家族颜色
-          new go.Binding("fill", "familyColor", (color: string) => {
-            console.log('[Overview Node] binding familyColor:', color);
-            return color || "#64748b";
-          })
+          new go.Binding("fill", "familyColor", (color: string) => color || "#64748b")
         )
       );
-      
+
       // Overview 专用连线模板：加粗线条，形成"路网"感
       this.overview.linkTemplate = $(go.Link,
         {
@@ -292,14 +289,11 @@ export class FlowDiagramService {
         },
         $(go.Shape,
           {
-            strokeWidth: 6,         // 【关键】极粗的线条
+            strokeWidth: 8,         // 【关键】极粗的线条
             opacity: 0.75           // 半透明，重叠时颜色加深
           },
           // 连线也绑定家族颜色
-          new go.Binding("stroke", "familyColor", (color: string) => {
-            console.log('[Overview Link] binding familyColor:', color);
-            return color || "#64748b";
-          })
+          new go.Binding("stroke", "familyColor", (color: string) => color || "#64748b")
         )
       );
       
