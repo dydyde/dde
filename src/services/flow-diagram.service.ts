@@ -304,6 +304,11 @@ export class FlowDiagramService {
       
       // ========== 3.【关键】模板设置完成后，再绑定观察的图表 ==========
       this.overview.observed = this.diagram;
+
+      // 立刻构建部件，防止初始阶段出现空白
+      this.overview.rebuildParts();
+      this.overview.updateAllTargetBindings();
+      this.overview.requestUpdate();
       
       // 【调试】检查 Overview 是否正确创建
       console.log('[Overview] created, observed diagram:', !!this.overview.observed);
@@ -468,9 +473,15 @@ export class FlowDiagramService {
     if (!this.overview || !this.diagram) return;
 
     try {
-      // 重新挂载 observed 可以强制 Overview 重建部件，避免偶发的空白状态
-      this.overview.observed = null;
-      this.overview.observed = this.diagram;
+      // 确保 observed 指向当前主图
+      if (this.overview.observed !== this.diagram) {
+        this.overview.observed = this.diagram;
+      }
+
+      // 如果 Overview 还没有部件（可能导致空白），强制重建
+      if (this.overview.parts.count === 0 || this.overview.nodes.count === 0) {
+        this.overview.rebuildParts();
+      }
 
       this.overview.updateAllTargetBindings();
       this.overview.requestUpdate();
