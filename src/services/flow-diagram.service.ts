@@ -275,13 +275,12 @@ export class FlowDiagramService {
         },
         new go.Binding("location", "loc", go.Point.parse),
         $(go.Shape, "Rectangle",
-          {
+          { 
             name: "SHAPE",
             width: 30,              // 更大的色块以形成"色斑"
             height: 22,
             strokeWidth: 0,         // 去掉边框，减少视觉噪点
-            opacity: 0.85,
-            stretch: go.GraphObject.Uniform
+            opacity: 0.85
           },
           // 绑定血缘家族颜色
           new go.Binding("fill", "familyColor", (color: string) => color || "#64748b")
@@ -469,7 +468,6 @@ export class FlowDiagramService {
 
     try {
       this.overview.updateAllTargetBindings();
-      this.overview.invalidateLayout();
       this.overview.requestUpdate();
     } catch (error) {
       this.logger.warn('刷新 Overview 热力图失败', error);
