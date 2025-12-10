@@ -90,7 +90,6 @@ export class FlowDiagramService {
   private overviewContainer: HTMLDivElement | null = null;
   private lastOverviewScale: number = 0.1;
   private isNodeDragging: boolean = false;
-  private overviewReinitAttempted = false;
   
   // ========== 定时器 ==========
   private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -243,7 +242,7 @@ export class FlowDiagramService {
    * 
    * 【关键】：模板必须在设置 observed 之前定义！
    */
-  initializeOverview(container: HTMLDivElement, resetReinitFlag = true): void {
+  initializeOverview(container: HTMLDivElement): void {
     if (!this.diagram || this.isDestroyed) return;
 
     // 如果已经有 Overview，先销毁它
@@ -251,9 +250,6 @@ export class FlowDiagramService {
       this.disposeOverview();
     }
 
-    if (resetReinitFlag) {
-      this.overviewReinitAttempted = false;
-    }
     this.overviewContainer = container;
     
     try {
@@ -481,38 +477,39 @@ export class FlowDiagramService {
   private refreshOverviewHeatmap(forceCenter = false): void {
     if (!this.overview || !this.diagram) return;
 
+    const rebuild = () => {
+      if (!this.overview || !this.diagram) return;
+
+      // 确保观察的仍然是当前主图
+      this.overview.observed = this.diagram;
+      this.overview.model = this.diagram.model;
+
+      this.overview.rebuildParts();
+      this.overview.updateAllTargetBindings();
+      this.overview.requestUpdate();
+
+      const hasParts = this.overview.nodes.count > 0 || this.overview.parts.count > 0 || this.overview.links.count > 0;
+      if (forceCenter && hasParts) {
+        this.overview.zoomToFit();
+      }
+
+      // 如果仍然为空，再异步强制刷新一次，避免初始阶段空白
+      if (!hasParts) {
+        setTimeout(() => {
+          if (!this.overview || !this.diagram) return;
+          this.overview.rebuildParts();
+          this.overview.updateAllTargetBindings();
+
+          const partsExist = this.overview.nodes.count > 0 || this.overview.parts.count > 0 || this.overview.links.count > 0;
+          if (forceCenter && partsExist) {
+            this.overview.zoomToFit();
+          }
+        }, 60);
+      }
+    };
+
     try {
-      // 确保 observed 指向当前主图
-      if (this.overview.observed !== this.diagram) {
-        this.overview.observed = this.diagram;
-      }
-
-      const rebuild = () => {
-        this.overview!.rebuildParts();
-        this.overview!.updateAllTargetBindings();
-        this.overview!.requestUpdate();
-
-        if (forceCenter && (this.overview!.parts.count > 0 || this.overview!.nodes.count > 0)) {
-          this.overview!.zoomToFit();
-        }
-      };
-
       rebuild();
-
-      const missingHeatmap = this.diagram.nodes.count > 0 &&
-        (this.overview.parts.count === 0 || this.overview.nodes.count === 0);
-
-      // 如果仍然没有部件，最后一次尝试完整重建 Overview，避免持续空白
-      if (missingHeatmap && this.overviewContainer && !this.overviewReinitAttempted) {
-        this.overviewReinitAttempted = true;
-        const container = this.overviewContainer;
-        this.disposeOverview();
-        this.initializeOverview(container, false);
-      } else if (missingHeatmap) {
-        // 已经重建过，至少再同步一次绑定和居中
-        this.overview.observed = this.diagram;
-        rebuild();
-      }
     } catch (error) {
       this.logger.warn('刷新 Overview 热力图失败', error);
     }
