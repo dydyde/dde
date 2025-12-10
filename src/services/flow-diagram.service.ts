@@ -479,12 +479,24 @@ export class FlowDiagramService {
       }
 
       // 如果 Overview 还没有部件（可能导致空白），强制重建
-      if (this.overview.parts.count === 0 || this.overview.nodes.count === 0) {
-        this.overview.rebuildParts();
-      }
+      const rebuild = () => {
+        this.overview!.rebuildParts();
+        this.overview!.updateAllTargetBindings();
+        this.overview!.requestUpdate();
+      };
 
-      this.overview.updateAllTargetBindings();
-      this.overview.requestUpdate();
+      rebuild();
+
+      // 如果同步重建后仍然没有部件，延迟一次重建以等待 DOM 尺寸与数据稳定
+      if (
+        this.diagram.nodes.count > 0 &&
+        (this.overview.parts.count === 0 || this.overview.nodes.count === 0)
+      ) {
+        setTimeout(() => {
+          if (!this.overview || !this.diagram || this.overview.observed !== this.diagram) return;
+          rebuild();
+        }, 80);
+      }
     } catch (error) {
       this.logger.warn('刷新 Overview 热力图失败', error);
     }
