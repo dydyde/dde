@@ -330,7 +330,12 @@ export class FlowDiagramService {
       this.setupOverviewAutoScale();
 
       // 初次创建后立刻刷新，防止初始空白
-      this.refreshOverviewHeatmap();
+      this.refreshOverviewHeatmap(true);
+
+      // 在首次布局完成后再次刷新并居中，确保部件已生成
+      this.addTrackedListener('InitialLayoutCompleted', () => {
+        this.refreshOverviewHeatmap(true);
+      });
 
       this.logger.info('Overview 热力图模式初始化成功');
     } catch (error) {
@@ -469,7 +474,7 @@ export class FlowDiagramService {
   /**
    * 确保 Overview 的热力图模板拿到最新的血缘颜色绑定
    */
-  private refreshOverviewHeatmap(): void {
+  private refreshOverviewHeatmap(forceCenter = false): void {
     if (!this.overview || !this.diagram) return;
 
     try {
@@ -483,6 +488,11 @@ export class FlowDiagramService {
         this.overview!.rebuildParts();
         this.overview!.updateAllTargetBindings();
         this.overview!.requestUpdate();
+
+        // 如果需要，重新居中视口，确保色块落入可见区域
+        if (forceCenter) {
+          this.overview!.zoomToFit();
+        }
       };
 
       rebuild();
