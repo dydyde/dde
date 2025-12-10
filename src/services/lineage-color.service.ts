@@ -36,16 +36,42 @@ export interface LineageLinkData extends GoJSLinkData {
 }
 
 /**
+ * 高对比度预定义调色板
+ * 经过精心挑选，确保：
+ * - 相邻颜色有明显区分度
+ * - 色盲友好（避免纯红/绿组合）
+ * - 在深色/浅色背景上都清晰可见
+ */
+const HIGH_CONTRAST_PALETTE: string[] = [
+  '#e63946',  // 红色（玫瑰红）
+  '#2a9d8f',  // 青色（翡翠绿）
+  '#e9c46a',  // 黄色（金黄）
+  '#457b9d',  // 蓝色（钢蓝）
+  '#f4a261',  // 橙色（沙色）
+  '#9b5de5',  // 紫色（兰花紫）
+  '#00f5d4',  // 青绿（荧光青）
+  '#ff6b6b',  // 珊瑚红
+  '#4ecdc4',  // 薄荷绿
+  '#ffe66d',  // 柠檬黄
+  '#95e1d3',  // 淡青
+  '#f38181',  // 浅珊瑚
+  '#aa96da',  // 淡紫
+  '#fcbad3',  // 粉红
+  '#a8d8ea',  // 天蓝
+  '#fee440',  // 明黄
+];
+
+/**
  * 血缘追溯与颜色服务
  * 
  * 职责：
  * - 追溯每个节点的始祖节点（第一代任务）
- * - 基于 HSL 色彩空间生成确定性家族颜色
+ * - 基于高对比度调色板为家族分配颜色
  * - 为节点和连线注入血缘信息
  * 
  * 设计原则：
  * - 数据预处理在 GoJS Model 加载之前完成
- * - 颜色基于始祖索引计算，确保确定性和高区分度
+ * - 优先使用预定义调色板，超出时使用 HSL 生成
  * - 与现有 FlowDiagramConfigService 解耦，可独立测试
  */
 @Injectable({
@@ -53,7 +79,7 @@ export interface LineageLinkData extends GoJSLinkData {
 })
 export class LineageColorService {
   
-  // ========== HSL 色彩配置 ==========
+  // ========== HSL 色彩配置（后备方案）==========
   /** 固定饱和度 (85%) - 高饱和度确保颜色鲜艳 */
   private readonly SATURATION = 85;
   /** 固定亮度 (55%) - 略高亮度确保在深色背景上也清晰 */
@@ -198,32 +224,31 @@ export class LineageColorService {
   }
   
   /**
-   * 基于 HSL 色彩空间生成家族颜色
+   * 基于高对比度调色板生成家族颜色
    * 
    * 算法原理：
-   * - 固定饱和度（70%）和亮度（50%）确保颜色鲜艳且可辨识
-   * - 色相环（0-360度）根据始祖数量等分
-   * - 使用黄金角度偏移避免相邻颜色过于接近
+   * - 优先使用预定义的高对比度调色板（前16个家族）
+   * - 超出调色板时，使用 HSL 黄金角度算法生成
+   * - 确保即使相邻索引也有明显的视觉区分
    * 
    * @param index 始祖节点索引（从 0 开始）
    * @param totalRoots 始祖节点总数
-   * @returns HSL 颜色字符串
+   * @returns 颜色字符串（HEX 或 HSL 格式）
    */
   generateFamilyColor(index: number, totalRoots: number): string {
+    // 优先使用预定义的高对比度调色板
+    if (index < HIGH_CONTRAST_PALETTE.length) {
+      return HIGH_CONTRAST_PALETTE[index];
+    }
+    
+    // 超出调色板范围时，使用 HSL 黄金角度算法
     if (totalRoots <= 0) {
       return `hsl(${this.HUE_OFFSET}, ${this.SATURATION}%, ${this.LIGHTNESS}%)`;
     }
     
-    // 使用黄金角度（约137.5度）来分布颜色，确保即使相邻索引也有较大色差
-    // 这比简单的等分更能在任意数量下保持区分度
+    // 使用黄金角度（约137.5度）来分布颜色
     const goldenAngle = 137.508;
     let hue = (this.HUE_OFFSET + index * goldenAngle) % 360;
-    
-    // 如果始祖数量较少，使用等分方式确保最大区分度
-    if (totalRoots <= 8) {
-      const step = Math.max(360 / totalRoots, this.MIN_HUE_STEP);
-      hue = (this.HUE_OFFSET + index * step) % 360;
-    }
     
     return `hsl(${Math.round(hue)}, ${this.SATURATION}%, ${this.LIGHTNESS}%)`;
   }

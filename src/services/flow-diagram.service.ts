@@ -232,13 +232,15 @@ export class FlowDiagramService {
    * 
    * ========== 核心设计理念：热力图效果 ==========
    * 
-   * 问题：Overview 默认会用 GoJS 内部的灰色细线模板，导致缩小后模糊
+   * GoJS Overview 支持自定义模板！虽然它共享主图的 Model 数据，
+   * 但可以使用独立的模板来渲染，实现"热力图"视觉效果。
    * 
-   * 解决方案：Overview 是独立的图表实例，必须单独为它编写 nodeTemplate 和 linkTemplate
-   * - 连线是主角：极粗（10px）、高饱和度、半透明（叠加时加深形成热力效果）
-   * - 节点几乎消失：极小或不可见，只留下连线的颜色
+   * 方案：
+   * - 为 Overview 定义"特供版"节点模板：去掉文字，只留彩色色块
+   * - 为 Overview 定义"特供版"连线模板：极粗线条，形成"路网"感
+   * - 保留原生视口框交互功能（拖动框 -> 主图滚动）
    * 
-   * 效果：多条线聚集时颜色叠加变深，形成"热力图"效果
+   * 【关键】：模板必须在设置 observed 之前定义！
    */
   initializeOverview(container: HTMLDivElement): void {
     if (!this.diagram || this.isDestroyed) return;
@@ -253,88 +255,77 @@ export class FlowDiagramService {
     try {
       const $ = go.GraphObject.make;
       
-      // ========== 创建 Overview ==========
-      // 注意：先不设置 observed，等模板配置完成后再设置
+      // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
-        "animationManager.isEnabled": false,
-        drawsTemporaryLayers: false
+        "animationManager.isEnabled": false
       });
       
-      // ========== 【核心】显式覆盖 Overview 的 LinkTemplate ==========
-      // 必须在设置 observed 之前配置模板！
-      // 把它做成"光束"效果，实现热力图感官
-      this.overview.linkTemplate = $(go.Link,
-        { 
-          selectable: false,  // 纯展示，不可选中
-          layerName: "Background"  // 放在背景层
+      // ========== 2.【关键】先定义模板，再设置 observed ==========
+      // Overview 专用节点模板：去掉文字，只留色块
+      this.overview.nodeTemplate = $(go.Node, "Spot",
+        {
+          locationSpot: go.Spot.Center
         },
-        $(go.Shape, 
-          { 
-            // 暴力加粗：10px，缩小10倍后看起来是1px
-            strokeWidth: 10, 
-            // 半透明：重叠时颜色叠加变深，模拟"热力"效果
-            opacity: 0.6,
-            // 圆头，让连接处更平滑
-            strokeCap: "round"
+        new go.Binding("location", "loc", go.Point.parse),
+        $(go.Shape, "Rectangle",
+          {
+            name: "SHAPE",
+            width: 20,              // 强制固定大小，形成均匀的色块点
+            height: 14,
+            strokeWidth: 0,         // 去掉边框，减少视觉噪点
+            opacity: 0.9
           },
-          // 绑定 familyColor
-          new go.Binding("stroke", "familyColor", (color: string) => color || "#64748b")
+          // 绑定血缘家族颜色
+          new go.Binding("fill", "familyColor", (color: string) => {
+            console.log('[Overview Node] binding familyColor:', color);
+            return color || "#64748b";
+          })
         )
       );
       
-      // ========== 【核心】显式覆盖 Overview 的 NodeTemplate ==========
-      // 让节点几乎消失，只留下连线的颜色脉络
-      this.overview.nodeTemplate = $(go.Node,
-        $(go.Shape, "Circle", 
-          { 
-            width: 2, 
-            height: 2, 
-            fill: "transparent",  // 完全透明
-            strokeWidth: 0        // 无边框
-          }
+      // Overview 专用连线模板：加粗线条，形成"路网"感
+      this.overview.linkTemplate = $(go.Link,
+        {
+          routing: go.Link.Normal,  // 简化路由，提升性能
+          curve: go.Link.None       // 直线，减少计算
+        },
+        $(go.Shape,
+          {
+            strokeWidth: 6,         // 【关键】极粗的线条
+            opacity: 0.75           // 半透明，重叠时颜色加深
+          },
+          // 连线也绑定家族颜色
+          new go.Binding("stroke", "familyColor", (color: string) => {
+            console.log('[Overview Link] binding familyColor:', color);
+            return color || "#64748b";
+          })
         )
       );
       
-      // 修改 box（视口框）的视觉样式
-      const boxShape = this.overview.box.findObject("BOXSHAPE") as go.Shape;
-      if (boxShape) {
-        boxShape.stroke = "#ffffff";
-        boxShape.strokeWidth = 3;
-        boxShape.fill = "rgba(255, 255, 255, 0.25)";
-      }
-      
-      // ========== 【关键】设置 observed ==========
-      // 必须在模板配置完成之后再设置 observed
-      // 这样 Overview 才会使用我们自定义的模板来渲染
+      // ========== 3.【关键】模板设置完成后，再绑定观察的图表 ==========
       this.overview.observed = this.diagram;
       
-      // 关键：让 Overview 只显示实际的文档内容，不包含 scrollMargin
-      // 这样视口框大小才能正确反映主图的缩放
-      this.overview.contentAlignment = go.Spot.Center;
+      // 【调试】检查 Overview 是否正确创建
+      console.log('[Overview] created, observed diagram:', !!this.overview.observed);
       
-      // 初始缩放
+      // ========== 4. 自定义视口框样式 ==========
+      // 原生的视口框依然存在且可用，只是改变样式
+      const box = this.overview.box;
+      if (box && box.elt(0)) {
+        (box.elt(0) as go.Shape).stroke = "#ffffff";
+        (box.elt(0) as go.Shape).strokeWidth = 2;
+        (box.elt(0) as go.Shape).fill = "rgba(255, 255, 255, 0.15)";
+      }
+      
+      // 设置初始缩放
       this.overview.scale = 0.15;
       this.lastOverviewScale = 0.15;
       
       // 启用自动缩放逻辑
       this.setupOverviewAutoScale();
       
-      // 延迟刷新确保视口框正确定位
-      // 解决首次拖动时视口框位置不正确的问题
-      setTimeout(() => {
-        if (this.overview && this.diagram && !this.isDestroyed) {
-          // 强制 Overview 重新计算视口框位置
-          this.overview.updateAllTargetBindings();
-          // 重新居中到文档内容
-          const docBounds = this.diagram.documentBounds;
-          if (docBounds.isReal() && docBounds.width > 0 && docBounds.height > 0) {
-            this.overview.centerRect(docBounds);
-          }
-        }
-      }, 50);
-      
-      this.logger.info('Overview 初始化成功（支持实时自适应）');
+      this.logger.info('Overview 热力图模式初始化成功');
     } catch (error) {
       this.logger.error('Overview 初始化失败:', error);
     }
@@ -1033,12 +1024,21 @@ export class FlowDiagramService {
       const linkData = model.linkDataArray;
       if (linkData?.length > 0 && !this._familyColorLogged) {
         this._familyColorLogged = true;
-        this.logger.info(`[LineageColor] First link: ${JSON.stringify(linkData[0])}`);
+        this.logger.info(`[LineageColor] 首条连线数据: ${JSON.stringify(linkData[0])}`);
+        if (model.nodeDataArray?.length > 0) {
+          this.logger.info(`[LineageColor] 首个节点数据: familyColor=${model.nodeDataArray[0].familyColor}`);
+        }
       }
       
-      // ========== 刷新 Overview ==========
-      // 数据更新后，Overview 需要重新渲染以显示新的 familyColor
-      if (this.overview) {
+      // ========== Overview 数据同步调试 ==========
+      if (this.overview?.observed) {
+        const ovModel = this.overview.observed.model;
+        console.log('[Overview] Main diagram nodes:', ovModel.nodeDataArray?.length || 0);
+        console.log('[Overview] Main diagram links:', (ovModel as any).linkDataArray?.length || 0);
+        if (ovModel.nodeDataArray?.length > 0) {
+          console.log('[Overview] First node familyColor:', (ovModel.nodeDataArray[0] as any).familyColor);
+        }
+        // 尝试强制刷新 Overview
         this.overview.updateAllTargetBindings();
       }
       
