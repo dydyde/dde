@@ -483,19 +483,31 @@ export class FlowDiagramService {
         this.overview.observed = this.diagram;
       }
 
-      // 如果 Overview 还没有部件（可能导致空白），强制重建
       const rebuild = () => {
         this.overview!.rebuildParts();
         this.overview!.updateAllTargetBindings();
         this.overview!.requestUpdate();
 
-        // 如果需要，重新居中视口，确保色块落入可见区域
         if (forceCenter) {
           this.overview!.zoomToFit();
         }
       };
 
       rebuild();
+
+      // 如果依旧没有任何部件，强制重新绑定并再次重建
+      const needsHardRefresh = (
+        this.diagram.nodes.count > 0 &&
+        this.overview.parts.count === 0 &&
+        this.overview.nodes.count === 0
+      );
+
+      if (needsHardRefresh) {
+        // 先暂时解绑再重新绑定以触发内部刷新
+        this.overview.observed = null as unknown as go.Diagram;
+        this.overview.observed = this.diagram;
+        rebuild();
+      }
 
       // 如果同步重建后仍然没有部件，延迟一次重建以等待 DOM 尺寸与数据稳定
       if (
