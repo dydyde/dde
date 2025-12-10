@@ -270,8 +270,7 @@ export class FlowDiagramService {
       this.overview.nodeTemplate = $(go.Node, "Spot",
         {
           locationSpot: go.Spot.Center,
-          selectionAdorned: false,
-          layerName: "Background"
+          selectionAdorned: false
         },
         new go.Binding("location", "loc", go.Point.parse),
         $(go.Shape, "Rectangle",
@@ -291,8 +290,7 @@ export class FlowDiagramService {
       this.overview.linkTemplate = $(go.Link,
         {
           routing: go.Link.Normal,  // 简化路由，提升性能
-          curve: go.Link.None,      // 直线，减少计算
-          layerName: "Background"
+          curve: go.Link.None       // 直线，减少计算
         },
         $(go.Shape,
           {
@@ -322,10 +320,13 @@ export class FlowDiagramService {
       // 设置初始缩放
       this.overview.scale = 0.15;
       this.lastOverviewScale = 0.15;
-      
+
       // 启用自动缩放逻辑
       this.setupOverviewAutoScale();
-      
+
+      // 初次创建后立刻刷新，防止初始空白
+      this.refreshOverviewHeatmap();
+
       this.logger.info('Overview 热力图模式初始化成功');
     } catch (error) {
       this.logger.error('Overview 初始化失败:', error);
@@ -464,9 +465,13 @@ export class FlowDiagramService {
    * 确保 Overview 的热力图模板拿到最新的血缘颜色绑定
    */
   private refreshOverviewHeatmap(): void {
-    if (!this.overview) return;
+    if (!this.overview || !this.diagram) return;
 
     try {
+      // 重新挂载 observed 可以强制 Overview 重建部件，避免偶发的空白状态
+      this.overview.observed = null;
+      this.overview.observed = this.diagram;
+
       this.overview.updateAllTargetBindings();
       this.overview.requestUpdate();
     } catch (error) {
