@@ -90,6 +90,7 @@ export class FlowDiagramService {
   private overviewContainer: HTMLDivElement | null = null;
   private lastOverviewScale: number = 0.1;
   private isNodeDragging: boolean = false;
+  private overviewReinitAttempted = false;
   
   // ========== 定时器 ==========
   private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -242,14 +243,17 @@ export class FlowDiagramService {
    * 
    * 【关键】：模板必须在设置 observed 之前定义！
    */
-  initializeOverview(container: HTMLDivElement): void {
+  initializeOverview(container: HTMLDivElement, resetReinitFlag = true): void {
     if (!this.diagram || this.isDestroyed) return;
-    
+
     // 如果已经有 Overview，先销毁它
     if (this.overview) {
       this.disposeOverview();
     }
-    
+
+    if (resetReinitFlag) {
+      this.overviewReinitAttempted = false;
+    }
     this.overviewContainer = container;
     
     try {
@@ -488,36 +492,26 @@ export class FlowDiagramService {
         this.overview!.updateAllTargetBindings();
         this.overview!.requestUpdate();
 
-        if (forceCenter) {
+        if (forceCenter && (this.overview!.parts.count > 0 || this.overview!.nodes.count > 0)) {
           this.overview!.zoomToFit();
         }
       };
 
       rebuild();
 
-      // 如果依旧没有任何部件，强制重新绑定并再次重建
-      const needsHardRefresh = (
-        this.diagram.nodes.count > 0 &&
-        this.overview.parts.count === 0 &&
-        this.overview.nodes.count === 0
-      );
+      const missingHeatmap = this.diagram.nodes.count > 0 &&
+        (this.overview.parts.count === 0 || this.overview.nodes.count === 0);
 
-      if (needsHardRefresh) {
-        // 先暂时解绑再重新绑定以触发内部刷新
-        this.overview.observed = null as unknown as go.Diagram;
+      // 如果仍然没有部件，最后一次尝试完整重建 Overview，避免持续空白
+      if (missingHeatmap && this.overviewContainer && !this.overviewReinitAttempted) {
+        this.overviewReinitAttempted = true;
+        const container = this.overviewContainer;
+        this.disposeOverview();
+        this.initializeOverview(container, false);
+      } else if (missingHeatmap) {
+        // 已经重建过，至少再同步一次绑定和居中
         this.overview.observed = this.diagram;
         rebuild();
-      }
-
-      // 如果同步重建后仍然没有部件，延迟一次重建以等待 DOM 尺寸与数据稳定
-      if (
-        this.diagram.nodes.count > 0 &&
-        (this.overview.parts.count === 0 || this.overview.nodes.count === 0)
-      ) {
-        setTimeout(() => {
-          if (!this.overview || !this.diagram || this.overview.observed !== this.diagram) return;
-          rebuild();
-        }, 80);
       }
     } catch (error) {
       this.logger.warn('刷新 Overview 热力图失败', error);
