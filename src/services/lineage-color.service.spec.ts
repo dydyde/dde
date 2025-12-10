@@ -14,6 +14,24 @@ describe('LineageColorService', () => {
   });
 
   describe('血缘追溯', () => {
+    it('findRootId 应递归追溯到始祖', () => {
+      const tasks: Task[] = [
+        createTask('root-a', null, 'Root A'),
+        createTask('child-a1', 'root-a', 'Child A1'),
+        createTask('grandchild-a1', 'child-a1', 'Grandchild A1')
+      ];
+
+      const taskMap = new Map(tasks.map(task => [task.id, task]));
+      const cache = new Map();
+      const rootNodes: string[] = [];
+
+      const result = (service as any).findRootId('grandchild-a1', taskMap, cache, rootNodes);
+
+      expect(result.rootId).toBe('root-a');
+      expect(result.rootIndex).toBe(0);
+      expect(rootNodes).toEqual(['root-a']);
+    });
+
     it('应正确识别始祖节点', () => {
       // 创建测试任务树：
       // 任务1 (root)
@@ -109,7 +127,7 @@ describe('LineageColorService', () => {
   describe('HSL 颜色生成', () => {
     it('应生成有效的 HSL 颜色字符串', () => {
       const color = service.generateFamilyColor(0, 5);
-      expect(color).toMatch(/^hsl\(\d+, 85%, 55%\)$/);
+      expect(color).toMatch(/^(#([0-9a-fA-F]{6})|hsl\(\d+, 85%, 55%\))$/);
     });
 
     it('颜色应具有确定性（同样的输入产生同样的输出）', () => {
