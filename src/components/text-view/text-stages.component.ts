@@ -359,7 +359,6 @@ export class TextStagesComponent {
   }
   
   onStageDragOver(data: { event: DragEvent; stageNumber: number }) {
-    this.expandStage(data.stageNumber);
     this.stageDragOver.emit(data);
   }
   

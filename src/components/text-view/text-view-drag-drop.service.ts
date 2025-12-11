@@ -196,6 +196,9 @@ export class TextViewDragDropService {
     this.touchState.previousHoverStage = this.touchState.originalStage;
     if (this.touchState.originalStage !== null) {
       this.dragOverStage.set(this.touchState.originalStage);
+      // 关键修复：将原始阶段也添加到追踪集合中
+      // 这样当拖入其他阶段时，原始阶段可以被正确折叠
+      this.touchState.expandedDuringDrag.add(this.touchState.originalStage);
     }
     
     // console.log('[TouchDrag] isDragging activated', {
@@ -287,37 +290,56 @@ export class TextViewDragDropService {
   /** 更新触摸目标阶段
    * 仅折叠“拖拽过程中自动展开”的阶段，避免把原本就展开的阶段折叠掉
    */
-  updateTouchTarget(stageNumber: number | null, beforeTaskId: string | null, options?: { autoExpanded?: boolean }) {
+  /** 切换到新阶段（处理阶段展开/折叠逻辑） */
+  switchToStage(stageNumber: number): number | null {
     const prevStage = this.touchState.previousHoverStage;
-    const autoExpanded = options?.autoExpanded === true;
     
-    if (stageNumber !== null) {
-      this.touchState.targetStage = stageNumber;
-      this.touchState.targetBeforeId = beforeTaskId;
-      this.touchState.previousHoverStage = stageNumber;
-      if (autoExpanded) {
-        this.touchState.expandedDuringDrag.add(stageNumber);
-      }
-      this.dragOverStage.set(stageNumber);
-      this.dropTargetInfo.set({ stageNumber, beforeTaskId });
-    } else {
-      // ⚠️ 不要清除 targetStage 和 targetBeforeId！
-      // 保留之前的目标，这样当用户在阶段外松手时，任务仍会移动到最后一个有效目标
-      // 只清除视觉状态
-      this.touchState.previousHoverStage = null;
-      this.dragOverStage.set(null);
-      this.dropTargetInfo.set(null);
-    }
-    
-    // 只折叠因拖拽而临时展开的阶段
+    // 检查是否需要折叠之前的阶段
+    let stageToCollapse: number | null = null;
     if (
       prevStage !== null &&
       prevStage !== stageNumber &&
       this.touchState.expandedDuringDrag.has(prevStage)
     ) {
+      stageToCollapse = prevStage;
       this.touchState.expandedDuringDrag.delete(prevStage);
-      return prevStage;
     }
+    
+    // 更新当前阶段
+    this.touchState.previousHoverStage = stageNumber;
+    this.touchState.expandedDuringDrag.add(stageNumber);
+    this.dragOverStage.set(stageNumber);
+    
+    return stageToCollapse;
+  }
+  
+  /** 更新触摸目标位置（只更新任务位置，不改变阶段追踪） */
+  updateTouchTarget(stageNumber: number | null, beforeTaskId: string | null, options?: { autoExpanded?: boolean }): number | null {
+    // 只更新任务位置，不修改阶段追踪状态
+    if (stageNumber !== null) {
+      this.touchState.targetStage = stageNumber;
+      this.touchState.targetBeforeId = beforeTaskId;
+      this.dropTargetInfo.set({ stageNumber, beforeTaskId });
+    } else {
+      // ⚠️ 离开所有阶段时的特殊处理
+      const prevStage = this.touchState.previousHoverStage;
+      let stageToCollapse: number | null = null;
+      
+      if (prevStage !== null && this.touchState.expandedDuringDrag.has(prevStage)) {
+        stageToCollapse = prevStage;
+        this.touchState.expandedDuringDrag.delete(prevStage);
+      }
+      
+      // ⚠️ 不要清除 targetStage 和 targetBeforeId！
+      // 保留之前的目标，这样当用户在阶段外松手时，任务仍会移动到最后一个有效目标
+      // 只清除视觉状态和 previousHoverStage
+      this.touchState.previousHoverStage = null;
+      this.dragOverStage.set(null);
+      this.dropTargetInfo.set(null);
+      
+      return stageToCollapse;
+    }
+    
     return null;
   }
   
@@ -327,6 +349,9 @@ export class TextViewDragDropService {
     // 清除超时检测器
     this.clearMoveTimeout();
     this.cancelLongPress();
+    
+    // 停止自动滚动
+    this.stopTouchAutoScroll();
 
     const autoExpandedStages = Array.from(this.touchState.expandedDuringDrag);
     
@@ -482,60 +507,63 @@ export class TextViewDragDropService {
   
   /** 启动自动滚动 */
   startAutoScroll(container: HTMLElement, clientY: number) {
-    // 先移除可能存在的监听器，防止重复添加
     document.removeEventListener('dragover', this.boundHandleDragAutoScroll);
-    
     this.autoScrollState.scrollContainer = container;
     this.autoScrollState.lastClientY = clientY;
-    
     document.addEventListener('dragover', this.boundHandleDragAutoScroll);
+    this.ensureAutoScrollLoop();
   }
   
   /** 执行触摸自动滚动 */
   performTouchAutoScroll(container: HTMLElement, clientY: number) {
-    const rect = container.getBoundingClientRect();
-    const edgeSize = 80;
-    const maxScrollSpeed = 12;
-    
-    let scrollAmount = 0;
-    
-    if (clientY < rect.top + edgeSize && clientY > rect.top - 20) {
-      const distance = rect.top + edgeSize - clientY;
-      scrollAmount = -Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
-    } else if (clientY > rect.bottom - edgeSize && clientY < rect.bottom + 20) {
-      const distance = clientY - (rect.bottom - edgeSize);
-      scrollAmount = Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
-    }
-    
-    if (scrollAmount !== 0) {
-      container.scrollTop += scrollAmount;
-    }
+    this.autoScrollState.scrollContainer = container;
+    this.autoScrollState.lastClientY = clientY;
+    this.ensureAutoScrollLoop();
   }
   
   private handleDragAutoScroll(e: DragEvent) {
     this.autoScrollState.lastClientY = e.clientY;
-    this.performAutoScroll();
   }
   
-  private performAutoScroll() {
+  private ensureAutoScrollLoop() {
+    if (this.autoScrollState.animationId) {
+      return;
+    }
+    const step = () => {
+      if (!this.shouldContinueAutoScroll()) {
+        this.stopAutoScrollLoop(true);
+        return;
+      }
+      this.performAutoScrollStep();
+      this.autoScrollState.animationId = requestAnimationFrame(step);
+    };
+    this.autoScrollState.animationId = requestAnimationFrame(step);
+  }
+  
+  private shouldContinueAutoScroll(): boolean {
+    if (!this.autoScrollState.scrollContainer) {
+      return false;
+    }
+    return this.touchState.isDragging || !!this.draggingTaskId();
+  }
+  
+  private performAutoScrollStep() {
     const container = this.autoScrollState.scrollContainer;
     if (!container) return;
-    
-    const clientY = this.autoScrollState.lastClientY;
     const rect = container.getBoundingClientRect();
-    const edgeSize = 60;
-    const maxScrollSpeed = 15;
-    
+    const edgeSize = 100;
+    const maxScrollSpeed = 18;
+    const clientY = this.autoScrollState.lastClientY;
     let scrollAmount = 0;
-    
-    if (clientY < rect.top + edgeSize && clientY > rect.top) {
+    if (clientY < rect.top + edgeSize && clientY > rect.top - 20) {
       const distance = rect.top + edgeSize - clientY;
-      scrollAmount = -Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
-    } else if (clientY > rect.bottom - edgeSize && clientY < rect.bottom) {
+      const ratio = Math.min(1, Math.max(0, distance / edgeSize));
+      scrollAmount = -maxScrollSpeed * ratio * ratio;
+    } else if (clientY > rect.bottom - edgeSize && clientY < rect.bottom + 20) {
       const distance = clientY - (rect.bottom - edgeSize);
-      scrollAmount = Math.min(maxScrollSpeed, (distance / edgeSize) * maxScrollSpeed);
+      const ratio = Math.min(1, Math.max(0, distance / edgeSize));
+      scrollAmount = maxScrollSpeed * ratio * ratio;
     }
-    
     if (scrollAmount !== 0) {
       container.scrollTop += scrollAmount;
     }
@@ -543,13 +571,22 @@ export class TextViewDragDropService {
   
   private stopAutoScroll() {
     document.removeEventListener('dragover', this.boundHandleDragAutoScroll);
-    
+    this.stopAutoScrollLoop(true);
+  }
+  
+  /** 停止触摸自动滚动 */
+  private stopTouchAutoScroll() {
+    this.stopAutoScrollLoop(true);
+  }
+  
+  private stopAutoScrollLoop(clearContainer = true) {
     if (this.autoScrollState.animationId) {
       cancelAnimationFrame(this.autoScrollState.animationId);
+      this.autoScrollState.animationId = null;
     }
-    
-    this.autoScrollState.scrollContainer = null;
-    this.autoScrollState.animationId = null;
+    if (clearContainer) {
+      this.autoScrollState.scrollContainer = null;
+    }
   }
   
   // ========== 清理方法 ==========

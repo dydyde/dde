@@ -624,7 +624,9 @@ export class TextViewComponent implements OnInit, OnDestroy {
     const relatedTarget = event.relatedTarget as HTMLElement;
     const currentTarget = event.currentTarget as HTMLElement;
     
-    if (!currentTarget.contains(relatedTarget)) {
+    // 检查是否真的离开了这个阶段（而不是进入了子元素）
+    // 如果 relatedTarget 为 null 或不在当前阶段内，说明真的离开了
+    if (!relatedTarget || !currentTarget.contains(relatedTarget)) {
       const collapseStage = this.dragDropService.handleStageDragLeave(stageNumber);
       if (collapseStage !== null) {
         this.stagesRef?.collapseStage(collapseStage);
@@ -718,25 +720,34 @@ export class TextViewComponent implements OnInit, OnDestroy {
           const stageNum = parseInt(stageEl.getAttribute('data-stage-number') || '0', 10);
           if (stageNum > 0) {
             // 🔧 重新启用触摸拖拽时的自动展开/折叠
-            // 当进入新阶段时：展开目标阶段，折叠之前的阶段（如果不是原始阶段）
+            // 当进入新阶段时：展开目标阶段，折叠之前的阶段
             if (currentHoverStage !== stageNum) {
               const wasCollapsed = this.stagesRef ? !this.stagesRef.isStageExpanded(stageNum) : false;
 
               // 标记开始 DOM 更新，忽略由此产生的 pointerup/pointercancel 事件
               this.dragDropService.beginDOMUpdate();
               
-              // 使用 requestAnimationFrame 延迟 DOM 更新，避免中断触摸序列
-              requestAnimationFrame(() => {
-                // 先更新目标状态，只折叠拖拽时临时展开的阶段
-                const collapseStage = this.dragDropService.updateTouchTarget(stageNum, null, { autoExpanded: wasCollapsed });
-                
-                if (collapseStage !== null) {
-                  this.stagesRef?.collapseStage(collapseStage);
-                }
-                
-                // 展开当前阶段
-                this.stagesRef?.expandStage(stageNum);
-              });
+              // 先立即切换阶段并获取需要折叠的阶段
+              const collapseStage = this.dragDropService.switchToStage(stageNum);
+              
+              console.log('[Stage Switch]', { from: currentHoverStage, to: stageNum, willCollapse: collapseStage });
+              
+              if (collapseStage !== null) {
+                this.stagesRef?.collapseStage(collapseStage);
+                console.log('[Stage] Collapsed:', collapseStage);
+              }
+              
+              // 然后异步展开当前阶段
+              if (wasCollapsed) {
+                requestAnimationFrame(() => {
+                  this.stagesRef?.expandStage(stageNum);
+                  // DOM 更新完成后立即结束标记
+                  setTimeout(() => this.dragDropService.endDOMUpdate(), 50);
+                });
+              } else {
+                // 如果不需要展开，立即结束 DOM 更新标记
+                this.dragDropService.endDOMUpdate();
+              }
             }
 
             this.collapseSourceStageIfNeeded(stageNum);
@@ -793,12 +804,19 @@ export class TextViewComponent implements OnInit, OnDestroy {
         // 标记开始 DOM 更新
         this.dragDropService.beginDOMUpdate();
         
-        // 使用 requestAnimationFrame 延迟折叠，避免中断触摸事件
+        // 获取需要折叠的阶段
         const collapseStage = this.dragDropService.updateTouchTarget(null, null);
+        
+        // 使用 requestAnimationFrame 延迟折叠，避免中断触摸事件
         if (collapseStage !== null) {
           requestAnimationFrame(() => {
             this.stagesRef?.collapseStage(collapseStage);
+            // 折叠完成后立即结束 DOM 更新标记
+            setTimeout(() => this.dragDropService.endDOMUpdate(), 50);
           });
+        } else {
+          // 没有需要折叠的阶段，立即结束 DOM 更新标记
+          this.dragDropService.endDOMUpdate();
         }
 
         this.collapseSourceStageIfNeeded(null);
@@ -847,7 +865,10 @@ export class TextViewComponent implements OnInit, OnDestroy {
         this.toast.error('移动任务失败', `无法将任务移动到阶段 ${targetStage}：${errorDetail}`);
       } else {
         // console.log('[TouchEnd] Move succeeded');
-        this.stagesRef?.expandStage(targetStage);
+        // 🔧 修复：不要自动展开目标阶段，因为在拖拽过程中已经处理了展开/折叠
+        // 自动展开会覆盖拖拽过程中的折叠操作
+        // this.stagesRef?.expandStage(targetStage);
+        console.log('[TouchEnd] Task moved, NOT auto-expanding target stage');
       }
     } else {
       // console.log('[TouchEnd] Not moving:', { wasDragging, targetStage });
