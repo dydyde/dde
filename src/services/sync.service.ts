@@ -1670,11 +1670,20 @@ export class SyncService {
           message: `正在增量保存 ${changes.tasksToCreate.length + changes.tasksToUpdate.length} 个任务...`
         });
 
+        const taskUpdateFieldsById: Record<string, string[] | undefined> = {};
+        for (const record of this.changeTracker.exportPendingChanges()) {
+          if (record.projectId !== project.id) continue;
+          if (record.entityType !== 'task') continue;
+          if (record.changeType !== 'update') continue;
+          taskUpdateFieldsById[record.entityId] = record.changedFields;
+        }
+
         const tasksResult = await this.taskRepo.saveTasksIncremental(
           project.id,
           changes.tasksToCreate,
           changes.tasksToUpdate,
-          changes.taskIdsToDelete
+          changes.taskIdsToDelete,
+          taskUpdateFieldsById
         );
 
         if (!tasksResult.success) {

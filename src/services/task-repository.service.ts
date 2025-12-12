@@ -105,7 +105,12 @@ export class TaskRepositoryService {
   async saveTask(projectId: string, task: Task): Promise<{ success: boolean; error?: string }> {
     if (!this.supabase.isConfigured) return { success: true };
 
-    const taskRow = this.mapTaskToRow(projectId, task);
+    const taskRow = this.mapTaskToRow(projectId, task) as any;
+    // tombstone-wins：不允许通过“缺省同步”清空 deleted_at。
+    // 恢复任务应走显式 restore（增量变更会携带 changedFields=deletedAt）。
+    if ((task.deletedAt ?? null) === null) {
+      delete taskRow.deleted_at;
+    }
 
     const { error } = await this.supabase.client()
       .from('tasks')
@@ -128,7 +133,13 @@ export class TaskRepositoryService {
     if (!this.supabase.isConfigured) return { success: true };
     if (tasks.length === 0) return { success: true };
 
-    const taskRows = tasks.map(task => this.mapTaskToRow(projectId, task));
+    const taskRows = tasks.map(task => {
+      const row = this.mapTaskToRow(projectId, task) as any;
+      if ((task.deletedAt ?? null) === null) {
+        delete row.deleted_at;
+      }
+      return row;
+    });
 
     // 对于大批量任务，分批处理以避免超时和单次失败影响所有数据
     const BATCH_SIZE = 50;
@@ -758,7 +769,8 @@ export class TaskRepositoryService {
     projectId: string,
     tasksToCreate: Task[],
     tasksToUpdate: Task[],
-    taskIdsToDelete: string[]
+    taskIdsToDelete: string[],
+    taskUpdateFieldsById?: Record<string, string[] | undefined>
   ): Promise<{ success: boolean; error?: string; stats?: { created: number; updated: number; deleted: number } }> {
     if (!this.supabase.isConfigured) return { success: true };
     
@@ -824,7 +836,20 @@ export class TaskRepositoryService {
 
     // 3. 批量更新任务
     if (tasksToUpdate.length > 0) {
-      const updateRows = tasksToUpdate.map(task => this.mapTaskToRow(projectId, task));
+      const updateRows = tasksToUpdate.map(task => {
+        const row = this.mapTaskToRow(projectId, task) as any;
+        const changedFields = taskUpdateFieldsById?.[task.id] ?? [];
+
+        // tombstone-wins：
+        // - 如果本次更新没有显式修改 deletedAt（changedFields 不包含 deletedAt）
+        // - 且当前 task.deletedAt 为 null
+        // 则不发送 deleted_at 字段，避免把远端已存在的 deleted_at 覆盖回 null（导致复活）。
+        if ((task.deletedAt ?? null) === null && !changedFields.includes('deletedAt')) {
+          delete row.deleted_at;
+        }
+
+        return row;
+      });
       
       for (let i = 0; i < updateRows.length; i += BATCH_SIZE) {
         const batch = updateRows.slice(i, i + BATCH_SIZE);
