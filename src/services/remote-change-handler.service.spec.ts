@@ -17,6 +17,7 @@ import { ProjectStateService } from './project-state.service';
 import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
 import { LoggerService } from './logger.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { Project, Task } from '../models';
 
 // ========== Mock 工厂函数 ==========
@@ -102,6 +103,10 @@ const mockLoggerService = {
   }),
 };
 
+const mockChangeTracker = {
+  exportPendingChanges: vi.fn().mockReturnValue([]),
+};
+
 const destroyCallbacks: (() => void)[] = [];
 const mockDestroyRef = {
   onDestroy: (callback: () => void) => {
@@ -120,6 +125,7 @@ describe('RemoteChangeHandlerService', () => {
     mockUiState.isEditing = false;
     mockSyncCoordinator.hasPendingLocalChanges.mockReturnValue(false);
     mockSyncCoordinator.getLastPersistAt.mockReturnValue(0);
+    mockChangeTracker.exportPendingChanges.mockReturnValue([]);
 
     TestBed.configureTestingModule({
       providers: [
@@ -131,6 +137,7 @@ describe('RemoteChangeHandlerService', () => {
         { provide: ToastService, useValue: mockToastService },
         { provide: AuthService, useValue: mockAuthService },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: ChangeTrackerService, useValue: mockChangeTracker },
         { provide: DestroyRef, useValue: mockDestroyRef },
       ],
     });
@@ -247,21 +254,54 @@ describe('RemoteChangeHandlerService', () => {
   });
 
   describe('编辑状态检查', () => {
-    it('用户编辑中应跳过远程更新', async () => {
+    it('用户编辑中仍会处理远程 UPDATE（按字段合并保护本地）', async () => {
       mockUiState.isEditing = true;
 
+      // 本地已有任务
+      const localTask = createTestTask({ id: 'task-1', title: 'Local Title', content: 'local', deletedAt: null });
+      mockProjects.set([createTestProject({ tasks: [localTask] })]);
+
+      // 远程将任务软删除（通过 UPDATE 传播）
+      const tombstone = new Date().toISOString();
+      const remoteTask = createTestTask({ id: 'task-1', title: 'Remote Title', content: 'remote', deletedAt: tombstone });
+      mockSyncCoordinator.loadSingleProject.mockResolvedValue(
+        createTestProject({ tasks: [remoteTask] })
+      );
+
       service.setupCallbacks(async () => {});
       const taskChangeHandler = mockSyncCoordinator.setupRemoteChangeCallbacks.mock.calls[0][1];
 
       taskChangeHandler({ eventType: 'UPDATE', taskId: 'task-1', projectId: 'test-project-1' });
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      // 验证编辑中不发起请求
-      expect(mockSyncCoordinator.loadSingleProject).not.toHaveBeenCalled();
+      expect(mockSyncCoordinator.loadSingleProject).toHaveBeenCalledTimes(1);
+      // tombstone wins：即使编辑中也要应用 deletedAt，避免复活
+      expect(mockProjects()[0].tasks[0].deletedAt).toBe(tombstone);
+      // 编辑中保护内容字段
+      expect(mockProjects()[0].tasks[0].title).toBe('Local Title');
+      expect(mockProjects()[0].tasks[0].content).toBe('local');
     });
 
-    it('有待同步本地变更时应跳过远程更新', async () => {
-      mockSyncCoordinator.hasPendingLocalChanges.mockReturnValue(true);
+    it('有待同步本地脏字段时不应被远程覆盖', async () => {
+      // 本地任务 x 有待同步变更
+      mockChangeTracker.exportPendingChanges.mockReturnValue([
+        {
+          entityId: 'task-1',
+          entityType: 'task',
+          changeType: 'update',
+          projectId: 'test-project-1',
+          timestamp: Date.now(),
+          changedFields: ['x'],
+        }
+      ]);
+
+      const localTask = createTestTask({ id: 'task-1', x: 123, deletedAt: null });
+      mockProjects.set([createTestProject({ tasks: [localTask] })]);
+
+      const remoteTask = createTestTask({ id: 'task-1', x: 0, deletedAt: null });
+      mockSyncCoordinator.loadSingleProject.mockResolvedValue(
+        createTestProject({ tasks: [remoteTask] })
+      );
 
       service.setupCallbacks(async () => {});
       const taskChangeHandler = mockSyncCoordinator.setupRemoteChangeCallbacks.mock.calls[0][1];
@@ -269,7 +309,8 @@ describe('RemoteChangeHandlerService', () => {
       taskChangeHandler({ eventType: 'UPDATE', taskId: 'task-1', projectId: 'test-project-1' });
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(mockSyncCoordinator.loadSingleProject).not.toHaveBeenCalled();
+      expect(mockSyncCoordinator.loadSingleProject).toHaveBeenCalledTimes(1);
+      expect(mockProjects()[0].tasks[0].x).toBe(123);
     });
   });
 });

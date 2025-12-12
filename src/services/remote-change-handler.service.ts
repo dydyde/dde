@@ -18,6 +18,7 @@ import { ProjectStateService } from './project-state.service';
 import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
 import { LoggerService } from './logger.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { Project } from '../models';
 
 /**
@@ -52,6 +53,7 @@ export class RemoteChangeHandlerService {
   private projectState = inject(ProjectStateService);
   private toastService = inject(ToastService);
   private authService = inject(AuthService);
+  private changeTracker = inject(ChangeTrackerService);
   private destroyRef = inject(DestroyRef);
 
   /** 用于防止在编辑期间处理远程变更的时间阈值（毫秒）*/
@@ -168,9 +170,9 @@ export class RemoteChangeHandlerService {
       return inEchoGuard;
     }
 
-    const isEditing = this.uiState.isEditing;
-    const hasPending = this.syncCoordinator.hasPendingLocalChanges();
-    return isEditing || hasPending || inEchoGuard;
+    // UPDATE/INSERT 需要尽量及时处理（尤其是软删除 tombstone 通过 UPDATE 传播）。
+    // 这里不再因“编辑中/有待同步变更”而整体跳过；改由后续合并逻辑按字段保护本地脏数据。
+    return inEchoGuard;
   }
 
   /**
@@ -319,9 +321,9 @@ export class RemoteChangeHandlerService {
         // 每次新请求都会使之前的请求结果被忽略
         const requestId = ++this.taskUpdateRequestId;
         
-        this.logger.info('开始加载远程任务更新', { eventType, taskId, projectId, requestId });
+        this.logger.info('开始加载远程任务更新', { eventType, taskId, projectId: targetProjectId, requestId });
         
-        this.syncCoordinator.loadSingleProject(projectId, userId)
+        this.syncCoordinator.loadSingleProject(targetProjectId, userId)
           .then(remoteProject => {
             // 检查是否已有更新的请求（当前请求已过时）
             if (requestId !== this.taskUpdateRequestId) {
@@ -339,7 +341,7 @@ export class RemoteChangeHandlerService {
             }
             
             if (!remoteProject) {
-              this.logger.warn('无法加载远程项目', { projectId });
+              this.logger.warn('无法加载远程项目', { projectId: targetProjectId });
               return;
             }
 
@@ -365,7 +367,7 @@ export class RemoteChangeHandlerService {
 
             this.projectState.updateProjects(projects =>
               projects.map(p => {
-                if (p.id !== projectId) return p;
+                if (p.id !== targetProjectId) return p;
 
                 const existingTaskIndex = p.tasks.findIndex(t => t.id === taskId);
                 let updatedProject: Project;
@@ -390,54 +392,41 @@ export class RemoteChangeHandlerService {
                     }
                   });
                   
-                  // 🔧 修复：智能合并策略
-                  // 原则：
-                  // 1. 结构性字段（stage, parentId, rank, x, y）始终使用远程值（因为这些是其他设备的操作）
-                  // 2. 状态字段（status, deletedAt）始终使用远程值（因为这些是其他设备的操作）
-                  // 3. 内容字段（title, content）只在用户正在编辑时保留本地值
+                  // 更精细的合并：
+                  // - 默认采用远程任务（避免丢失另一端的结构/状态更新）
+                  // - 若本机对该任务存在待同步脏字段，则对这些字段采用本地值（避免“回滚”）
+                  // - 软删除 tombstone（deletedAt 非空）优先，避免任务复活
+                  const pending = this.changeTracker
+                    .exportPendingChanges()
+                    .find(r => r.entityType === 'task' && r.projectId === targetProjectId && r.entityId === taskId);
+
                   let mergedTask = remoteTask;
-                  
-                  const localUpdatedAt = localTask.updatedAt ? new Date(localTask.updatedAt).getTime() : 0;
-                  const remoteUpdatedAt = remoteTask.updatedAt ? new Date(remoteTask.updatedAt).getTime() : 0;
-                  
-                  // 只有当用户正在主动编辑这个任务时，才保留本地的内容字段
-                  if (this.uiState.isEditing) {
-                    this.logger.info('[TaskSync] 用户正在编辑，保留本地内容字段', {
-                      taskId,
-                      localTitle: localTask.title,
-                      remoteTitle: remoteTask.title
-                    });
-                    
-                    // 智能合并：使用远程的所有结构性和状态字段，只保留本地的内容字段
-                    mergedTask = {
-                      ...remoteTask, // 使用远程的所有字段（包括 status, stage, x, y 等）
-                      // 只保留本地的内容字段
-                      title: localTask.title,
-                      content: localTask.content
-                    };
-                    
-                    this.logger.debug('[TaskSync] 合并结果', {
-                      taskId,
-                      status: mergedTask.status,
-                      stage: mergedTask.stage,
-                      x: mergedTask.x,
-                      y: mergedTask.y,
-                      titleSource: '本地',
-                      contentSource: '本地',
-                      otherFieldsSource: '远程'
-                    });
+
+                  if (pending?.changeType === 'delete') {
+                    // 本机认为该任务已删除：保持本机状态，避免被远程“复活”。
+                    mergedTask = localTask;
                   } else {
-                    // 用户未在编辑，直接使用远程数据（包括所有字段）
-                    this.logger.info('[TaskSync] 用户未编辑，使用远程数据', { 
-                      taskId,
-                      fieldsUpdated: {
-                        status: localTask.status !== remoteTask.status,
-                        stage: localTask.stage !== remoteTask.stage,
-                        x: localTask.x !== remoteTask.x,
-                        y: localTask.y !== remoteTask.y,
-                        title: localTask.title !== remoteTask.title
+                    const dirtyFields = new Set(pending?.changedFields ?? []);
+
+                    // 若用户正处于编辑态（全局），依旧保护内容字段。
+                    if (this.uiState.isEditing) {
+                      dirtyFields.add('title');
+                      dirtyFields.add('content');
+                    }
+
+                    if (dirtyFields.size > 0) {
+                      const merged: any = { ...remoteTask };
+                      for (const field of dirtyFields) {
+                        if (field in localTask) {
+                          merged[field] = (localTask as any)[field];
+                        }
                       }
-                    });
+                      // tombstone wins
+                      if (remoteTask.deletedAt) {
+                        merged.deletedAt = remoteTask.deletedAt;
+                      }
+                      mergedTask = merged as any;
+                    }
                   }
                   
                   const updatedTasks = [...p.tasks];
