@@ -203,7 +203,9 @@ export class FlowDiagramService {
         "scrollMargin": new go.Margin(5000, 5000, 5000, 5000),
         "draggingTool.isGridSnapEnabled": false,
         // 禁用固定边界，允许无限滚动
-        "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN)
+        "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN),
+        // 高 DPI 屏幕优化：使用设备像素比确保清晰渲染
+        "computePixelRatio": () => window.devicePixelRatio || 1
       });
       
       // 设置节点模板
@@ -280,7 +282,9 @@ export class FlowDiagramService {
       // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
-        "animationManager.isEnabled": false
+        "animationManager.isEnabled": false,
+        // 高 DPI 屏幕优化：使用设备像素比确保清晰渲染，解决模糊问题
+        "computePixelRatio": () => window.devicePixelRatio || 1
       });
       
       // 注意：GoJS Overview 不支持 background 属性
