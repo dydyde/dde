@@ -539,8 +539,12 @@ export class SyncCoordinatorService {
   validateAndRebalanceWithResult(project: Project): Result<Project, OperationError> {
     const validation = validateProject(project);
     
-    const fatalErrors = validation.errors.filter(e => 
-      e.includes('ID 无效') || e.includes('必须是数组') || e.includes('项目 ID')
+    // 仅把“项目级不可修复”的问题视为致命错误。
+    // 例如：项目 ID 缺失/无效、tasks 不是数组（无法安全推断原始结构）。
+    // 连接/单个任务字段等问题应可通过 sanitizeProject 清理修复，避免整项目被跳过。
+    const fatalErrors = validation.errors.filter(e =>
+      e.includes('项目 ID 无效或缺失') ||
+      e.includes('项目任务列表必须是数组')
     );
     
     if (fatalErrors.length > 0) {

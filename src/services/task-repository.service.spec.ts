@@ -154,3 +154,97 @@ describe('TaskRepositoryService.saveTasksIncremental delete behavior', () => {
     expect(supabaseMock.del).not.toHaveBeenCalled();
   });
 });
+
+describe('TaskRepositoryService.loadTasks promotion on deleted parent', () => {
+  it('promotes child to replace deleted parent stage/order/rank/position', async () => {
+    const tasksData = [
+      {
+        id: 'parent',
+        project_id: 'project-1',
+        parent_id: null,
+        title: 'Parent',
+        content: '',
+        stage: 2,
+        order: 5,
+        rank: 25000,
+        status: 'active',
+        x: 11,
+        y: 22,
+        short_id: null,
+        priority: null,
+        due_date: null,
+        tags: [],
+        attachments: [],
+        deleted_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: 'child',
+        project_id: 'project-1',
+        parent_id: 'parent',
+        title: 'Child',
+        content: '',
+        stage: 3,
+        order: 1,
+        rank: 26000,
+        status: 'active',
+        x: 33,
+        y: 44,
+        short_id: null,
+        priority: null,
+        due_date: null,
+        tags: [],
+        attachments: [],
+        deleted_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
+    const tombstonesData: Array<{ task_id: string }> = [];
+
+    const tasksQuery = {
+      select: vi.fn(() => tasksQuery),
+      eq: vi.fn(() => tasksQuery),
+      order: vi.fn().mockResolvedValue({ data: tasksData, error: null }),
+    } as any;
+
+    const tombstonesQuery = {
+      select: vi.fn(() => tombstonesQuery),
+      eq: vi.fn().mockResolvedValue({ data: tombstonesData, error: null }),
+    } as any;
+
+    const from = vi.fn((table: string) => {
+      if (table === 'tasks') return tasksQuery;
+      if (table === 'task_tombstones') return tombstonesQuery;
+      return {} as any;
+    });
+
+    const mockSupabaseClientService = {
+      get isConfigured() {
+        return true;
+      },
+      client: () => ({ from }),
+    } as unknown as SupabaseClientService;
+
+    TestBed.configureTestingModule({
+      providers: [
+        TaskRepositoryService,
+        { provide: SupabaseClientService, useValue: mockSupabaseClientService },
+      ],
+    });
+
+    const service = TestBed.inject(TaskRepositoryService);
+    const loaded = await service.loadTasks('project-1');
+
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].id).toBe('child');
+    expect(loaded[0].parentId).toBe(null);
+    expect(loaded[0].stage).toBe(2);
+    expect(loaded[0].order).toBe(5);
+    expect(loaded[0].rank).toBe(25000);
+    expect(loaded[0].x).toBe(11);
+    expect(loaded[0].y).toBe(22);
+  });
+});

@@ -393,6 +393,7 @@ export function sanitizeTask(task: any): Task {
     displayId: String(task.displayId || '?'),
     shortId: typeof task.shortId === 'string' ? task.shortId : undefined,
     hasIncompleteTask: Boolean(task.hasIncompleteTask),
+    deletedAt: typeof task.deletedAt === 'string' ? task.deletedAt : (task.deletedAt === null ? null : null),
     attachments,
     tags,
     priority,
@@ -404,18 +405,35 @@ export function sanitizeTask(task: any): Task {
  * 安全地解析和验证项目数据
  */
 export function sanitizeProject(project: any): Project {
-  const tasks = Array.isArray(project.tasks) 
-    ? project.tasks.map(sanitizeTask) 
+  const tasks = Array.isArray(project.tasks)
+    ? project.tasks.map(sanitizeTask)
     : [];
-  
+
+  // 修复因 tombstone/软删除过滤等原因导致的结构断裂：
+  // - parentId 指向不存在的任务时，降级为根任务（parentId = null）
+  // - 过滤掉引用不存在任务的连接
+  const taskIds = new Set(tasks.map(t => t.id));
+  const fixedTasks = tasks.map(t => {
+    if (t.parentId && !taskIds.has(t.parentId)) {
+      return { ...t, parentId: null };
+    }
+    if (t.parentId === t.id) {
+      return { ...t, parentId: null };
+    }
+    return t;
+  });
+
   const connections = Array.isArray(project.connections)
-    ? project.connections.filter((c: any) => c.source && c.target).map((c: any) => ({
-        id: c.id ? String(c.id) : crypto.randomUUID(),
-        source: String(c.source),
-        target: String(c.target),
-        description: c.description ? String(c.description) : undefined,
-        deletedAt: c.deletedAt ? String(c.deletedAt) : undefined
-      }))
+    ? project.connections
+        .filter((c: any) => c && c.source && c.target)
+        .map((c: any) => ({
+          id: c.id ? String(c.id) : crypto.randomUUID(),
+          source: String(c.source),
+          target: String(c.target),
+          description: c.description ? String(c.description) : undefined,
+          deletedAt: c.deletedAt ? String(c.deletedAt) : undefined
+        }))
+        .filter(c => taskIds.has(c.source) && taskIds.has(c.target) && c.source !== c.target)
     : [];
 
   return {
@@ -423,7 +441,7 @@ export function sanitizeProject(project: any): Project {
     name: String(project.name || '未命名项目'),
     description: String(project.description || ''),
     createdDate: project.createdDate || nowISO(),
-    tasks,
+    tasks: fixedTasks,
     connections,
     updatedAt: project.updatedAt || nowISO(),
     version: typeof project.version === 'number' ? project.version : 0

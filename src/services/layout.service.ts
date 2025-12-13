@@ -500,7 +500,7 @@ export class LayoutService {
         return {
           ...t,
           parentId: null,
-          stage: 1, // 将孤儿节点移动到第一阶段
+          stage: t.stage ?? 1,
           displayId: '?'
         };
       }

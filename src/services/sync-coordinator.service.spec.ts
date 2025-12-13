@@ -467,6 +467,42 @@ describe('SyncCoordinatorService', () => {
       expect(result.ok).toBe(true);
     });
 
+    it('连接数据损坏时应可清理修复（不应作为致命错误跳过整个项目）', () => {
+      const project = createTestProject({
+        id: 'proj-conn-bad',
+        tasks: [createTestTask({ id: 't1' })],
+        // source 为空会触发 validateConnection 的“连接源 ID 无效”
+        connections: [{ id: 'c1', source: '' as any, target: 't1' } as any],
+      });
+
+      const result = service.validateAndRebalanceWithResult(project);
+      expect(result.ok).toBe(true);
+      expect(mockLayoutService.validateAndFixTree).toHaveBeenCalledTimes(1);
+    });
+
+    it('tasks 不是数组应视为致命错误', () => {
+      const project = createTestProject({ id: 'proj-tasks-invalid' }) as any;
+      project.tasks = undefined;
+
+      const result = service.validateAndRebalanceWithResult(project);
+      expect(result.ok).toBe(false);
+      expect(mockLayoutService.validateAndFixTree).not.toHaveBeenCalled();
+    });
+
+    it('父任务缺失时应自动断开 parentId（避免因 tombstone 过滤导致项目跳过）', () => {
+      const project = createTestProject({
+        id: 'proj-orphan-parent',
+        tasks: [
+          createTestTask({ id: 'child-1', parentId: 'missing-parent' }),
+        ],
+        connections: [],
+      });
+
+      const result = service.validateAndRebalanceWithResult(project);
+      expect(result.ok).toBe(true);
+      expect(result.value.tasks[0].parentId).toBe(null);
+    });
+
     it('验证有警告时应该记录日志', () => {
       // 创建一个完整有效的项目，确保 validateProject 通过
       const project: Project = {

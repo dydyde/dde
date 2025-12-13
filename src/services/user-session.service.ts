@@ -425,7 +425,8 @@ export class UserSessionService {
     migrated.updatedAt = migrated.updatedAt || new Date().toISOString();
     migrated.version = CACHE_CONFIG.CACHE_VERSION;
 
-    migrated.tasks = migrated.tasks.map(t => ({
+    const safeTasks = Array.isArray(migrated.tasks) ? migrated.tasks : [];
+    migrated.tasks = safeTasks.map(t => ({
       ...t,
       status: t.status || 'active',
       rank: t.rank ?? 10000,
@@ -433,7 +434,7 @@ export class UserSessionService {
       hasIncompleteTask: t.hasIncompleteTask ?? false
     }));
 
-    migrated.connections = migrated.connections || [];
+    migrated.connections = Array.isArray(migrated.connections) ? migrated.connections : [];
 
     return this.layoutService.rebalance(migrated);
   }

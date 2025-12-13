@@ -89,35 +89,83 @@ export class TaskRepositoryService {
       return [];
     }
 
+    // 预先将所有行映射为 Task（包含将被过滤掉的软删/ tombstone 任务），
+    // 以便在父任务被删除时，让子任务能够“顶替”父任务的位置属性（stage/order/rank/x/y）。
+    const allTasks = data.map(row => this.mapRowToTask(row as TaskRow));
+    const taskById = new Map(allTasks.map(t => [t.id, t] as const));
+
     // 2. 获取该项目的所有 tombstone 记录
     const { data: tombstones, error: tombstoneError } = await this.supabase.client()
       .from('task_tombstones')
       .select('task_id')
       .eq('project_id', projectId);
 
+    // 3. 过滤掉已 tombstone 或软删除的任务
+    // tombstone 查询失败时降级：只依赖 deleted_at 过滤
+    const tombstoneIds = tombstoneError
+      ? new Set<string>()
+      : new Set((tombstones || []).map(t => t.task_id));
+
     if (tombstoneError) {
-      console.warn('Failed to load tombstones (continuing without filtering):', tombstoneError);
-      // 即使 tombstone 查询失败，也返回任务（降级处理）
-      // 但仍然过滤软删除的任务
-      return data
-        .filter(row => !row.deleted_at)
-        .map(row => this.mapRowToTask(row as TaskRow));
+      console.warn('Failed to load tombstones (continuing without tombstone filtering):', tombstoneError);
     }
 
-    // 3. 过滤掉已 tombstone 或软删除的任务
-    const tombstoneIds = new Set((tombstones || []).map(t => t.task_id));
-    const filteredData = data.filter(row => 
-      !tombstoneIds.has(row.id) && !row.deleted_at
-    );
+    const removedIds = new Set<string>();
+    for (const t of allTasks) {
+      if (tombstoneIds.has(t.id) || t.deletedAt) {
+        removedIds.add(t.id);
+      }
+    }
+
+    // 4. 子任务“顶替”父任务：
+    // 若 task.parentId 指向已删除任务（软删/ tombstone），则把该任务提升到父任务的位置，
+    // 并把 parentId 指向祖父（支持多层级联）。
+    const promote = (task: Task): Task => {
+      let promoted: Task = { ...task };
+      let parentId = promoted.parentId;
+      let guard = 0;
+      while (parentId && removedIds.has(parentId) && guard < 50) {
+        const removedParent = taskById.get(parentId);
+        if (!removedParent) {
+          // 父任务行已不存在（可能已被物理 purge），无法继承其位置信息，只能断开父子关系
+          parentId = null;
+          break;
+        }
+
+        promoted = {
+          ...promoted,
+          stage: removedParent.stage,
+          order: removedParent.order,
+          rank: removedParent.rank,
+          x: removedParent.x,
+          y: removedParent.y,
+        };
+
+        parentId = removedParent.parentId;
+        guard++;
+      }
+
+      if (guard > 0) {
+        promoted = { ...promoted, parentId: parentId ?? null };
+      }
+
+      if (promoted.parentId === promoted.id) {
+        promoted = { ...promoted, parentId: null };
+      }
+      return promoted;
+    };
+
+    const keptTasks = allTasks
+      .filter(t => !removedIds.has(t.id) && !t.deletedAt)
+      .map(promote);
 
     const tombstoneCount = tombstoneIds.size;
-    const softDeleteCount = data.filter(row => row.deleted_at && !tombstoneIds.has(row.id)).length;
-    
+    const softDeleteCount = allTasks.filter(t => t.deletedAt && !tombstoneIds.has(t.id)).length;
     if (tombstoneCount > 0 || softDeleteCount > 0) {
       console.log(`Filtered out ${tombstoneCount} tombstoned and ${softDeleteCount} soft-deleted tasks for project ${projectId}`);
     }
 
-    return filteredData.map(row => this.mapRowToTask(row as TaskRow));
+    return keptTasks;
   }
 
   /**
