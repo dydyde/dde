@@ -56,6 +56,16 @@ export interface Task {
   
   // 删除任务时保存的连接，用于恢复时还原
   deletedConnections?: Connection[];
+
+  // 删除任务时保存的位置信息，用于恢复时尽可能回到原位置/层级
+  deletedMeta?: {
+    parentId: string | null;
+    stage: number | null;
+    order: number;
+    rank: number;
+    x: number;
+    y: number;
+  };
   
   // 新增：附件支持
   attachments?: Attachment[];

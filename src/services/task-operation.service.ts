@@ -537,9 +537,34 @@ export class TaskOperationService {
       ...p,
       tasks: p.tasks.map(t => {
         if (t.id === taskId) {
-          return { ...t, deletedAt: now, stage: null, deletedConnections };
+          return {
+            ...t,
+            deletedAt: now,
+            deletedMeta: {
+              parentId: t.parentId,
+              stage: t.stage,
+              order: t.order,
+              rank: t.rank,
+              x: t.x,
+              y: t.y,
+            },
+            stage: null,
+            deletedConnections
+          };
         } else if (idsToDelete.has(t.id)) {
-          return { ...t, deletedAt: now, stage: null };
+          return {
+            ...t,
+            deletedAt: now,
+            deletedMeta: {
+              parentId: t.parentId,
+              stage: t.stage,
+              order: t.order,
+              rank: t.rank,
+              x: t.x,
+              y: t.y,
+            },
+            stage: null
+          };
         }
         return t;
       }),
@@ -592,7 +617,20 @@ export class TaskOperationService {
     this.recordAndUpdate(p => {
       const restoredTasks = p.tasks.map(t => {
         if (idsToRestore.has(t.id)) {
-          const { deletedConnections, ...rest } = t;
+          const meta = t.deletedMeta;
+          const { deletedConnections, deletedMeta, ...rest } = t;
+          if (meta) {
+            return {
+              ...rest,
+              deletedAt: null,
+              parentId: meta.parentId,
+              stage: meta.stage,
+              order: meta.order,
+              rank: meta.rank,
+              x: meta.x,
+              y: meta.y,
+            };
+          }
           return { ...rest, deletedAt: null };
         }
         return t;

@@ -58,6 +58,11 @@ export class LayoutService {
     }
     
     const tasks = project.tasks.map(t => ({ ...t }));
+
+    // displayId/树结构相关计算应以“可见任务”为准：
+    // - deletedAt（回收站）任务不应占用编号
+    // - archived（归档）任务在主视图中也不应占用编号
+    const isVisibleTask = (t: Task) => !t.deletedAt && t.status !== 'archived';
     
     const byId = new Map<string, Task>();
     tasks.forEach(t => byId.set(t.id, t));
@@ -120,7 +125,7 @@ export class LayoutService {
     tasks.forEach(t => byId.set(t.id, t));
 
     const stage1Roots = tasks
-      .filter(t => t.stage === 1 && !t.parentId)
+      .filter(t => t.stage === 1 && !t.parentId && isVisibleTask(t))
       .sort((a, b) => a.rank - b.rank);
 
     stage1Roots.forEach((t, idx) => {
@@ -129,7 +134,7 @@ export class LayoutService {
 
     const children = new Map<string, Task[]>();
     tasks.forEach(t => {
-      if (t.parentId) {
+      if (t.parentId && isVisibleTask(t)) {
         if (!children.has(t.parentId)) children.set(t.parentId, []);
         children.get(t.parentId)!.push(t);
       }
@@ -178,14 +183,18 @@ export class LayoutService {
     tasks.forEach(t => {
       if (!t.displayId) t.displayId = '?';
       if (t.stage === null) {
-        t.parentId = null;
+        // 未分配阶段的任务不应有父子关系；但回收站任务需要保留 parentId，
+        // 以便 restore 时能恢复整棵子树。
+        if (!t.deletedAt) {
+          t.parentId = null;
+        }
         t.displayId = '?';
       }
     });
 
     const childrenMap = new Map<string, Task[]>();
     tasks.forEach(t => {
-      if (t.parentId) {
+      if (t.parentId && isVisibleTask(t)) {
         if (!childrenMap.has(t.parentId)) childrenMap.set(t.parentId, []);
         childrenMap.get(t.parentId)!.push(t);
       }
