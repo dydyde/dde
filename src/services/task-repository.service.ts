@@ -62,7 +62,13 @@ export class TaskRepositoryService {
 
   /**
    * 加载项目的所有任务
-   * 排除已被永久删除（在 task_tombstones 中）的任务
+   * 排除：
+   * 1. 已被永久删除（在 task_tombstones 中）的任务
+   * 2. 软删除（deleted_at 不为 null）的任务
+   * 
+   * 注意：软删除的任务理论上应该只存在于本地回收站，
+   * 如果服务器上有软删除的任务，说明可能存在同步问题或旧数据。
+   * 为了防止已删除任务在其他设备上"复活"，我们在加载时就过滤它们。
    */
   async loadTasks(projectId: string): Promise<Task[]> {
     if (!this.supabase.isConfigured) return [];
@@ -92,15 +98,23 @@ export class TaskRepositoryService {
     if (tombstoneError) {
       console.warn('Failed to load tombstones (continuing without filtering):', tombstoneError);
       // 即使 tombstone 查询失败，也返回任务（降级处理）
-      return data.map(row => this.mapRowToTask(row as TaskRow));
+      // 但仍然过滤软删除的任务
+      return data
+        .filter(row => !row.deleted_at)
+        .map(row => this.mapRowToTask(row as TaskRow));
     }
 
-    // 3. 过滤掉已 tombstone 的任务
+    // 3. 过滤掉已 tombstone 或软删除的任务
     const tombstoneIds = new Set((tombstones || []).map(t => t.task_id));
-    const filteredData = data.filter(row => !tombstoneIds.has(row.id));
+    const filteredData = data.filter(row => 
+      !tombstoneIds.has(row.id) && !row.deleted_at
+    );
 
-    if (tombstoneIds.size > 0) {
-      console.log(`Filtered out ${tombstoneIds.size} tombstoned tasks for project ${projectId}`);
+    const tombstoneCount = tombstoneIds.size;
+    const softDeleteCount = data.filter(row => row.deleted_at && !tombstoneIds.has(row.id)).length;
+    
+    if (tombstoneCount > 0 || softDeleteCount > 0) {
+      console.log(`Filtered out ${tombstoneCount} tombstoned and ${softDeleteCount} soft-deleted tasks for project ${projectId}`);
     }
 
     return filteredData.map(row => this.mapRowToTask(row as TaskRow));
