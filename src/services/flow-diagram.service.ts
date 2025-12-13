@@ -276,19 +276,23 @@ export class FlowDiagramService {
       // 保底：即使 GoJS canvas 透明，也能有一致的背景。
       container.style.backgroundColor = overviewBackground;
       
+      
       // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
-        "animationManager.isEnabled": false,
-        // 预览图背景：提高对比度，避免浅色节点/连线在小地图里“糊成一片”
-        background: overviewBackground
+        "animationManager.isEnabled": false
       });
+      
+      // 注意：GoJS Overview 不支持 background 属性
+      // 背景色已经通过 container.style.backgroundColor 设置，这就足够了
       
       // ========== 2.【关键】先定义模板，再设置 observed ==========
       // Overview 专用节点模板：去掉文字，只留色块
       this.overview.nodeTemplate = $(go.Node, "Spot",
         {
-          locationSpot: go.Spot.Center
+          locationSpot: go.Spot.Center,
+          // 确保节点在概览图中有最小可见尺寸
+          minSize: new go.Size(4, 4)
         },
         new go.Binding("location", "loc", go.Point.parse),
         $(go.Shape, "Rectangle",
@@ -296,8 +300,9 @@ export class FlowDiagramService {
             name: "SHAPE",
             // 注意：Overview 会整体缩放；如果这里使用太小的固定尺寸，
             // 当图的边界很大/Overview 缩放很小时，节点会缩小到不可见。
+            // 使用更大的固定尺寸以确保在缩放后仍然可见
             height: 80,
-            strokeWidth: 2,
+            strokeWidth: 3,  // 增加描边宽度，确保在小缩放下仍可见
             opacity: 1
           },
           // 宽度与主图保持一致（更利于在小缩放下保持可见）
@@ -318,8 +323,8 @@ export class FlowDiagramService {
         },
         $(go.Shape,
           {
-            strokeWidth: 10,
-            opacity: 0.75           // 半透明，重叠时颜色加深
+            strokeWidth: 12,        // 增加线宽，确保在概览图中清晰可见
+            opacity: 0.8            // 适当增加不透明度，提高可见性
           },
           // 连线用类型色（父子/跨树）
           new go.Binding("stroke", "isCrossTree", (isCrossTree: boolean) =>
@@ -331,7 +336,14 @@ export class FlowDiagramService {
       // ========== 3.【关键】模板设置完成后，再绑定观察的图表 ==========
       this.overview.observed = this.diagram;
       
-
+      // 强制更新概览图以确保所有节点正确渲染
+      // 某些情况下 GoJS 可能需要手动触发更新才能正确显示节点
+      if (this.diagram) {
+        this.diagram.requestUpdate();
+      }
+      if (this.overview) {
+        this.overview.requestUpdate();
+      }
       
       // ========== 4. 自定义视口框样式 ==========
       // 原生的视口框依然存在且可用，只是改变样式
@@ -349,7 +361,10 @@ export class FlowDiagramService {
       // 启用自动缩放逻辑
       this.setupOverviewAutoScale();
       
-      this.logger.info('Overview 热力图模式初始化成功');
+      // 记录概览图初始化的调试信息
+      const nodeCount = this.diagram.nodes.count;
+      const linkCount = this.diagram.links.count;
+      this.logger.info(`Overview 热力图模式初始化成功 - 节点数: ${nodeCount}, 连接数: ${linkCount}, 初始缩放: ${this.overview.scale}`);
     } catch (error) {
       this.logger.error('Overview 初始化失败:', error);
     }
@@ -424,6 +439,9 @@ export class FlowDiagramService {
     const nodeBounds = getNodesBounds();
     this.overview.centerRect(nodeBounds);
     
+    // 记录初始化信息用于调试
+    this.logger.debug(`Overview 自动缩放初始化 - 节点数: ${lastNodeDataCount}, 基准缩放: ${baseScale.toFixed(3)}, 实际缩放: ${this.lastOverviewScale.toFixed(3)}, 节点边界: ${nodeBounds.toString()}`);
+    
     // 监听文档变化：只在节点增删时重新计算基准缩放
     this.addTrackedListener('DocumentBoundsChanged', () => {
       if (!this.overview || !this.diagram) return;
@@ -443,6 +461,100 @@ export class FlowDiagramService {
           const bounds = getNodesBounds();
           this.overview.centerRect(bounds);
           lastNodeDataCount = currentNodeDataCount;
+        }
+      }
+    });
+    
+    // 监听视口变化：实现丝滑的自动缩放效果
+    // 当用户缩放或移动主视图时，如果视口超出节点边界，概览图会自动缩小以显示完整范围
+    this.addTrackedListener('ViewportBoundsChanged', () => {
+      if (!this.overview || !this.diagram || this.isNodeDragging) return;
+      
+      const viewportBounds = this.diagram.viewportBounds;
+      if (!viewportBounds.isReal()) return;
+      
+      // 计算总边界（文档 + 视口的并集）
+      const totalBounds = this.calculateTotalBounds();
+      const nodeBounds = getNodesBounds();
+      
+      // 检查视口是否超出节点边界
+      const isViewportOutside = 
+        viewportBounds.x < nodeBounds.x - 50 ||
+        viewportBounds.y < nodeBounds.y - 50 ||
+        viewportBounds.right > nodeBounds.right + 50 ||
+        viewportBounds.bottom > nodeBounds.bottom + 50;
+      
+      if (this.overviewContainer) {
+        const containerWidth = this.overviewContainer.clientWidth;
+        const containerHeight = this.overviewContainer.clientHeight;
+        
+        if (containerWidth > 0 && containerHeight > 0 && totalBounds.width > 0 && totalBounds.height > 0) {
+          // 计算需要显示的范围：取节点边界和总边界中较大的
+          // 这确保了即使视口在节点范围内，视口框也不会超出容器
+          const displayBounds = isViewportOutside ? totalBounds : nodeBounds;
+          
+          // 额外检查：确保视口框本身不会超出容器
+          // 计算视口框在当前缩放下的尺寸
+          const currentScale = this.overview.scale;
+          const viewportBoxWidth = viewportBounds.width * currentScale;
+          const viewportBoxHeight = viewportBounds.height * currentScale;
+          
+          // 如果视口框接近或超出容器尺寸，强制缩小
+          const boxPadding = 20; // 视口框距离容器边缘的最小距离
+          const needsShrinkForBox = 
+            viewportBoxWidth > containerWidth - boxPadding ||
+            viewportBoxHeight > containerHeight - boxPadding;
+          
+          if (isViewportOutside || needsShrinkForBox) {
+            // 计算合适的缩放比例
+            const padding = 0.15; // 增加边距以确保视口框有足够空间
+            const scaleX = (containerWidth * (1 - padding * 2)) / displayBounds.width;
+            const scaleY = (containerHeight * (1 - padding * 2)) / displayBounds.height;
+            let targetScale = clampScale(Math.min(scaleX, scaleY, 0.5));
+            
+            // 二次检查：确保在新缩放下，视口框不会超出
+            const newViewportBoxWidth = viewportBounds.width * targetScale;
+            const newViewportBoxHeight = viewportBounds.height * targetScale;
+            
+            if (newViewportBoxWidth > containerWidth - boxPadding) {
+              targetScale = Math.min(targetScale, (containerWidth - boxPadding) / viewportBounds.width);
+            }
+            if (newViewportBoxHeight > containerHeight - boxPadding) {
+              targetScale = Math.min(targetScale, (containerHeight - boxPadding) / viewportBounds.height);
+            }
+            
+            targetScale = clampScale(targetScale);
+            
+            // 丝滑过渡：如果缩放变化超过阈值，才更新
+            if (Math.abs(targetScale - this.overview.scale) > 0.005) {
+              this.overview.scale = targetScale;
+              this.lastOverviewScale = targetScale;
+            }
+          } else {
+            // 视口在节点范围内且视口框不会超出，恢复基准缩放
+            const currentScale = this.overview.scale;
+            const targetScale = clampScale(baseScale);
+            
+            // 但仍需确保视口框不超出
+            const testBoxWidth = viewportBounds.width * targetScale;
+            const testBoxHeight = viewportBounds.height * targetScale;
+            
+            let finalScale = targetScale;
+            if (testBoxWidth > containerWidth - boxPadding) {
+              finalScale = Math.min(finalScale, (containerWidth - boxPadding) / viewportBounds.width);
+            }
+            if (testBoxHeight > containerHeight - boxPadding) {
+              finalScale = Math.min(finalScale, (containerHeight - boxPadding) / viewportBounds.height);
+            }
+            
+            finalScale = clampScale(finalScale);
+            
+            // 如果当前缩放小于目标缩放，逐渐恢复
+            if (currentScale < finalScale - 0.01) {
+              this.overview.scale = finalScale;
+              this.lastOverviewScale = finalScale;
+            }
+          }
         }
       }
     });
