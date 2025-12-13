@@ -116,6 +116,11 @@ export class FlowLinkService {
       return false;
     } else if (source.id !== taskId) {
       // 选择目标节点，创建连接
+      // 场景二：若目标是“待分配块”，先将其任务化（赋予阶段/序号），再创建连接
+      if (task.stage === null) {
+        const inferredStage = source.stage ?? 1;
+        this.store.moveTaskToStage(taskId, inferredStage, undefined, null);
+      }
       this.store.addCrossTreeConnection(source.id, taskId);
       this.linkSourceTask.set(null);
       this.isLinkMode.set(false);
@@ -172,7 +177,13 @@ export class FlowLinkService {
   confirmCrossTreeLink(): void {
     const dialog = this.linkTypeDialog();
     if (!dialog) return;
-    
+
+    // 场景二：若目标是“待分配块”，在创建关联连接前先任务化（否则不会从待分配区消失）
+    if (dialog.targetTask?.stage === null) {
+      const inferredStage = dialog.sourceTask?.stage ?? 1;
+      this.store.moveTaskToStage(dialog.targetId, inferredStage, undefined, null);
+    }
+
     this.store.addCrossTreeConnection(dialog.sourceId, dialog.targetId);
     this.linkTypeDialog.set(null);
   }

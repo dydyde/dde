@@ -649,7 +649,17 @@ export class TextViewComponent implements OnInit, OnDestroy {
     if (jsonData) {
       const task = JSON.parse(jsonData) as Task;
       const dropInfo = this.dragDropService.dropTargetInfo();
-      const result = this.store.moveTaskToStage(task.id, stageNumber, dropInfo?.beforeTaskId ?? null);
+
+      // 关键逻辑：当把“待分配块”拖入阶段并插到某个块之前时，
+      // 需要继承该参照块的 parentId，确保成为“同级任务块”并触发正确的编号重排。
+      const beforeTaskId = dropInfo?.beforeTaskId ?? null;
+      const referenceTask = beforeTaskId
+        ? this.store.tasks().find(t => t.id === beforeTaskId) || null
+        : null;
+
+      const inferredParentId = referenceTask ? referenceTask.parentId : undefined;
+
+      const result = this.store.moveTaskToStage(task.id, stageNumber, beforeTaskId, inferredParentId);
       
       if (isFailure(result)) {
         const errorDetail = getErrorMessage(result.error);

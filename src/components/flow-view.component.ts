@@ -757,6 +757,13 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   private handleDiagramDrop(taskData: any, docPoint: go.Point): void {
     const diagramInstance = this.diagram.diagramInstance;
     if (!diagramInstance) return;
+
+    // 场景二：从流程图的待分配区域拖入画布时，不应立刻“任务化”。
+    // 仅更新位置，待后续“拉线”时再根据连接关系赋予阶段/序号。
+    if (taskData?.stage === null) {
+      this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
+      return;
+    }
     
     const insertInfo = this.dragDrop.findInsertPosition(docPoint, diagramInstance);
     
@@ -820,6 +827,12 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   private handleTouchDrop(task: Task, insertInfo: InsertPositionInfo, docPoint: go.Point): void {
+    // 场景二（移动端）：待分配块拖入画布仅更新位置，不立刻任务化
+    if (task.stage === null) {
+      this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
+      return;
+    }
+
     if (insertInfo.insertOnLink) {
       const { sourceId, targetId } = insertInfo.insertOnLink;
       this.dragDrop.insertTaskBetweenNodes(task.id, sourceId, targetId, docPoint);

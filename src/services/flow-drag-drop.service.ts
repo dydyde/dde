@@ -279,19 +279,8 @@ export class FlowDragDropService {
     isUnassigned: boolean,
     diagram: go.Diagram
   ): void {
-    // 检测待分配节点是否拖到了连接线上
-    if (isUnassigned) {
-      const insertInfo = this.findInsertPosition(loc, diagram);
-      
-      if (insertInfo.insertOnLink) {
-        const { sourceId, targetId } = insertInfo.insertOnLink;
-        this.logger.info('待分配节点拖到连接线上', { taskId: nodeKey, sourceId, targetId });
-        this.insertTaskBetweenNodes(nodeKey, sourceId, targetId, loc);
-        return;
-      }
-    }
-    
-    // 使用带 Rank 同步的位置更新
+    // 场景二：待分配节点在流程图内移动，仅更新位置。
+    // 不再支持“拖到连接线上立即插入并任务化”，任务化只在“拉线”确认时发生。
     this.store.updateTaskPositionWithRankSync(nodeKey, loc.x, loc.y);
   }
   
