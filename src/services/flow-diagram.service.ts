@@ -90,6 +90,22 @@ export class FlowDiagramService {
   private overviewContainer: HTMLDivElement | null = null;
   private lastOverviewScale: number = 0.1;
   private isNodeDragging: boolean = false;
+
+  private readCssColorVar(varName: string): string | null {
+    try {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+      const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getOverviewBackgroundColor(): string {
+    const styles = this.configService.currentStyles();
+    // 优先使用全局主题变量（与 UI 主题保持一致），否则回退到流程图主题的深色文本。
+    return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
+  }
   
   // ========== 定时器 ==========
   private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -254,11 +270,17 @@ export class FlowDiagramService {
     
     try {
       const $ = go.GraphObject.make;
+
+      const overviewBackground = this.getOverviewBackgroundColor();
+      // 保底：即使 GoJS canvas 透明，也能有一致的背景。
+      container.style.backgroundColor = overviewBackground;
       
       // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
-        "animationManager.isEnabled": false
+        "animationManager.isEnabled": false,
+        // 预览图背景：提高对比度，避免浅色节点/连线在小地图里“糊成一片”
+        background: overviewBackground
       });
       
       // ========== 2.【关键】先定义模板，再设置 observed ==========
