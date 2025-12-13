@@ -456,6 +456,39 @@ export class ThreeWayMergeService {
       local.attachments,
       remote.attachments
     );
+
+    // 特殊处理：软删除（tombstone-wins）
+    // 目标：任何一方删除都应保留删除状态（删除优先级最高）。
+    // 唯一例外：Base 已删除且 Local/Remote 都明确恢复（deletedAt 均为空）时，允许恢复。
+    const baseDeletedAt = base.deletedAt ?? null;
+    const localDeletedAt = local.deletedAt ?? null;
+    const remoteDeletedAt = remote.deletedAt ?? null;
+
+    const baseWasDeleted = !!baseDeletedAt;
+    const localIsDeleted = !!localDeletedAt;
+    const remoteIsDeleted = !!remoteDeletedAt;
+
+    if (baseWasDeleted || localIsDeleted || remoteIsDeleted) {
+      const bothSidesRestored = !localIsDeleted && !remoteIsDeleted;
+      if (baseWasDeleted && bothSidesRestored) {
+        // 双方都明确恢复，才允许从已删除状态恢复
+        mergedTask.deletedAt = null;
+      } else {
+        // 任一方仍为删除态：保留删除（使用最早的删除时间以稳定合并）
+        const candidates = [baseDeletedAt, localDeletedAt, remoteDeletedAt]
+          .filter((v): v is string => !!v)
+          .map(v => ({ value: v, time: new Date(v).getTime() }))
+          .filter(v => Number.isFinite(v.time));
+
+        if (candidates.length > 0) {
+          candidates.sort((a, b) => a.time - b.time);
+          mergedTask.deletedAt = candidates[0].value;
+        } else {
+          // 极端情况：时间戳不可解析，仍保持删除态（优先 local -> remote -> base）
+          mergedTask.deletedAt = localDeletedAt || remoteDeletedAt || baseDeletedAt;
+        }
+      }
+    }
     
     // 更新时间戳
     mergedTask.updatedAt = new Date().toISOString();
@@ -645,8 +678,7 @@ export class ThreeWayMergeService {
           continue; // 本地删除优先
         }
         if (remoteConn.deletedAt) {
-          result.push(localConn); // 远程删除但本地保留
-          continue;
+            continue; // 远程删除优先
         }
         
         // 合并描述

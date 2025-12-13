@@ -1,12 +1,7 @@
 import { Component, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-export interface LinkDeleteHint {
-  /** GoJS Link 对象 - 由于 GoJS 类型定义复杂，使用 unknown */
-  link: unknown;
-  x: number;
-  y: number;
-}
+import type { LinkDeleteHint } from '../../models/flow-view-state';
 
 /**
  * 移动端连接线删除提示组件
@@ -24,7 +19,7 @@ export interface LinkDeleteHint {
           <button 
             (click)="confirm.emit()"
             class="px-3 py-1.5 bg-red-500 text-white text-xs font-medium rounded hover:bg-red-600 transition-all">
-            删除连接
+            {{ h.isCrossTree ? '删除连接' : '解除关系' }}
           </button>
           <button 
             (click)="cancel.emit()"
@@ -32,6 +27,12 @@ export interface LinkDeleteHint {
             取消
           </button>
         </div>
+
+        @if (!h.isCrossTree) {
+          <div class="mt-1 text-[10px] text-stone-500 bg-white/90 rounded px-2 py-1 border border-stone-100">
+            提示：解除父子关系会把子任务移到“待分配”
+          </div>
+        }
       </div>
     }
   `

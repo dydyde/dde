@@ -354,7 +354,7 @@ describe('ThreeWayMergeService', () => {
       expect(mergedTask?.content).toBe('Modified');
     });
 
-    it('应该正确处理软删除的恢复操作', () => {
+    it('恢复与删除冲突时应保留删除（删除优先级最高）', () => {
       const now = new Date().toISOString();
       const taskDeleted = createTask({ id: 'task-1', title: 'Task 1', deletedAt: now });
       const taskLocalRestored = createTask({ id: 'task-1', title: 'Task 1', deletedAt: null });
@@ -367,7 +367,23 @@ describe('ThreeWayMergeService', () => {
       const result = service.merge(base, local, remote);
       
       const mergedTask = result.project.tasks.find(t => t.id === 'task-1');
-      // 本地恢复操作应该被保留（本地有修改）
+      // 删除优先：只要任一方仍是删除态，就应保持删除
+      expect(mergedTask?.deletedAt).toBe(now);
+    });
+
+    it('Base 已删除且双方都恢复时应允许恢复', () => {
+      const now = new Date().toISOString();
+      const taskDeleted = createTask({ id: 'task-1', title: 'Task 1', deletedAt: now });
+      const taskLocalRestored = createTask({ id: 'task-1', title: 'Task 1', deletedAt: null });
+      const taskRemoteRestored = createTask({ id: 'task-1', title: 'Task 1', deletedAt: null });
+
+      const base = createProject({ tasks: [taskDeleted] });
+      const local = createProject({ tasks: [taskLocalRestored] });
+      const remote = createProject({ tasks: [taskRemoteRestored], version: 2 });
+
+      const result = service.merge(base, local, remote);
+
+      const mergedTask = result.project.tasks.find(t => t.id === 'task-1');
       expect(mergedTask?.deletedAt).toBeNull();
     });
   });

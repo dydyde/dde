@@ -35,35 +35,63 @@ import { Task } from '../../models';
             
             <!-- 保留子任务选项 -->
             @if (hasChildren()) {
-              <div class="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
-                <label class="flex items-start gap-2 cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    [checked]="keepChildren()"
-                    (change)="keepChildrenChange.emit(!keepChildren())"
-                    class="mt-0.5 w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500">
-                  <div>
-                    <span class="text-xs font-medium text-amber-800">保留子任务</span>
-                    <p class="text-[10px] text-amber-600 mt-0.5">子任务将提升到当前任务的父级</p>
-                  </div>
-                </label>
-              </div>
+              @if (isMobile()) {
+                <div class="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                  <p class="text-xs font-medium text-amber-800">该任务包含子任务</p>
+                  <p class="text-[10px] text-amber-600 mt-0.5">请选择是否保留子任务（保留时子任务会提升到父级）</p>
+                </div>
+              } @else {
+                <div class="mt-3 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                  <label class="flex items-start gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      [checked]="keepChildren()"
+                      (change)="keepChildrenChange.emit(!keepChildren())"
+                      class="mt-0.5 w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500">
+                    <div>
+                      <span class="text-xs font-medium text-amber-800">保留子任务</span>
+                      <p class="text-[10px] text-amber-600 mt-0.5">子任务将提升到当前任务的父级</p>
+                    </div>
+                  </label>
+                </div>
+              }
             } @else {
               <p class="text-xs text-stone-400 mt-1">这将同时删除其所有子任务。</p>
             }
           </div>
-          <div class="flex border-t border-stone-100">
-            <button 
-              (click)="cancel.emit()"
-              class="flex-1 px-4 py-3 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
-              取消
-            </button>
-            <button 
-              (click)="confirm.emit()"
-              class="flex-1 px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors">
-              删除
-            </button>
-          </div>
+
+          @if (isMobile() && hasChildren()) {
+            <div class="border-t border-stone-100 p-3 space-y-2">
+              <button
+                (click)="confirm.emit(false)"
+                class="w-full px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors rounded-xl">
+                删除（同时删除子任务）
+              </button>
+              <button
+                (click)="confirm.emit(true)"
+                class="w-full px-4 py-3 text-sm font-medium text-amber-900 bg-amber-100 hover:bg-amber-200 transition-colors rounded-xl border border-amber-200">
+                删除（保留子任务）
+              </button>
+              <button
+                (click)="cancel.emit()"
+                class="w-full px-4 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors rounded-xl">
+                取消
+              </button>
+            </div>
+          } @else {
+            <div class="flex border-t border-stone-100">
+              <button 
+                (click)="cancel.emit()"
+                class="flex-1 px-4 py-3 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors">
+                取消
+              </button>
+              <button 
+                (click)="confirm.emit(keepChildren())"
+                class="flex-1 px-4 py-3 text-sm font-medium text-white bg-red-500 hover:bg-red-600 transition-colors">
+                删除
+              </button>
+            </div>
+          }
         </div>
       </div>
     }
@@ -76,6 +104,10 @@ export class FlowDeleteConfirmComponent {
   readonly isMobile = input(false);
 
   readonly cancel = output<void>();
-  readonly confirm = output<void>();
+  /**
+   * 确认删除。
+   * 参数表示是否“保留子任务”（true=保留子任务；false=连同子任务一起删除）
+   */
+  readonly confirm = output<boolean>();
   readonly keepChildrenChange = output<boolean>();
 }

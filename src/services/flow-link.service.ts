@@ -343,7 +343,12 @@ export class FlowLinkService {
    * 显示连接线删除提示（移动端）
    */
   showLinkDeleteHint(link: any, x: number, y: number): void {
-    this.linkDeleteHint.set({ link, x, y });
+    this.linkDeleteHint.set({
+      link,
+      x,
+      y,
+      isCrossTree: !!link?.data?.isCrossTree
+    });
     
     // 3秒后自动隐藏
     if (this.linkDeleteHintTimer) {

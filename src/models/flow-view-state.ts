@@ -40,6 +40,8 @@ export interface LinkDeleteHint {
   link: any; // GoJS Link 对象
   x: number;
   y: number;
+  /** 是否跨树连接（用于 UI 文案区分） */
+  isCrossTree: boolean;
 }
 
 /**

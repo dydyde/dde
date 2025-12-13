@@ -228,7 +228,7 @@ import * as go from 'gojs';
         [hasChildren]="deleteConfirmTask() ? taskOps.hasChildren(deleteConfirmTask()!) : false"
         [isMobile]="store.isMobile()"
         (cancel)="deleteConfirmTask.set(null); deleteKeepChildren.set(false)"
-        (confirm)="confirmDelete()"
+        (confirm)="confirmDelete($event)"
         (keepChildrenChange)="deleteKeepChildren.set($event)">
       </app-flow-delete-confirm>
       
@@ -909,11 +909,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.deleteConfirmTask.set(task);
   }
   
-  confirmDelete(): void {
+  confirmDelete(keepChildren: boolean): void {
     const task = this.deleteConfirmTask();
     if (task) {
       this.selectedTaskId.set(null);
-      this.taskOps.deleteTask(task.id, this.deleteKeepChildren());
+      this.taskOps.deleteTask(task.id, keepChildren);
       this.deleteConfirmTask.set(null);
       this.deleteKeepChildren.set(false);
       
