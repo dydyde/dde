@@ -103,8 +103,10 @@ export class FlowDiagramService {
 
   private getOverviewBackgroundColor(): string {
     const styles = this.configService.currentStyles();
-    // 优先使用全局主题变量（与 UI 主题保持一致），否则回退到流程图主题的深色文本。
-    return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
+    // 使用“中性偏深”的主题文字色作为预览图底色：
+    // - 对浅色/白色节点有对比度
+    // - 不至于像纯深色那样把部分冷色系/暗色系家族色压得看不清
+    return this.readCssColorVar('--theme-text') ?? styles.text.displayIdColor ?? '#475569';
   }
   
   // ========== 定时器 ==========
@@ -300,8 +302,7 @@ export class FlowDiagramService {
           },
           // 绑定血缘家族颜色
           new go.Binding("fill", "familyColor", (color: string) => {
-            console.log('[Overview Node] binding familyColor:', color);
-            return color || "#64748b";
+            return color || "#e2e8f0";
           })
         )
       );
@@ -319,8 +320,7 @@ export class FlowDiagramService {
           },
           // 连线也绑定家族颜色
           new go.Binding("stroke", "familyColor", (color: string) => {
-            console.log('[Overview Link] binding familyColor:', color);
-            return color || "#64748b";
+            return color || "#e2e8f0";
           })
         )
       );
@@ -328,8 +328,7 @@ export class FlowDiagramService {
       // ========== 3.【关键】模板设置完成后，再绑定观察的图表 ==========
       this.overview.observed = this.diagram;
       
-      // 【调试】检查 Overview 是否正确创建
-      console.log('[Overview] created, observed diagram:', !!this.overview.observed);
+
       
       // ========== 4. 自定义视口框样式 ==========
       // 原生的视口框依然存在且可用，只是改变样式
