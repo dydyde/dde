@@ -114,7 +114,12 @@ export class FlowLinkService {
       // 选择源节点
       this.linkSourceTask.set(task);
       return false;
-    } else if (source.id !== taskId) {
+    } else if (source.id === taskId) {
+      // 点击的是同一个任务，显示提示并取消选择
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      this.linkSourceTask.set(null);
+      return false;
+    } else {
       // 选择目标节点，创建连接
       // 场景二：若目标是“待分配块”，先将其任务化（赋予阶段/序号），再创建连接
       if (task.stage === null) {
@@ -141,6 +146,12 @@ export class FlowLinkService {
     x: number,
     y: number
   ): void {
+    // 防止自连接
+    if (sourceId === targetId) {
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      return;
+    }
+    
     const tasks = this.store.tasks();
     const sourceTask = tasks.find(t => t.id === sourceId) || null;
     const targetTask = tasks.find(t => t.id === targetId) || null;
@@ -163,6 +174,13 @@ export class FlowLinkService {
     const dialog = this.linkTypeDialog();
     if (!dialog) return;
     
+    // 最后一道防线：再次检查自连接
+    if (dialog.sourceId === dialog.targetId) {
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      this.linkTypeDialog.set(null);
+      return;
+    }
+    
     const parentTask = dialog.sourceTask;
     const parentStage = parentTask?.stage ?? null;
     const nextStage = parentStage !== null ? parentStage + 1 : 1;
@@ -177,7 +195,12 @@ export class FlowLinkService {
   confirmCrossTreeLink(): void {
     const dialog = this.linkTypeDialog();
     if (!dialog) return;
-
+    // 最后一道防线：再次检查自连接
+    if (dialog.sourceId === dialog.targetId) {
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      this.linkTypeDialog.set(null);
+      return;
+    }
     // 场景二：若目标是“待分配块”，在创建关联连接前先任务化（否则不会从待分配区消失）
     if (dialog.targetTask?.stage === null) {
       const inferredStage = dialog.sourceTask?.stage ?? 1;
@@ -211,6 +234,12 @@ export class FlowLinkService {
     x: number,
     y: number
   ): 'show-dialog' | 'create-cross-tree' | 'none' {
+    // 防止自连接
+    if (sourceId === targetId) {
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      return 'none';
+    }
+    
     // 检查目标节点是否已有父节点
     const childTask = this.store.tasks().find(t => t.id === targetId);
     const sourceTask = this.store.tasks().find(t => t.id === sourceId);

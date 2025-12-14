@@ -1,7 +1,6 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
 import { StoreService } from '../store.service';
-import { AuthService } from '../auth.service';
 import { ToastService } from '../toast.service';
 import { GUARD_CONFIG } from '../../config/constants';
 
@@ -21,16 +20,34 @@ async function waitForDataInit(
   const checkInterval = GUARD_CONFIG.CHECK_INTERVAL;
   let lastCheckReason = '';
   let slowNetworkWarningShown = false;
+  let loadTriggered = false;
   
   while (Date.now() - startTime < maxWaitMs) {
+    const projectCount = store.projects().length;
+    const isLoadingRemote = store.isLoadingRemote();
+
     // 如果已有项目数据，初始化完成
-    if (store.projects().length > 0) {
+    if (projectCount > 0) {
       return { loaded: true };
     }
-    // 如果不在加载中且没有数据，说明真的没数据
-    if (!store.isLoadingRemote()) {
+
+    // 有时导航触发得比数据加载更早：此时 isLoadingRemote 仍为 false。
+    // 为避免误判“项目不存在”，主动触发一次加载（只触发一次）。
+    if (!loadTriggered && !isLoadingRemote) {
+      loadTriggered = true;
+      try {
+        await store.loadProjects();
+      } catch {
+        // loadProjects 内部已有兜底，这里不再额外处理
+      }
+      continue;
+    }
+
+    // 已触发过加载且当前不在加载中，说明初始化流程已经走完（即使项目列表为空）
+    if (loadTriggered && !isLoadingRemote) {
       return { loaded: true };
     }
+
     lastCheckReason = '数据正在加载中';
     
     // 超过慢网络阈值时显示提示（只显示一次）
@@ -60,7 +77,6 @@ async function waitForDataInit(
  */
 export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSnapshot, state) => {
   const store = inject(StoreService);
-  const authService = inject(AuthService);
   const router = inject(Router);
   const toast = inject(ToastService);
   

@@ -337,12 +337,12 @@ export class FlowDiagramConfigService {
    * - 实际锚点由主节点 + getLinkPoint 在节点边界（Perimeter）上计算
    */
   createPort($: any, name: string, spot: go.Spot, output: boolean, input: boolean, isMobile: boolean = false): go.Shape {
-    const portSize = isMobile ? 12 : 8;
+    const portSize = isMobile ? 24 : 8;  // 移动端增大到 24px 便于触摸
     
     return $(go.Shape, "Circle", {
       fill: "transparent",
       stroke: "transparent",
-      strokeWidth: 2,
+      strokeWidth: isMobile ? 3 : 2,  // 移动端加粗边框
       desiredSize: new go.Size(portSize, portSize),
       alignment: spot,
       alignmentFocus: spot,

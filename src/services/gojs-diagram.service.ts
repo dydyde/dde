@@ -85,8 +85,11 @@ class DynamicLinkingTool extends go.LinkingTool {
   }
 
   // 重写：链接创建完成时，固定最终位置
-  override insertLink(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): go.Link | null {
-    // 先让父类创建链接
+  override insertLink(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): go.Link | null {    // 安全检查：防止节点连接到自身
+    if (fromNode === toNode) {
+      return null;
+    }
+        // 先让父类创建链接
     const newLink = super.insertLink(fromNode, fromPort, toNode, toPort);
 
     if (newLink && this._isDynamic) {

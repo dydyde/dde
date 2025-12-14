@@ -436,6 +436,11 @@ export class AppComponent implements OnInit, OnDestroy {
     const projectId = params['projectId'];
     
     if (projectId && projectId !== this.store.activeProjectId()) {
+      // 项目列表尚未加载完成时，不要基于空列表做重定向，避免深链接被误判。
+      if (this.store.projects().length === 0) {
+        return;
+      }
+
       // 检查项目是否存在
       const projectExists = this.store.projects().some(p => p.id === projectId);
       if (projectExists) {

@@ -1272,7 +1272,7 @@ export class FlowDiagramService {
     
     const self = this;
     const isMobile = this.store.isMobile();
-    const portSize = isMobile ? 14 : 10;  // 连接手柄大小
+    const portSize = isMobile ? 24 : 10;  // 连接手柄大小 - 移动端增大到 24px 便于触摸
     
     /**
      * 创建边缘连接手柄
@@ -1294,7 +1294,7 @@ export class FlowDiagramService {
       return $(go.Shape, "Circle", {
         fill: "transparent",       // 默认透明
         stroke: null,              // 默认无边框
-        strokeWidth: 1,
+        strokeWidth: isMobile ? 2 : 1,  // 移动端加粗边框更明显
         desiredSize: new go.Size(portSize, portSize),
         alignment: spot,
         alignmentFocus: go.Spot.Center,  // 关键修复：端口中心对齐到节点边缘，而不是端口边缘
@@ -1687,6 +1687,9 @@ export class FlowDiagramService {
       if (edgePortObj && allowedPortIds.includes(edgePortObj.portId)) {
         const node = edgePortObj.part;
         if (node instanceof go.Node) {
+          // 记录起始节点：用于拖拽过程中排除“吸附到自身”的目标捕获
+          (this as any)._originNode = node;
+
           const mainPort = node.findPort("");
           if (mainPort) {
             (this as any)._tempMainPort = mainPort;
@@ -1723,6 +1726,7 @@ export class FlowDiagramService {
         mainPort.toLinkable = (this as any)._savedToLinkable;
         (this as any)._tempMainPort = null;
       }
+      (this as any)._originNode = null;
       originalDoDeactivate.call(this);
     };
     
@@ -1787,7 +1791,12 @@ export class FlowDiagramService {
       const pointer = diagram?.lastInput?.documentPoint;
       if (!diagram || !pointer) return null;
       const toolAny = tool as any;
-      const excludeNode = fromEnd ? toolAny.toNode : toolAny.fromNode;
+      // 关键：拖拽“连接终点”时必须排除起始节点本身，否则会出现吸附/高亮到自身导致能连回自己。
+      // - LinkingTool：fromNode 可能因为“偷梁换柱”端口替换而短时不稳定，所以需要多重兜底。
+      // - RelinkingTool：仍以 GoJS 自己的 fromNode/toNode 为主，必要时补充原始节点。
+      const excludeNode = fromEnd
+        ? (toolAny.toNode || toolAny.originalToNode)
+        : (toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode);
       const directParts = diagram.findPartsAt(pointer, true);
       let found: go.Node | null = null;
       directParts.each((part: go.Part) => {
@@ -1832,6 +1841,15 @@ export class FlowDiagramService {
       tool.findTargetPort = function(fromEnd: boolean) {
         const node = findNodeNearPointer(this, fromEnd);
         const directPort = getMainPort(node);
+        
+        // 额外检查：确保找到的节点不是起始节点本身
+        const toolAny = this as any;
+        const originNode = toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode;
+        if (node && originNode && node === originNode) {
+          // 节点不能连接到自己，返回 null
+          return null;
+        }
+        
         if (directPort) {
           return directPort;
         }
@@ -2086,8 +2104,23 @@ export class FlowDiagramService {
     const toNode = link?.toNode;
     const sourceId = fromNode?.data?.key;
     const targetId = toNode?.data?.key;
-    
-    if (!sourceId || !targetId || sourceId === targetId) return;
+
+    if (!sourceId || !targetId) return;
+
+    // 兜底防护：即使 LinkingTool 校验失效，也绝不允许“自连接”落到模型里。
+    // 这能覆盖：拖拽结束点落在同一节点上、以及重连时回连自身等情况。
+    if (sourceId === targetId) {
+      if (link?.data) {
+        const model = this.diagram.model as go.GraphLinksModel;
+        this.diagram.startTransaction('reject-self-link');
+        model.removeLinkData(link.data);
+        this.diagram.commitTransaction('reject-self-link');
+      } else if (link instanceof go.Link) {
+        // 极端情况下没有 data，也从视图移除
+        this.diagram.remove(link);
+      }
+      return;
+    }
     
     // 获取连接终点位置
     const midPoint = link.midPoint || toNode.location;

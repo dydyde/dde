@@ -90,38 +90,41 @@ import * as go from 'gojs';
           <!-- 小地图/导航器 -->
           @if (isOverviewVisible()) {
             <div 
-              class="absolute z-10 bg-white/90 backdrop-blur rounded-lg shadow-md border border-stone-200/60 overflow-hidden select-none"
+              class="absolute z-50 pointer-events-auto bg-white/90 backdrop-blur rounded-lg shadow-md border border-stone-200/60 overflow-hidden select-none"
               [class.opacity-40]="isOverviewCollapsed()"
               [class.hover:opacity-100]="isOverviewCollapsed()"
               [style.right.px]="store.isMobile() ? 8 : 16"
               [style.bottom]="overviewBottomPosition()"
-              [style.width.px]="isOverviewCollapsed() ? (store.isMobile() ? 32 : 28) : overviewSize().width"
-              [style.height.px]="isOverviewCollapsed() ? (store.isMobile() ? 32 : 28) : overviewSize().height">
+              [style.width.px]="isOverviewCollapsed() ? (store.isMobile() ? 24 : 28) : overviewSize().width"
+              [style.height.px]="isOverviewCollapsed() ? (store.isMobile() ? 24 : 28) : overviewSize().height">
               
               <!-- 小地图内容 -->
               @if (!isOverviewCollapsed()) {
-                <div #overviewDiv class="w-full h-full"></div>
+                <!-- 让 Overview 画布在更低层级渲染，避免覆盖右上角折叠按钮的点击区域 -->
+                <div #overviewDiv class="w-full h-full relative z-0"></div>
               }
               
               <!-- 折叠/展开按钮 -->
               <button
-                (click)="toggleOverviewCollapse()"
-                class="absolute top-0.5 right-0.5 rounded bg-white/80 hover:bg-stone-100 flex items-center justify-center transition-colors"
+                (pointerdown)="onOverviewTogglePointerDown($event)"
+                type="button"
+                class="absolute top-0.5 right-0.5 z-50 pointer-events-auto rounded bg-white/80 hover:bg-stone-100 flex items-center justify-center transition-colors"
                 [class.w-5]="!store.isMobile()"
                 [class.h-5]="!store.isMobile()"
-                [class.w-7]="store.isMobile()"
-                [class.h-7]="store.isMobile()"
+                 [class.w-6]="store.isMobile()"
+                 [class.h-6]="store.isMobile()"
                 [title]="isOverviewCollapsed() ? '展开小地图' : '折叠小地图'">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
                      [class.w-3]="!store.isMobile()"
                      [class.h-3]="!store.isMobile()"
-                     [class.w-4]="store.isMobile()"
-                     [class.h-4]="store.isMobile()"
+                   [class.w-3]="store.isMobile()"
+                   [class.h-3]="store.isMobile()"
                      class="text-stone-500">
                   @if (isOverviewCollapsed()) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                   } @else {
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    <!-- 折叠图标：用“最小化”横线替代叉叉，避免误解为关闭按钮 -->
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12h12" />
                   }
                 </svg>
               </button>
@@ -629,6 +632,13 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       // 折叠时销毁 Overview
       this.diagram.disposeOverview();
     }
+  }
+
+  onOverviewTogglePointerDown(e: PointerEvent): void {
+    // 重要：GoJS 会在 canvas 上处理指针事件；这里提前截断，避免事件被 Overview 抢走导致按钮无响应。
+    e.preventDefault();
+    e.stopPropagation();
+    this.toggleOverviewCollapse();
   }
 
   retryInitDiagram(): void {

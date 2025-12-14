@@ -261,19 +261,14 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
         const taskId = params['taskId'];
         
         if (projectId && projectId !== this.store.activeProjectId()) {
-          const projectExists = this.store.projects().some(p => p.id === projectId);
-          if (projectExists) {
-            this.store.activeProjectId.set(projectId);
-            // 通知其他标签页当前项目已打开
-            const project = this.store.projects().find(p => p.id === projectId);
-            if (project) {
-              this.tabSync.notifyProjectOpen(projectId, project.name);
-            }
-          } else {
-            // 项目不存在，显示提示并重定向到项目列表
-            this.toast.warning('项目不存在', '请求的项目可能已被删除或您没有访问权限');
-            void this.router.navigate(['/projects']);
-            return;
+          // 路由层已有 projectExistsGuard 负责校验与提示。
+          // 这里不应在项目列表尚未加载完成时误判并弹 toast。
+          this.store.activeProjectId.set(projectId);
+
+          // 通知其他标签页当前项目已打开（仅在本地已有项目数据时）
+          const project = this.store.projects().find(p => p.id === projectId);
+          if (project) {
+            this.tabSync.notifyProjectOpen(projectId, project.name);
           }
         }
         
