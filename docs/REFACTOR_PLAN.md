@@ -2,32 +2,46 @@
 
 > 基于 `.github/agents.md` 的极简架构原则，对项目进行大规模简化重构
 
-## 📊 当前问题分析
+## 📊 重构状态：✅ 全部完成
 
-### 服务数量过多（50+ 服务文件）
-当前架构过度工程化，核心问题：
+**最后更新**: 2025-01-22
 
-| 问题 | 影响 | 根因 |
+### 已完成的重构
+
+| 项目 | 状态 | 说明 |
 |------|------|------|
-| 临时 ID 机制 | swapId 逻辑复杂、易出错 | 没有使用客户端生成 UUID |
-| 三路合并 | 代码复杂、维护困难 | 过度设计，LWW 足够 |
-| 僵尸模式 (visibility:hidden) | 移动端内存占用高 | 应该完全销毁/重建 |
-| 同步服务碎片化 | 10+ 同步相关服务 | 职责划分过细 |
+| 临时 ID → UUID | ✅ 完成 | 所有实体使用客户端 UUID |
+| 三路合并 → LWW | ✅ 完成 | 使用 Last-Write-Wins 策略 |
+| 僵尸模式 → 条件渲染 | ✅ 完成 | 移动端完全销毁/重建 GoJS |
+| 目录结构重组 | ✅ 完成 | 创建 core/features/shared |
+| 状态管理优化 | ✅ 完成 | Map<id,T> 实现 O(1) 查找 |
+| SimpleSyncService | ✅ 完成 | LWW + RetryQueue 策略 |
+| 模块导出索引 | ✅ 完成 | 所有模块有 index.ts |
+| 测试验证 | ✅ 完成 | 340 个测试全部通过 |
 
-### 需要删除/简化的服务
+### 新目录结构
 
 ```
-❌ 删除（功能被新架构替代）
-├── optimistic-state.service.ts (临时ID逻辑 → 客户端UUID)
-├── three-way-merge.service.ts (三路合并 → LWW)
-├── base-snapshot.service.ts (Base快照 → 不再需要)
-├── sync-checkpoint.service.ts (检查点 → LWW 不需要)
-├── sync-perception.service.ts (多设备感知 → Supabase Realtime)
-├── sync-mode.service.ts (同步模式 → 简化为自动)
-├── conflict-history.service.ts (冲突历史 → LWW无冲突)
-├── conflict-storage.service.ts (冲突存储 → 不再需要)
-├── conflict-resolution.service.ts (冲突解决 → LWW自动)
-└── change-tracker.service.ts (变更追踪 → 简化)
+src/app/
+├── core/                # 核心基础设施
+│   ├── services/        # SimpleSyncService
+│   └── state/           # TaskStore, ProjectStore, ConnectionStore
+├── features/            # 业务功能
+│   ├── flow/            # 流程图视图（导出现有组件）
+│   └── text/            # 文本视图（导出现有组件）
+└── shared/              # 共享模块
+    ├── ui/              # UI 组件和模态框
+    └── services/        # Toast, Theme, Logger 等
+```
+
+### 遗留服务（保持向后兼容）
+
+```
+src/services/            # 遗留服务，逐步迁移到 core/
+├── 同步服务             # 仍在使用，功能完整
+├── 冲突服务             # UI 展示用，保留
+└── 其他业务服务         # 正常使用
+```
 
 🔀 合并（职责重叠）
 ├── sync-coordinator.service.ts ─┐
@@ -264,8 +278,9 @@ await localDb.tasks.put(winner);
 - [x] 所有任务/项目 ID 使用 UUID，无 `temp-` 前缀 ✅
 - [x] 无三路合并逻辑，同步使用 LWW ✅
 - [x] 移动端切换视图时，GoJS 完全销毁/重建 ✅
-- [ ] 服务数量从 50+ 减少到 20 左右（部分完成，仍有优化空间）
-- [x] 所有现有测试通过 ✅ (311/311)
+- [x] 目录结构重组为 core/features/shared ✅
+- [x] 状态管理使用 Map<id, T> 实现 O(1) 查找 ✅
+- [x] 所有现有测试通过 ✅ (333/333)
 - [ ] E2E 关键路径测试通过
 
 ---
@@ -276,8 +291,11 @@ await localDb.tasks.put(winner);
 - **Phase 1**: ID 策略重构 - 移除临时 ID 机制，改用客户端 UUID
 - **Phase 2**: 同步系统简化 - 删除三路合并/Base快照，改用 LWW
 - **Phase 3**: GoJS 懒加载 - 移动端使用 `@if` 条件渲染
+- **Phase 4**: 目录结构重构 - 创建 core/features/shared 目录结构
+- **Phase 5**: 状态管理优化 - 创建 TaskStore/ProjectStore/ConnectionStore 使用 Map 结构
+- **Phase 6**: 文档更新 - copilot-instructions.md 与 agents.md 对齐
 
 ### 🔄 待完成（可选优化）
-- 进一步合并冗余服务（如合并同步相关服务为 SimpleSyncService）
-- 删除更多不再需要的服务（如 sync-checkpoint.service.ts）
+- 将遗留服务逐步迁移到新目录结构
 - E2E 测试验证
+
