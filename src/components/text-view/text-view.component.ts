@@ -659,15 +659,33 @@ export class TextViewComponent implements OnInit, OnDestroy {
       const task = JSON.parse(jsonData) as Task;
       const dropInfo = this.dragDropService.dropTargetInfo();
 
-      // 关键逻辑：当把“待分配块”拖入阶段并插到某个块之前时，
-      // 需要继承该参照块的 parentId，确保成为“同级任务块”并触发正确的编号重排。
+      // 关键逻辑：当把"待分配块"拖入阶段并插到某个块之前时，
+      // 需要继承该参照块的 parentId，确保成为"同级任务块"并触发正确的编号重排。
+      // 但必须验证该 parentId 对应的父任务是否在正确的阶段（targetStage - 1）
       const beforeTaskId = dropInfo?.beforeTaskId ?? null;
       let inferredParentId: string | null | undefined = undefined;
       
       if (beforeTaskId) {
         // 有明确的插入位置（在某个任务之前）
         const referenceTask = this.store.tasks().find(t => t.id === beforeTaskId) || null;
-        inferredParentId = referenceTask ? referenceTask.parentId : undefined;
+        if (referenceTask?.parentId) {
+          // 验证参照任务的父任务是否在正确的阶段
+          const parentTask = this.store.tasks().find(t => t.id === referenceTask.parentId);
+          if (parentTask && parentTask.stage === stageNumber - 1) {
+            inferredParentId = referenceTask.parentId;
+          } else {
+            // 父任务不在正确的阶段，不继承 parentId
+            console.log('[StageDrop] 参照任务的 parentId 无效，不继承:', {
+              referenceTaskId: beforeTaskId.slice(-4),
+              parentId: referenceTask.parentId?.slice(-4),
+              parentStage: parentTask?.stage ?? 'not found',
+              expectedParentStage: stageNumber - 1
+            });
+            inferredParentId = null;
+          }
+        } else {
+          inferredParentId = null;
+        }
       } else {
         // 没有 beforeTaskId，说明拖到阶段最后
         // 查找该阶段的最后一个任务，将新任务放在它后面
@@ -675,7 +693,24 @@ export class TextViewComponent implements OnInit, OnDestroy {
         const targetStage = stages.find(s => s.stageNumber === stageNumber);
         if (targetStage && targetStage.tasks.length > 0) {
           const lastTask = targetStage.tasks[targetStage.tasks.length - 1];
-          inferredParentId = lastTask.parentId;
+          if (lastTask.parentId) {
+            // 验证最后一个任务的父任务是否在正确的阶段
+            const parentTask = this.store.tasks().find(t => t.id === lastTask.parentId);
+            if (parentTask && parentTask.stage === stageNumber - 1) {
+              inferredParentId = lastTask.parentId;
+            } else {
+              // 父任务不在正确的阶段，不继承 parentId
+              console.log('[StageDrop] 最后任务的 parentId 无效，不继承:', {
+                lastTaskId: lastTask.id.slice(-4),
+                parentId: lastTask.parentId?.slice(-4),
+                parentStage: parentTask?.stage ?? 'not found',
+                expectedParentStage: stageNumber - 1
+              });
+              inferredParentId = null;
+            }
+          } else {
+            inferredParentId = null;
+          }
           // beforeTaskId 保持为 null，这样会插入到最后
         }
       }

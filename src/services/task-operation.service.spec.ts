@@ -185,3 +185,146 @@ describe('TaskOperationService (deletedMeta restore)', () => {
     expect(connKeys.has('child->other')).toBe(true);
   });
 });
+
+describe('TaskOperationService (moveTaskToStage parentId validation)', () => {
+  let service: TaskOperationService;
+  let project: Project;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [TaskOperationService, LayoutService, ToastService],
+    });
+
+    service = TestBed.inject(TaskOperationService);
+    project = createProject({});
+
+    service.setCallbacks({
+      getActiveProject: () => project,
+      onProjectUpdate: (mutator) => {
+        project = mutator(project);
+      },
+      onProjectUpdateDebounced: (mutator) => {
+        project = mutator(project);
+      },
+    });
+  });
+
+  it('移动任务到远距离阶段时应清除无效的 parentId', () => {
+    // 场景：root 在 stage=1，child 在 stage=2 且 parentId=root
+    // 当 child 移动到 stage=5 时，parentId 应被清除（因为 root 不在 stage=4）
+    const root = createTask({
+      id: 'root',
+      stage: 1,
+      parentId: null,
+      rank: 10000,
+      displayId: '1',
+    });
+    const child = createTask({
+      id: 'child',
+      stage: 2,
+      parentId: 'root',
+      rank: 20000,
+      displayId: '1,a',
+    });
+
+    project = createProject({ tasks: [root, child] });
+
+    // 移动 child 到 stage=5，不提供 newParentId
+    service.moveTaskToStage({ taskId: 'child', newStage: 5 });
+
+    const movedChild = project.tasks.find(t => t.id === 'child')!;
+    expect(movedChild.stage).toBe(5);
+    // parentId 应被清除，因为 root 在 stage=1，不是 stage=4
+    expect(movedChild.parentId).toBeNull();
+  });
+
+  it('移动任务到相邻阶段时应保留有效的 parentId', () => {
+    // 场景：root 在 stage=1，child 在 stage=2 且 parentId=root
+    // 由于 rebalance 会强制子任务 stage = parent.stage + 1，
+    // 移动到 stage=2 应保留 parentId
+    const root = createTask({
+      id: 'root',
+      stage: 1,
+      parentId: null,
+      rank: 10000,
+    });
+    const child = createTask({
+      id: 'child',
+      stage: 2,
+      parentId: 'root',
+      rank: 20000,
+    });
+
+    project = createProject({ tasks: [root, child] });
+
+    // 移动 child 到 stage=2（相邻阶段），不提供 newParentId
+    service.moveTaskToStage({ taskId: 'child', newStage: 2 });
+
+    const movedChild = project.tasks.find(t => t.id === 'child')!;
+    expect(movedChild.stage).toBe(2);
+    // parentId 应保留，因为 root 在 stage=1 = newStage - 1
+    expect(movedChild.parentId).toBe('root');
+  });
+
+  it('移动父任务时应级联更新所有子任务的 stage', () => {
+    // 场景：root 在 stage=1，child 在 stage=2，grandchild 在 stage=3
+    // 当 root 移动到 stage=3 时，child 应变为 stage=4，grandchild 应变为 stage=5
+    const root = createTask({
+      id: 'root',
+      stage: 1,
+      parentId: null,
+      rank: 10000,
+    });
+    const child = createTask({
+      id: 'child',
+      stage: 2,
+      parentId: 'root',
+      rank: 20000,
+    });
+    const grandchild = createTask({
+      id: 'grandchild',
+      stage: 3,
+      parentId: 'child',
+      rank: 30000,
+    });
+
+    project = createProject({ tasks: [root, child, grandchild] });
+
+    // 移动 root 到 stage=3
+    service.moveTaskToStage({ taskId: 'root', newStage: 3 });
+
+    const movedRoot = project.tasks.find(t => t.id === 'root')!;
+    const movedChild = project.tasks.find(t => t.id === 'child')!;
+    const movedGrandchild = project.tasks.find(t => t.id === 'grandchild')!;
+
+    expect(movedRoot.stage).toBe(3);
+    // 子任务应级联更新到 stage=4
+    expect(movedChild.stage).toBe(4);
+    // 孙任务应级联更新到 stage=5
+    expect(movedGrandchild.stage).toBe(5);
+  });
+
+  it('移动任务到未分配区域应清除 parentId', () => {
+    const root = createTask({
+      id: 'root',
+      stage: 1,
+      parentId: null,
+      rank: 10000,
+    });
+    const child = createTask({
+      id: 'child',
+      stage: 2,
+      parentId: 'root',
+      rank: 20000,
+    });
+
+    project = createProject({ tasks: [root, child] });
+
+    // 移动 child 到未分配区域（stage=null）
+    service.moveTaskToStage({ taskId: 'child', newStage: null });
+
+    const movedChild = project.tasks.find(t => t.id === 'child')!;
+    expect(movedChild.stage).toBeNull();
+    expect(movedChild.parentId).toBeNull();
+  });
+});

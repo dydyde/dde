@@ -727,8 +727,37 @@ export class TaskOperationService {
         return p;
       }
 
+      const oldStage = target.stage;
       target.stage = newStage;
-      target.parentId = newStage === null ? null : (newParentId !== undefined ? newParentId : target.parentId);
+      
+      // parentId 验证与清理逻辑：
+      // 1. 移动到未分配区域（stage=null）时，清除 parentId
+      // 2. 显式提供了 newParentId 时，使用新值
+      // 3. 未提供 newParentId 时，验证原 parentId 是否仍然有效
+      if (newStage === null) {
+        target.parentId = null;
+      } else if (newParentId !== undefined) {
+        target.parentId = newParentId;
+      } else if (target.parentId) {
+        // 验证原 parentId：父任务必须存在且在 newStage - 1 阶段
+        const parent = tasks.find(t => t.id === target.parentId);
+        if (!parent || parent.stage !== newStage - 1) {
+          // 父任务不存在或不在正确的阶段，清除 parentId
+          console.log('[MoveTask] 清除无效 parentId:', {
+            taskId: taskId.slice(-4),
+            oldParentId: target.parentId?.slice(-4),
+            newStage,
+            parentStage: parent?.stage ?? 'not found'
+          });
+          target.parentId = null;
+        }
+      }
+      
+      // 级联更新子任务的 stage：当父任务移动到新阶段时，
+      // 所有直接子任务的 stage 需要同步更新为 newStage + 1
+      if (newStage !== null && oldStage !== newStage) {
+        this.cascadeUpdateChildrenStage(target.id, newStage, tasks);
+      }
 
       const stageTasks = tasks.filter(t => t.stage === newStage && t.id !== taskId);
       const parent = target.parentId ? tasks.find(t => t.id === target.parentId) : null;
@@ -1067,6 +1096,58 @@ export class TaskOperationService {
     });
     
     return operationResult;
+  }
+  
+  /**
+   * 级联更新子任务的 stage
+   * 当父任务移动到新阶段时，所有子任务的 stage 需要同步更新为 parentStage + 1
+   * 使用迭代算法避免栈溢出（符合 AGENTS.md 中的 MAX_TREE_DEPTH 限制要求）
+   */
+  private cascadeUpdateChildrenStage(parentId: string, parentNewStage: number, tasks: Task[]): void {
+    const MAX_DEPTH = 500; // 与 LayoutService 保持一致
+    const queue: { taskId: string; parentStage: number; depth: number }[] = [];
+    
+    // 获取父任务的直接子节点
+    const directChildren = tasks.filter(t => t.parentId === parentId && !t.deletedAt);
+    directChildren.forEach(child => {
+      queue.push({ taskId: child.id, parentStage: parentNewStage, depth: 1 });
+    });
+    
+    let iterations = 0;
+    const maxIterations = tasks.length * 10;
+    
+    while (queue.length > 0 && iterations < maxIterations) {
+      iterations++;
+      const { taskId, parentStage, depth } = queue.shift()!;
+      
+      if (depth > MAX_DEPTH) {
+        console.warn('[CascadeStage] 树深度超过限制，可能存在数据问题', { taskId, depth });
+        continue;
+      }
+      
+      const child = tasks.find(t => t.id === taskId);
+      if (!child) continue;
+      
+      const expectedStage = parentStage + 1;
+      if (child.stage !== expectedStage) {
+        console.log('[CascadeStage] 更新子任务 stage:', {
+          taskId: taskId.slice(-4),
+          oldStage: child.stage,
+          newStage: expectedStage
+        });
+        child.stage = expectedStage;
+      }
+      
+      // 继续处理孙子节点
+      const grandChildren = tasks.filter(t => t.parentId === taskId && !t.deletedAt);
+      grandChildren.forEach(gc => {
+        queue.push({ taskId: gc.id, parentStage: expectedStage, depth: depth + 1 });
+      });
+    }
+    
+    if (iterations >= maxIterations) {
+      console.error('[CascadeStage] 迭代次数超限，可能存在循环依赖');
+    }
   }
   
   /**

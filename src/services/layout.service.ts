@@ -161,7 +161,17 @@ export class LayoutService {
         const childList = (children.get(parentId) || []).sort((a, b) => a.rank - b.rank);
         
         childList.forEach((child, idx) => {
-          if (parent.stage !== null && (child.stage === null || child.stage <= parent.stage)) {
+          // 强制子任务 stage = parent.stage + 1
+          // 修复原逻辑只处理 child.stage <= parent.stage 的情况，
+          // 现在无论子任务在什么阶段，都强制修正为正确的阶段
+          if (parent.stage !== null && child.stage !== parent.stage + 1) {
+            console.log('[Rebalance] 修正子任务 stage:', {
+              childId: child.id.slice(-4),
+              oldStage: child.stage,
+              newStage: parent.stage + 1,
+              parentId: parent.id.slice(-4),
+              parentStage: parent.stage
+            });
             child.stage = parent.stage + 1;
           }
           const letter = LETTERS[idx % LETTERS.length];

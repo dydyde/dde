@@ -86,4 +86,38 @@ describe('LayoutService.rebalance displayId visibility rules', () => {
     const r2 = rebalanced.tasks.find(t => t.id === 'r2')!;
     expect(r2.displayId).toBe('1');
   });
+
+  it('rebalance 应强制修正子任务的 stage 为 parent.stage + 1', () => {
+    // 场景：子任务的 stage > parent.stage + 1，应被强制修正
+    const root = createTask({ id: 'root', stage: 1, parentId: null, rank: 10000 });
+    const child = createTask({ id: 'child', stage: 5, parentId: 'root', rank: 20000 });
+
+    const project = createProject([root, child]);
+    const rebalanced = service.rebalance(project);
+
+    const rebalancedChild = rebalanced.tasks.find(t => t.id === 'child')!;
+    // 子任务 stage 应被强制修正为 parent.stage + 1 = 2
+    expect(rebalancedChild.stage).toBe(2);
+    // displayId 应为正确的子任务格式
+    expect(rebalancedChild.displayId).toBe('1,a');
+  });
+
+  it('rebalance 应强制修正所有嵌套子任务的 stage', () => {
+    // 场景：root(stage=1) -> child(stage=5) -> grandchild(stage=8)
+    // 应被修正为 root(1) -> child(2) -> grandchild(3)
+    const root = createTask({ id: 'root', stage: 1, parentId: null, rank: 10000 });
+    const child = createTask({ id: 'child', stage: 5, parentId: 'root', rank: 20000 });
+    const grandchild = createTask({ id: 'grandchild', stage: 8, parentId: 'child', rank: 30000 });
+
+    const project = createProject([root, child, grandchild]);
+    const rebalanced = service.rebalance(project);
+
+    const rebalancedChild = rebalanced.tasks.find(t => t.id === 'child')!;
+    const rebalancedGrandchild = rebalanced.tasks.find(t => t.id === 'grandchild')!;
+
+    expect(rebalancedChild.stage).toBe(2);
+    expect(rebalancedGrandchild.stage).toBe(3);
+    expect(rebalancedChild.displayId).toBe('1,a');
+    expect(rebalancedGrandchild.displayId).toBe('1,a,a');
+  });
 });
