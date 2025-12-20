@@ -204,18 +204,46 @@ export class SyncCoordinatorService {
         break;
         
       case 'download':
-        // 仅下载：从云端加载最新数据（静默模式，不影响 UI）
-        await this.syncService.loadProjectsFromCloud(userId, true);
+        // 仅下载：从云端加载最新数据并智能合并
+        await this.downloadAndMerge(userId);
         break;
         
       case 'both':
-        // 双向同步：先上传本地变更，再下载远程变更
+        // 双向同步：先上传本地变更，再下载远程变更并合并
         await this.persistActiveProject();
-        await this.syncService.loadProjectsFromCloud(userId, true);
+        await this.downloadAndMerge(userId);
         break;
     }
   }
   
+  /**
+   * 下载云端数据并智能合并到本地
+   * 确保本地的软删除状态不会被远程数据覆盖
+   */
+  private async downloadAndMerge(userId: string): Promise<void> {
+    const remoteProjects = await this.syncService.loadProjectsFromCloud(userId, true);
+    if (remoteProjects.length === 0) return;
+    
+    const localProjects = this.projectState.projects();
+    const localProjectMap = new Map(localProjects.map(p => [p.id, p]));
+    
+    // 智能合并每个项目
+    const mergedProjects = remoteProjects.map(remoteProject => {
+      const localProject = localProjectMap.get(remoteProject.id);
+      if (!localProject) {
+        // 远程新增的项目，直接使用
+        return this.validateAndRebalance(remoteProject);
+      }
+      // 智能合并，保留本地的软删除状态
+      const mergeResult = this.smartMerge(localProject, remoteProject);
+      return this.validateAndRebalance(mergeResult.project);
+    });
+    
+    // 更新本地状态
+    this.projectState.setProjects(mergedProjects);
+    this.syncService.saveOfflineSnapshot(mergedProjects);
+  }
+
   /**
    * 初始化同步感知（简化：空实现）
    */
@@ -540,10 +568,13 @@ export class SyncCoordinatorService {
       const localVersion = localProject.version ?? 0;
       const remoteVersion = remoteProject.version ?? 0;
       
-      // 2. 版本相同，无需同步
+      // 2. 版本相同时，也需要智能合并以保留本地的软删除状态
+      // 原因：用户可能在本地删除了连接，但还没来得及同步（版本号还没变化）
+      // 如果直接用远程数据覆盖，会丢失本地的 deletedAt 状态
       if (localVersion === remoteVersion) {
-        // 但还是用远程数据刷新一下，确保任务状态一致
-        const validated = this.validateAndRebalance(remoteProject);
+        // 执行智能合并，保留本地的软删除状态
+        const mergeResult = this.smartMerge(localProject, remoteProject);
+        const validated = this.validateAndRebalance(mergeResult.project);
         this.projectState.updateProjects(ps => 
           ps.map(p => p.id === projectId ? validated : p)
         );

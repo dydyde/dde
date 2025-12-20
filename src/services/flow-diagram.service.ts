@@ -1487,8 +1487,18 @@ export class FlowDiagramService {
     
     this.diagramDiv.addEventListener('drop', (e: DragEvent) => {
       e.preventDefault();
-      const data = e.dataTransfer?.getData("application/json") || e.dataTransfer?.getData("text");
+      // 优先使用 application/json 类型，确保是我们自己设置的拖放数据
+      const jsonData = e.dataTransfer?.getData("application/json");
+      const textData = e.dataTransfer?.getData("text");
+      const data = jsonData || textData;
       if (!data || !this.diagram) return;
+      
+      // 验证是否为有效 JSON（必须以 { 或 [ 开头）
+      const trimmed = data.trim();
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        // 不是 JSON 数据，忽略此次拖放（可能是文本拖放）
+        return;
+      }
       
       try {
         const task = JSON.parse(data);
