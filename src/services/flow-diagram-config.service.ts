@@ -99,13 +99,13 @@ export class FlowDiagramConfigService {
   /** 连接线配置 */
   readonly linkConfig = {
     cornerRadius: 20,  // 增加圆角
-    toShortLength: 5,  // 减小偏移量，让箭头更贴近目标节点（之前 10 太大会导致箭头角度计算问题）
+    toShortLength: 2,  // 减小偏移量，让箭头紧贴目标节点
     curviness: NaN,    // NaN = 让 GoJS 自动计算最佳曲率，避免固定值导致控制点异常
     mobileStrokeWidth: 24,   // 移动端透明触控区域
     desktopStrokeWidth: 14,  // 桌面端透明触控区域
-    visibleStrokeWidth: 3.5, // 可见线条粗度：比之前略粗但保持优雅（原 5 太粗）
-    arrowScale: 1.4,   // 箭头比例以匹配线条粗度
-    arrowType: "Standard"  // 箭头类型
+    visibleStrokeWidth: 4.5, // 可见线条粗度：比之前略粗但保持优雅
+    arrowScale: 1.2,   // 箭头比例：稍小一点更精致
+    arrowType: "OpenTriangle"  // 箭头类型：开放三角形，更圆滑优雅
   } as const;
 
   // ========== 数据构建方法 ==========
@@ -457,17 +457,16 @@ export class FlowDiagramConfigService {
       $(go.Shape, { 
         toArrow: this.linkConfig.arrowType,
         scale: this.linkConfig.arrowScale,
-        strokeWidth: 0.5,                     // 轻微描边，使箭头边缘清晰但不过于突兀
+        strokeWidth: 2.5,                     // 与线条粗度匹配，确保箭头与线条视觉连贯
+        strokeCap: "round",                   // 圆滑的线端
+        strokeJoin: "round",                  // 圆滑的拐角
         segmentOrientation: go.Orientation.Along,  // 核心：让箭头沿线条方向旋转
         segmentIndex: -1,                     // -1 表示连接线末端
         alignmentFocus: go.Spot.Right         // 箭头以右侧（尖端）为对齐基准点
       },
-        // 箭头填充色
-        new go.Binding("fill", "", (data: any) => {
-          if (data.isCrossTree) return styles.link.crossTreeColor;
-          return data.familyColor || styles.link.parentChildColor;
-        }),
-        // 箭头描边色（与 fill 相同，保持一致性）
+        // OpenTriangle 箭头使用 stroke 绘制，fill 设为透明
+        new go.Binding("fill", "", () => "transparent"),
+        // 箭头描边色
         new go.Binding("stroke", "", (data: any) => {
           if (data.isCrossTree) return styles.link.crossTreeColor;
           return data.familyColor || styles.link.parentChildColor;
@@ -477,8 +476,14 @@ export class FlowDiagramConfigService {
   
   /**
    * 获取联系块标签配置
+   * 
+   * 使用主题定义的跨树连接颜色，确保标签与连接线颜色一致
    */
   getConnectionLabelConfig($: any): go.Panel {
+    const styles = this.currentStyles();
+    // 生成标签背景色（基于跨树连线颜色的浅色版本）
+    const labelBgColor = this.getLighterColor(styles.link.crossTreeColor, 0.15);
+    
     return $(go.Panel, "Auto", {
       segmentIndex: NaN,
       segmentFraction: 0.5,
@@ -486,8 +491,8 @@ export class FlowDiagramConfigService {
     },
     new go.Binding("visible", "isCrossTree"),
     $(go.Shape, "RoundedRectangle", {
-      fill: "#f5f3ff",
-      stroke: "#8b5cf6",
+      fill: labelBgColor,
+      stroke: styles.link.crossTreeColor,
       strokeWidth: 1,
       parameter1: 4
     }),
@@ -496,12 +501,30 @@ export class FlowDiagramConfigService {
       $(go.TextBlock, "🔗", { font: "8px 'LXGW WenKai Screen', sans-serif" }),
       $(go.TextBlock, {
         font: "500 8px 'LXGW WenKai Screen', sans-serif",
-        stroke: "#6d28d9",
+        stroke: styles.link.crossTreeColor,
         maxSize: new go.Size(50, 14),
         overflow: go.TextBlock.OverflowEllipsis,
         margin: new go.Margin(0, 0, 0, 2)
       },
       new go.Binding("text", "description", (desc: string) => desc ? desc.substring(0, 6) : "..."))
     ));
+  }
+  
+  /**
+   * 生成颜色的浅色版本（用于标签背景）
+   * @param hexColor 原始颜色（十六进制或其他格式）
+   * @param opacity 透明度 (0-1)
+   */
+  private getLighterColor(hexColor: string, opacity: number): string {
+    // 尝试解析十六进制颜色
+    const hex = hexColor.replace('#', '');
+    if (hex.length === 6) {
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    }
+    // 如果不是标准十六进制，返回带透明度的原色
+    return hexColor;
   }
 }

@@ -141,18 +141,25 @@ export class TaskOperationAdapterService {
    * 1. markEditing() - 通知 UiState 和 SyncCoordinator
    * 2. lastUpdateType = 'content' - 触发内容同步
    * 3. trackTaskStatusChange() - 通知 ChangeTracker 追踪变更字段
+   * 4. lockTaskField() - 锁定字段防止远程覆盖
    */
   updateTaskStatus(taskId: string, status: Task['status']): void {
     this.markEditing();
     this.lastUpdateType = 'content';
     
-    // 通知 ChangeTracker 追踪状态字段变更
     const project = this.projectState.activeProject();
     if (project) {
       const task = project.tasks.find(t => t.id === taskId);
       if (task) {
-        // 先设置操作锁，防止远程推送覆盖正在进行的操作
+        // 【修复】同时锁定字段 + 追踪变更，双重保护
+        // 1. 锁定 status 字段，防止远程推送覆盖正在进行的操作
         this.changeTracker.lockTaskField(taskId, project.id, 'status');
+        
+        // 2. 追踪任务变更，标记 status 为脏字段
+        //    这样即使锁超时，脏字段检查仍会保护本地值
+        this.changeTracker.trackTaskUpdate(project.id, { ...task, status }, ['status']);
+        
+        this.logger.debug('状态更新已追踪', { taskId, oldStatus: task.status, newStatus: status });
       }
     }
     

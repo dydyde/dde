@@ -118,7 +118,7 @@ export const DEFAULT_FLOW_STYLES: FlowStyleConfig = {
   },
   link: {
     parentChildColor: '#78716C', // retro.muted
-    crossTreeColor: '#C15B3E', // retro.rust
+    crossTreeColor: '#708090', // slate-gray - 跨树专用色，与家族色明显区分
     descriptionBackground: '#F5F2E9', // retro.canvas
     descriptionBorder: '#4A8C8C', // retro.teal
     descriptionText: '#44403C', // retro.dark
@@ -157,7 +157,7 @@ export const OCEAN_FLOW_STYLES: FlowStyleConfig = {
   },
   link: {
     parentChildColor: '#7dd3fc', // sky-300
-    crossTreeColor: '#06b6d4', // cyan-500
+    crossTreeColor: '#708090', // slate-gray - 跨树专用色，与家族色明显区分
     descriptionBackground: '#ecfeff',
     descriptionBorder: '#22d3ee',
     descriptionText: '#0e7490',
@@ -196,7 +196,7 @@ export const FOREST_FLOW_STYLES: FlowStyleConfig = {
   },
   link: {
     parentChildColor: '#86efac', // green-300
-    crossTreeColor: '#10b981', // emerald-500
+    crossTreeColor: '#708090', // slate-gray - 跨树专用色，与家族色明显区分
     descriptionBackground: '#ecfdf5',
     descriptionBorder: '#34d399',
     descriptionText: '#047857',
@@ -235,7 +235,7 @@ export const SUNSET_FLOW_STYLES: FlowStyleConfig = {
   },
   link: {
     parentChildColor: '#fdba74', // orange-300
-    crossTreeColor: '#ef4444', // red-500
+    crossTreeColor: '#708090', // slate-gray - 跨树专用色，与家族色明显区分
     descriptionBackground: '#fef2f2',
     descriptionBorder: '#f87171',
     descriptionText: '#b91c1c',
@@ -274,7 +274,7 @@ export const LAVENDER_FLOW_STYLES: FlowStyleConfig = {
   },
   link: {
     parentChildColor: '#d8b4fe', // purple-300
-    crossTreeColor: '#d946ef', // fuchsia-500
+    crossTreeColor: '#708090', // slate-gray - 跨树专用色，与家族色明显区分
     descriptionBackground: '#fdf4ff',
     descriptionBorder: '#e879f9',
     descriptionText: '#a21caf',

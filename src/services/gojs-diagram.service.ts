@@ -208,11 +208,13 @@ export class GoJSDiagramService {
           strokeJoin: "round"
         }),
         $(go.Shape, { 
-          toArrow: "Standard", 
-          strokeWidth: 0, 
-          fill: "#78716C",
+          toArrow: "OpenTriangle", 
+          strokeWidth: 2.5, 
+          fill: "transparent",
           stroke: "#78716C",
           scale: 1.2,
+          strokeCap: "round",
+          strokeJoin: "round",
           segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
           segmentIndex: -1  // -1 表示连接线末端
         })
@@ -689,14 +691,16 @@ export class GoJSDiagramService {
       new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)),
     // 箭头 - 精确配置方向跟随
     $(go.Shape, { 
-      toArrow: "Standard", 
-      strokeWidth: 0.5, 
-      scale: 1.4,
+      toArrow: "OpenTriangle", 
+      strokeWidth: 2.5, 
+      scale: 1.2,
+      strokeCap: "round",
+      strokeJoin: "round",
       segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
       segmentIndex: -1,  // -1 表示连接线末端
       alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
     },
-      new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
+      new go.Binding("fill", "", () => "transparent"),
       new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")),
     // 联系块标签
     $(go.Panel, "Auto", {

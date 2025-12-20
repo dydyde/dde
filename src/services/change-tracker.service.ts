@@ -112,8 +112,11 @@ export class ChangeTrackerService {
    */
   private fieldLocks = new Map<string, number>();
   
-  /** 字段锁超时时间（毫秒）- 防止死锁 */
-  private static readonly FIELD_LOCK_TIMEOUT_MS = 10000;
+  /** 
+   * 字段锁超时时间（毫秒）- 防止死锁
+   * 【修复】从 10 秒增加到 30 秒，给弱网环境和移动端更多时间同步
+   */
+  private static readonly FIELD_LOCK_TIMEOUT_MS = 30000;
   
   /** 
    * 变更计数器（用于监控）

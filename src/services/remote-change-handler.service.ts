@@ -57,8 +57,11 @@ export class RemoteChangeHandlerService {
   private changeTracker = inject(ChangeTrackerService);
   private destroyRef = inject(DestroyRef);
 
-  /** 用于防止在编辑期间处理远程变更的时间阈值（毫秒）*/
-  private static readonly EDIT_GUARD_THRESHOLD_MS = 300;
+  /** 
+   * 用于防止在编辑期间处理远程变更的时间阈值（毫秒）
+   * 【修复】从 300ms 增加到 2000ms，给弱网环境更多保护时间
+   */
+  private static readonly EDIT_GUARD_THRESHOLD_MS = 2000;
   
   /** 回调是否已设置（防止重复调用） */
   private callbacksInitialized = false;
@@ -161,10 +164,11 @@ export class RemoteChangeHandlerService {
   /**
    * 检查是否应跳过远程任务级更新
    * 更宽松的策略：只在刚刚有持久化操作时跳过，允许不同任务的并发更新
+   * 【修复】增加回声保护时间从 200ms 到 1000ms，防止移动端弱网环境下的回声问题
    */
   private shouldSkipTaskUpdate(payload: RemoteTaskChangePayload): boolean {
     const timeSinceLastPersist = Date.now() - this.syncCoordinator.getLastPersistAt();
-    const inEchoGuard = timeSinceLastPersist < 200;
+    const inEchoGuard = timeSinceLastPersist < 1000;
 
     // DELETE 事件不需要加载远程项目，且对一致性很关键；仅应用回声保护。
     if (payload.eventType === 'DELETE') {
@@ -401,10 +405,11 @@ export class RemoteChangeHandlerService {
                   // - 默认采用远程任务（避免丢失另一端的结构/状态更新）
                   // - 若本机对该任务存在待同步脏字段，则对这些字段采用本地值（避免“回滚”）
                   // - 软删除 tombstone（deletedAt 非空）优先，避免任务复活
+                  // - 【新增】如果本地 updatedAt >= 远程 updatedAt，保护关键本地字段
                   let mergedTask = remoteTask;
 
                   if (pending?.changeType === 'delete') {
-                    // 本机认为该任务已删除：保持本机状态，避免被远程“复活”。
+                    // 本机认为该任务已删除：保持本机状态，避免被远程"复活"。
                     mergedTask = localTask;
                   } else {
                     const dirtyFields = new Set(pending?.changedFields ?? []);
@@ -415,6 +420,25 @@ export class RemoteChangeHandlerService {
                     for (const field of lockedFields) {
                       dirtyFields.add(field);
                       this.logger.debug('字段被操作锁保护', { taskId, field });
+                    }
+                    
+                    // 【关键修复】LWW 时间戳保护
+                    // 如果本地任务的 updatedAt >= 远程任务的 updatedAt，说明本地更新更晚（或同时），
+                    // 应该保护本地的关键字段（status, stage, parentId, rank）避免被旧数据覆盖
+                    const localTime = localTask.updatedAt ? new Date(localTask.updatedAt).getTime() : 0;
+                    const remoteTime = remoteTask.updatedAt ? new Date(remoteTask.updatedAt).getTime() : 0;
+                    
+                    if (localTime >= remoteTime) {
+                      // 本地更新不早于远程，保护关键字段
+                      const lwwProtectedFields = ['status', 'stage', 'parentId', 'rank', 'order', 'title', 'content'];
+                      for (const field of lwwProtectedFields) {
+                        dirtyFields.add(field);
+                      }
+                      this.logger.info('LWW 保护本地字段（本地时间 >= 远程时间）', { 
+                        taskId, 
+                        localTime: localTask.updatedAt, 
+                        remoteTime: remoteTask.updatedAt 
+                      });
                     }
 
                     // 若用户正处于编辑态（全局），依旧保护内容字段。

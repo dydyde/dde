@@ -2272,11 +2272,13 @@ export class FlowDiagramService {
         strokeJoin: "round"
       }),
       $(go.Shape, { 
-        toArrow: "Standard", 
+        toArrow: "OpenTriangle", 
         stroke: "#78716C",
-        strokeWidth: 0.5,
-        fill: "#78716C",
-        scale: 1.4,
+        strokeWidth: 2.5,
+        fill: "transparent",
+        scale: 1.2,
+        strokeCap: "round",
+        strokeJoin: "round",
         segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
         segmentIndex: -1,
         alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
@@ -2298,11 +2300,13 @@ export class FlowDiagramService {
         strokeJoin: "round"
       }),
       $(go.Shape, { 
-        toArrow: "Standard", 
+        toArrow: "OpenTriangle", 
         stroke: "#78716C",
-        strokeWidth: 0.5,
-        fill: "#78716C",
-        scale: 1.4,
+        strokeWidth: 2.5,
+        fill: "transparent",
+        scale: 1.2,
+        strokeCap: "round",
+        strokeJoin: "round",
         segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
         segmentIndex: -1,
         alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
