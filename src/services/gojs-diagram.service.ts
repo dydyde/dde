@@ -208,15 +208,15 @@ export class GoJSDiagramService {
           strokeJoin: "round"
         }),
         $(go.Shape, { 
-          toArrow: "OpenTriangle", 
-          strokeWidth: 2.5, 
-          fill: "transparent",
-          stroke: "#78716C",
-          scale: 1.2,
+          toArrow: "Standard",
+          fill: "#78716C",
+          stroke: "#78716C",     // 与 fill 一致
+          strokeWidth: 4,        // 粗描边让圆角效果明显
           strokeCap: "round",
-          strokeJoin: "round",
-          segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
-          segmentIndex: -1  // -1 表示连接线末端
+          strokeJoin: "round",   // 让箭头顶点圆润
+          scale: 0.9,            // 调小补偿描边膨胀
+          segmentOrientation: go.Orientation.Along,
+          segmentIndex: -1
         })
       );
       
@@ -688,20 +688,20 @@ export class GoJSDiagramService {
       strokeJoin: "round"
     },
       new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
-      new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)),
-    // 箭头 - 精确配置方向跟随
+      new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [10, 6] : null)),
+    // 箭头 - 使用粗描边 + strokeJoin: round 实现圆角效果
     $(go.Shape, { 
-      toArrow: "OpenTriangle", 
-      strokeWidth: 2.5, 
-      scale: 1.2,
+      toArrow: "Standard",
+      strokeWidth: 4,        // 粗描边让圆角效果明显
       strokeCap: "round",
-      strokeJoin: "round",
-      segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
-      segmentIndex: -1,  // -1 表示连接线末端
-      alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+      strokeJoin: "round",   // 让箭头顶点圆润
+      scale: 0.9,            // 调小补偿描边膨胀
+      segmentOrientation: go.Orientation.Along,
+      segmentIndex: -1,
+      alignmentFocus: go.Spot.Right
     },
-      new go.Binding("fill", "", () => "transparent"),
-      new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")),
+      new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
+      new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")),  // 与 fill 一致
     // 联系块标签
     $(go.Panel, "Auto", {
       segmentIndex: NaN,

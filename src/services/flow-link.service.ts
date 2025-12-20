@@ -342,6 +342,84 @@ export class FlowLinkService {
   }
   
   /**
+   * 处理跨树连接的重连
+   * 当用户拖动跨树连接线的起点或终点到新节点时调用
+   * 
+   * @param oldSourceId 原始起点节点 ID
+   * @param oldTargetId 原始终点节点 ID  
+   * @param newSourceId 新的起点节点 ID
+   * @param newTargetId 新的终点节点 ID
+   * @param changedEnd 'from' | 'to' 哪一端被改变了
+   * @returns 操作结果：'success' | 'cancelled' | 'error'
+   */
+  handleCrossTreeRelink(
+    oldSourceId: string,
+    oldTargetId: string,
+    newSourceId: string,
+    newTargetId: string,
+    changedEnd: 'from' | 'to'
+  ): 'success' | 'cancelled' | 'error' {
+    // 防止自连接
+    if (newSourceId === newTargetId) {
+      this.toast.warning('无法连接', '节点不能连接到自身');
+      return 'error';
+    }
+    
+    // 如果起点终点都没变，无需操作
+    if (oldSourceId === newSourceId && oldTargetId === newTargetId) {
+      this.logger.debug('跨树连接未变化，跳过');
+      return 'cancelled';
+    }
+    
+    const tasks = this.store.tasks();
+    const sourceTask = tasks.find(t => t.id === newSourceId);
+    const targetTask = tasks.find(t => t.id === newTargetId);
+    
+    if (!sourceTask) {
+      this.toast.error('重连失败', '找不到起点任务');
+      return 'error';
+    }
+    
+    if (!targetTask) {
+      this.toast.error('重连失败', '找不到终点任务');
+      return 'error';
+    }
+    
+    // 检查是否已存在相同的跨树连接
+    const project = this.store.activeProject();
+    const existingConnection = project?.connections?.find(
+      c => c.source === newSourceId && c.target === newTargetId
+    );
+    
+    if (existingConnection) {
+      this.toast.warning('连接已存在', `"${sourceTask.title}" 到 "${targetTask.title}" 的关联已存在`);
+      return 'cancelled';
+    }
+    
+    this.logger.info('执行跨树连接重连', {
+      oldSourceId,
+      oldTargetId,
+      newSourceId,
+      newTargetId,
+      changedEnd,
+      sourceTitle: sourceTask.title,
+      targetTitle: targetTask.title
+    });
+    
+    // 先删除旧连接，再创建新连接
+    this.store.removeConnection(oldSourceId, oldTargetId);
+    this.store.addCrossTreeConnection(newSourceId, newTargetId);
+    
+    const changedEndText = changedEnd === 'from' ? '起点' : '终点';
+    this.toast.success(
+      '关联重连成功', 
+      `已将关联${changedEndText}从 "${changedEnd === 'from' ? tasks.find(t => t.id === oldSourceId)?.title : tasks.find(t => t.id === oldTargetId)?.title}" 移动到 "${changedEnd === 'from' ? sourceTask.title : targetTask.title}"`
+    );
+    
+    return 'success';
+  }
+  
+  /**
    * 处理将子树迁移到根节点（stage 1）
    * @param childTaskId 被迁移的子任务 ID
    * @param oldParentId 原父任务 ID

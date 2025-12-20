@@ -348,25 +348,26 @@ describe('ConflictResolutionService', () => {
         expect(result.project.connections).toHaveLength(1);
       });
 
-      it('软删除的连接应该正确处理', () => {
+      it('软删除的连接应该正确处理 - 删除优先策略', () => {
         const localProject = createTestProject({
           connections: [
             createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2', deletedAt: null }),
           ],
         });
+        const deletedTime = new Date().toISOString();
         const remoteProject = createTestProject({
           connections: [
-            createTestConnection({ id: 'conn-2', source: 'task-1', target: 'task-2', deletedAt: new Date().toISOString() }),
+            createTestConnection({ id: 'conn-2', source: 'task-1', target: 'task-2', deletedAt: deletedTime }),
           ],
         });
 
         const result = service.smartMerge(localProject, remoteProject);
 
-        // 本地未删除的连接应该保留
+        // 删除优先策略：远程已删除，应该采用删除状态
         const conn = result.project.connections.find(
           c => c.source === 'task-1' && c.target === 'task-2'
         );
-        expect(conn?.deletedAt).toBeNull();
+        expect(conn?.deletedAt).toBe(deletedTime);
       });
     });
   });

@@ -65,17 +65,28 @@ export interface SelectionMovedCallback {
 }
 
 /**
- * 连接线重连回调（子树迁移）
+ * 连接线重连回调（子树迁移/跨树连接重连）
  * @param linkType 连接类型 'parent-child' | 'cross-tree'
- * @param childTaskId 子任务ID（被移动的任务）
- * @param oldParentId 旧父任务ID（原连接起点）
- * @param newParentId 新父任务ID（新连接起点）
+ * @param relinkInfo 重连详细信息
  * @param x 操作位置 X
  * @param y 操作位置 Y
  * @param gojsLink GoJS Link 对象
  */
+export interface LinkRelinkInfo {
+  /** 被改变的端点：'from' 或 'to' */
+  changedEnd: 'from' | 'to';
+  /** 原始起点节点 ID */
+  oldFromId: string;
+  /** 原始终点节点 ID */
+  oldToId: string;
+  /** 新起点节点 ID */
+  newFromId: string;
+  /** 新终点节点 ID */
+  newToId: string;
+}
+
 export interface LinkRelinkCallback {
-  (linkType: 'parent-child' | 'cross-tree', childTaskId: string, oldParentId: string | null, newParentId: string | null, x: number, y: number, gojsLink: any): void;
+  (linkType: 'parent-child' | 'cross-tree', relinkInfo: LinkRelinkInfo, x: number, y: number, gojsLink: any): void;
 }
 
 /**
@@ -2272,16 +2283,16 @@ export class FlowDiagramService {
         strokeJoin: "round"
       }),
       $(go.Shape, { 
-        toArrow: "OpenTriangle", 
-        stroke: "#78716C",
-        strokeWidth: 2.5,
-        fill: "transparent",
-        scale: 1.2,
+        toArrow: "Standard",
+        fill: "#78716C",
+        stroke: "#78716C",     // 与 fill 一致
+        strokeWidth: 4,        // 粗描边让圆角效果明显
         strokeCap: "round",
-        strokeJoin: "round",
-        segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
+        strokeJoin: "round",   // 让箭头顶点圆润
+        scale: 0.9,            // 调小补偿描边膨胀
+        segmentOrientation: go.Orientation.Along,
         segmentIndex: -1,
-        alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+        alignmentFocus: go.Spot.Right
       })
     );
     
@@ -2289,7 +2300,7 @@ export class FlowDiagramService {
     relinkingTool.temporaryLink = $(go.Link,
       { 
         layerName: "Tool", 
-        getLinkPoint: freeAngleLinkPoint,  // 重连时也启用边界滑动
+        getLinkPoint: freeAngleLinkPoint,
         curve: go.Link.Bezier
       },
       $(go.Shape, { 
@@ -2300,16 +2311,16 @@ export class FlowDiagramService {
         strokeJoin: "round"
       }),
       $(go.Shape, { 
-        toArrow: "OpenTriangle", 
-        stroke: "#78716C",
-        strokeWidth: 2.5,
-        fill: "transparent",
-        scale: 1.2,
+        toArrow: "Standard",
+        fill: "#78716C",
+        stroke: "#78716C",     // 与 fill 一致
+        strokeWidth: 4,        // 粗描边让圆角效果明显
         strokeCap: "round",
-        strokeJoin: "round",
-        segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
+        strokeJoin: "round",   // 让箭头顶点圆润
+        scale: 0.9,            // 调小补偿描边膨胀
+        segmentOrientation: go.Orientation.Along,
         segmentIndex: -1,
-        alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+        alignmentFocus: go.Spot.Right
       })
     );
     
@@ -2700,7 +2711,7 @@ export class FlowDiagramService {
       isCrossTree
     });
     
-    if (!newFromId || !newToId) return;
+    if (!newFromId || !newToId || !disconnectedNodeId) return;
     
     // 防止自连接
     if (newFromId === newToId) {
@@ -2724,39 +2735,41 @@ export class FlowDiagramService {
     const linkType: 'parent-child' | 'cross-tree' = isCrossTree ? 'cross-tree' : 'parent-child';
     
     // 确定是 from 端还是 to 端被重连
-    // 如果 disconnectedNodeId 不等于 newFromId，说明 from 端被改变了
-    // 如果 disconnectedNodeId 不等于 newToId，说明 to 端被改变了
-    const fromEndChanged = disconnectedNodeId && disconnectedNodeId !== newFromId;
-    const toEndChanged = disconnectedNodeId && disconnectedNodeId !== newToId;
+    // 如果 disconnectedNodeId 不等于 newFromId，且 disconnectedNodeId 不等于 newToId
+    // 需要根据连接类型判断哪一端被改变
+    const fromEndChanged = disconnectedNodeId !== newFromId;
+    const toEndChanged = disconnectedNodeId !== newToId;
+    
+    // 推断原始的 from/to ID
+    // 如果 from 端被改变：oldFromId = disconnectedNodeId, oldToId = newToId
+    // 如果 to 端被改变：oldFromId = newFromId, oldToId = disconnectedNodeId
+    const changedEnd: 'from' | 'to' = fromEndChanged ? 'from' : 'to';
+    const oldFromId = fromEndChanged ? disconnectedNodeId : newFromId;
+    const oldToId = toEndChanged ? disconnectedNodeId : newToId;
     
     console.log('[FlowDiagram] LinkRelinked 分析', {
       linkType,
-      fromEndChanged,
-      toEndChanged,
-      disconnectedNodeId,
-      childTaskId: newToId,
-      oldParentId: fromEndChanged ? disconnectedNodeId : newFromId,
-      newParentId: newFromId
+      changedEnd,
+      oldFromId,
+      oldToId,
+      newFromId,
+      newToId
     });
+    
+    // 构建重连信息
+    const relinkInfo: LinkRelinkInfo = {
+      changedEnd,
+      oldFromId,
+      oldToId,
+      newFromId,
+      newToId
+    };
     
     // 调用重连回调
     if (this.linkRelinkCallback) {
-      if (fromEndChanged) {
-        // from 端被重连：父任务改变 -> 子任务树迁移
-        // childTaskId = newToId (子任务)
-        // oldParentId = disconnectedNodeId (断开的原父任务)
-        // newParentId = newFromId (新父任务)
-        this.zone.run(() => {
-          this.linkRelinkCallback!(linkType, newToId, disconnectedNodeId, newFromId, x, y, link);
-        });
-      } else if (toEndChanged) {
-        // to 端被重连：子任务改变 -> 通常是跨树连接目标改变
-        // 这种情况较少见，暂不处理子树迁移
-        console.log('[FlowDiagram] to 端重连，暂不处理子树迁移');
-        this.zone.run(() => {
-          this.linkGestureCallback?.(newFromId, newToId, x, y, link);
-        });
-      }
+      this.zone.run(() => {
+        this.linkRelinkCallback!(linkType, relinkInfo, x, y, link);
+      });
     } else {
       // 没有注册重连回调，降级为普通连接手势
       this.zone.run(() => {

@@ -615,16 +615,38 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       }
     });
     
-    // 注册连接线重连回调（子树迁移）
-    this.diagram.onLinkRelink((linkType, childTaskId, oldParentId, newParentId, _x, _y, gojsLink) => {
-      console.log('[FlowView] onLinkRelink 回调触发', { linkType, childTaskId, oldParentId, newParentId });
+    // 注册连接线重连回调（子树迁移/跨树连接重连）
+    this.diagram.onLinkRelink((linkType, relinkInfo, _x, _y, gojsLink) => {
+      console.log('[FlowView] onLinkRelink 回调触发', { linkType, relinkInfo });
       
       // 移除 GoJS 中的临时连接线（实际数据由 store 管理）
       this.diagram.removeLink(gojsLink);
       
-      if (linkType === 'parent-child' && oldParentId && newParentId && oldParentId && newParentId && oldParentId && newParentId) {
-        // 处理父子连接重连：将子任务树迁移到新父任务下
-        const result = this.link.handleParentChildRelink(childTaskId, oldParentId, newParentId);
+      const { changedEnd, oldFromId, oldToId, newFromId, newToId } = relinkInfo;
+      
+      if (linkType === 'parent-child') {
+        // 父子连接重连：将子任务树迁移到新父任务下
+        // 只处理 from 端（父端）被改变的情况
+        if (changedEnd === 'from') {
+          const result = this.link.handleParentChildRelink(newToId, oldFromId, newFromId);
+          if (result === 'success') {
+            this.refreshDiagram();
+          }
+        } else {
+          // to 端被改变：这意味着要把连接指向不同的子任务
+          // 对于父子连接，这相当于断开旧子任务的父子关系，建立新的父子关系
+          // 这是一个复杂操作，暂时用警告提示
+          console.warn('[FlowView] 父子连接 to 端重连暂不支持');
+        }
+      } else if (linkType === 'cross-tree') {
+        // 跨树连接重连：删除旧连接，创建新连接
+        const result = this.link.handleCrossTreeRelink(
+          oldFromId,
+          oldToId,
+          newFromId,
+          newToId,
+          changedEnd
+        );
         if (result === 'success') {
           this.refreshDiagram();
         }

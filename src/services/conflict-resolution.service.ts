@@ -476,7 +476,11 @@ export class ConflictResolutionService {
 
   /**
    * 合并连接
-   * 支持软删除：如果两边都有同一连接，使用更新时间较新的版本
+   * 
+   * 软删除策略：删除优先 (Tombstone Wins)
+   * - 如果任一方软删除了连接，最终结果保持软删除状态
+   * - 这确保删除操作可以正确同步到所有设备
+   * - 恢复操作需要显式清除 deletedAt 字段
    */
   private mergeConnections(
     local: Project['connections'],
@@ -496,24 +500,33 @@ export class ConflictResolutionService {
       const existing = connMap.get(key);
       
       if (!existing) {
-        // 远程新增的连接
+        // 远程新增的连接（或本地没有）
         connMap.set(key, conn);
       } else {
-        // 两边都有，处理软删除状态
-        // 如果一边软删除了，另一边没有，使用未删除的版本（除非远程删除时间更新）
-        if (existing.deletedAt && !conn.deletedAt) {
+        // 两边都有同一连接，处理软删除状态
+        // 策略：删除优先 (Tombstone Wins)
+        
+        if (existing.deletedAt && conn.deletedAt) {
+          // 两边都删除了，使用更早的删除时间（保留删除状态）
+          const existingTime = new Date(existing.deletedAt).getTime();
+          const remoteTime = new Date(conn.deletedAt).getTime();
+          connMap.set(key, existingTime < remoteTime ? existing : conn);
+        } else if (existing.deletedAt) {
+          // 本地删除了，远程没删除 —— 保持删除状态
+          // 这确保本地删除可以同步到其他设备
+          // 不做任何操作，保持 existing（已删除）
+        } else if (conn.deletedAt) {
+          // 远程删除了，本地没删除 —— 采用远程删除状态
           connMap.set(key, conn);
-        } else if (!existing.deletedAt && conn.deletedAt) {
-          // 保留本地未删除版本，但检查描述是否需要更新
-          if (conn.description && conn.description !== existing.description) {
-            connMap.set(key, { ...existing, description: conn.description });
+        } else {
+          // 两边都未删除，合并描述
+          if (conn.description !== existing.description) {
+            // 使用较长的描述，或远程描述（如果本地为空）
+            const mergedDesc = !existing.description ? conn.description
+              : !conn.description ? existing.description
+              : (conn.description.length > existing.description.length ? conn.description : existing.description);
+            connMap.set(key, { ...existing, description: mergedDesc });
           }
-        } else if (conn.description && conn.description !== existing.description) {
-          // 两边都未删除，合并描述（使用较长的描述）
-          const mergedDesc = (conn.description?.length || 0) > (existing.description?.length || 0) 
-            ? conn.description 
-            : existing.description;
-          connMap.set(key, { ...existing, description: mergedDesc });
         }
       }
     }

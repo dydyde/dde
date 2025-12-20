@@ -99,13 +99,14 @@ export class FlowDiagramConfigService {
   /** 连接线配置 */
   readonly linkConfig = {
     cornerRadius: 20,  // 增加圆角
-    toShortLength: 2,  // 减小偏移量，让箭头紧贴目标节点
+    toShortLength: 5,  // 减小偏移量，让箭头更贴近目标节点（之前 10 太大会导致箭头角度计算问题）
     curviness: NaN,    // NaN = 让 GoJS 自动计算最佳曲率，避免固定值导致控制点异常
     mobileStrokeWidth: 24,   // 移动端透明触控区域
     desktopStrokeWidth: 14,  // 桌面端透明触控区域
-    visibleStrokeWidth: 4.5, // 可见线条粗度：比之前略粗但保持优雅
-    arrowScale: 1.2,   // 箭头比例：稍小一点更精致
-    arrowType: "OpenTriangle"  // 箭头类型：开放三角形，更圆滑优雅
+    visibleStrokeWidth: 3.5, // 可见线条粗度：比之前略粗但保持优雅（原 5 太粗）
+    arrowType: "Standard",   // 实心三角箭头
+    arrowScale: 0.9,         // 调小补偿粗描边带来的视觉膨胀
+    arrowStrokeWidth: 4      // 粗描边让 strokeJoin: round 生效，呈现圆角效果
   } as const;
 
   // ========== 数据构建方法 ==========
@@ -449,24 +450,28 @@ export class FlowDiagramConfigService {
           return data.familyColor || styles.link.parentChildColor; // 优先使用血缘颜色，否则使用主题定义的父子颜色
         }),
         new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)),
-      // 箭头 - 同样使用家族颜色
-      // ========== 关键修复：正确配置箭头方向跟随 ==========
-      // toArrow 会自动定位到连接线末端
-      // segmentOrientation: go.Orientation.Along 让箭头沿着线条末端切线方向旋转
-      // segmentIndex: -1 指定定位到最后一段
+      // 箭头 - 使用粗描边 + strokeJoin: round 实现圆角效果
+      // ========== 圆角箭头核心原理 ==========
+      // 1. toArrow: "Standard" 是实心三角的几何基础
+      // 2. fill 和 stroke 必须一致，才能看起来是纯色填充
+      // 3. strokeWidth 要足够大（3-5），让 strokeJoin: round 有足够空间画出圆弧
+      // 4. scale 调小补偿粗描边带来的视觉膨胀
       $(go.Shape, { 
         toArrow: this.linkConfig.arrowType,
         scale: this.linkConfig.arrowScale,
-        strokeWidth: 2.5,                     // 与线条粗度匹配，确保箭头与线条视觉连贯
-        strokeCap: "round",                   // 圆滑的线端
-        strokeJoin: "round",                  // 圆滑的拐角
-        segmentOrientation: go.Orientation.Along,  // 核心：让箭头沿线条方向旋转
-        segmentIndex: -1,                     // -1 表示连接线末端
-        alignmentFocus: go.Spot.Right         // 箭头以右侧（尖端）为对齐基准点
+        strokeWidth: this.linkConfig.arrowStrokeWidth,
+        strokeCap: "round",
+        strokeJoin: "round",                  // 关键：让箭头三角顶点变圆润
+        segmentOrientation: go.Orientation.Along,
+        segmentIndex: -1,
+        alignmentFocus: go.Spot.Right
       },
-        // OpenTriangle 箭头使用 stroke 绘制，fill 设为透明
-        new go.Binding("fill", "", () => "transparent"),
-        // 箭头描边色
+        // 箭头填充色
+        new go.Binding("fill", "", (data: any) => {
+          if (data.isCrossTree) return styles.link.crossTreeColor;
+          return data.familyColor || styles.link.parentChildColor;
+        }),
+        // 箭头描边色 - 必须与 fill 一致才能形成完整的圆角填充效果
         new go.Binding("stroke", "", (data: any) => {
           if (data.isCrossTree) return styles.link.crossTreeColor;
           return data.familyColor || styles.link.parentChildColor;
@@ -476,14 +481,8 @@ export class FlowDiagramConfigService {
   
   /**
    * 获取联系块标签配置
-   * 
-   * 使用主题定义的跨树连接颜色，确保标签与连接线颜色一致
    */
   getConnectionLabelConfig($: any): go.Panel {
-    const styles = this.currentStyles();
-    // 生成标签背景色（基于跨树连线颜色的浅色版本）
-    const labelBgColor = this.getLighterColor(styles.link.crossTreeColor, 0.15);
-    
     return $(go.Panel, "Auto", {
       segmentIndex: NaN,
       segmentFraction: 0.5,
@@ -491,8 +490,8 @@ export class FlowDiagramConfigService {
     },
     new go.Binding("visible", "isCrossTree"),
     $(go.Shape, "RoundedRectangle", {
-      fill: labelBgColor,
-      stroke: styles.link.crossTreeColor,
+      fill: "#f5f3ff",
+      stroke: "#8b5cf6",
       strokeWidth: 1,
       parameter1: 4
     }),
@@ -501,30 +500,12 @@ export class FlowDiagramConfigService {
       $(go.TextBlock, "🔗", { font: "8px 'LXGW WenKai Screen', sans-serif" }),
       $(go.TextBlock, {
         font: "500 8px 'LXGW WenKai Screen', sans-serif",
-        stroke: styles.link.crossTreeColor,
+        stroke: "#6d28d9",
         maxSize: new go.Size(50, 14),
         overflow: go.TextBlock.OverflowEllipsis,
         margin: new go.Margin(0, 0, 0, 2)
       },
       new go.Binding("text", "description", (desc: string) => desc ? desc.substring(0, 6) : "..."))
     ));
-  }
-  
-  /**
-   * 生成颜色的浅色版本（用于标签背景）
-   * @param hexColor 原始颜色（十六进制或其他格式）
-   * @param opacity 透明度 (0-1)
-   */
-  private getLighterColor(hexColor: string, opacity: number): string {
-    // 尝试解析十六进制颜色
-    const hex = hexColor.replace('#', '');
-    if (hex.length === 6) {
-      const r = parseInt(hex.substring(0, 2), 16);
-      const g = parseInt(hex.substring(2, 4), 16);
-      const b = parseInt(hex.substring(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-    }
-    // 如果不是标准十六进制，返回带透明度的原色
-    return hexColor;
   }
 }
