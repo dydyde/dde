@@ -193,10 +193,29 @@ export class GoJSDiagramService {
       (linkingTool as any).temporaryFromSpot = go.Spot.AllSides;
       (linkingTool as any).temporaryToSpot = go.Spot.AllSides;
       linkingTool.temporaryLink = $(go.Link,
-        { layerName: "Tool" },
-        { curve: go.Link.Bezier },
-        $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
-        $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+        { 
+          layerName: "Tool",
+          curve: go.Link.Bezier,
+          curviness: NaN,  // 让 GoJS 自动计算最佳曲率
+          toShortLength: 8
+        },
+        $(go.Shape, {
+          isPanelMain: true,
+          stroke: "#78716C", 
+          strokeWidth: 3, 
+          strokeDashArray: [4, 4],
+          strokeCap: "round",
+          strokeJoin: "round"
+        }),
+        $(go.Shape, { 
+          toArrow: "Standard", 
+          strokeWidth: 0, 
+          fill: "#78716C",
+          stroke: "#78716C",
+          scale: 1.2,
+          segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
+          segmentIndex: -1  // -1 表示连接线末端
+        })
       );
       
       // 设置节点移动监听
@@ -633,9 +652,10 @@ export class GoJSDiagramService {
     return $(go.Link, {
       routing: go.Link.Normal,
       curve: go.Link.Bezier,
-      toShortLength: 4,
-      fromEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
-      toEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
+      curviness: NaN,  // 让 GoJS 自动计算最佳曲率，避免固定值导致控制点异常
+      toShortLength: 5,  // 减小偏移量，让箭头更贴近目标节点，避免角度计算问题
+      fromEndSegmentLength: 22, // 保持曲线曲折感
+      toEndSegmentLength: 22,   // 保持曲线曲折感
       relinkableFrom: true,
       relinkableTo: true,
       reshapable: true,
@@ -651,14 +671,33 @@ export class GoJSDiagramService {
       )
     },
     // 透明粗线便于选择
-    $(go.Shape, { isPanelMain: true, strokeWidth: self.store.isMobile() ? 16 : 8, stroke: "transparent" }),
+    $(go.Shape, { 
+      isPanelMain: true, 
+      strokeWidth: self.store.isMobile() ? 24 : 14, 
+      stroke: "transparent",
+      strokeCap: "round",
+      strokeJoin: "round"
+    }),
     // 可见线
-    $(go.Shape, { isPanelMain: true, strokeWidth: 2 },
+    $(go.Shape, { 
+      isPanelMain: true, 
+      strokeWidth: 3.5,
+      strokeCap: "round",
+      strokeJoin: "round"
+    },
       new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
       new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)),
-    // 箭头
-    $(go.Shape, { toArrow: "Standard", stroke: null, scale: 1.2 },
-      new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")),
+    // 箭头 - 精确配置方向跟随
+    $(go.Shape, { 
+      toArrow: "Standard", 
+      strokeWidth: 0.5, 
+      scale: 1.4,
+      segmentOrientation: go.Orientation.Along,  // 关键：确保箭头沿线条方向旋转
+      segmentIndex: -1,  // -1 表示连接线末端
+      alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+    },
+      new go.Binding("fill", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8"),
+      new go.Binding("stroke", "isCrossTree", (isCross: boolean) => isCross ? "#6366f1" : "#94a3b8")),
     // 联系块标签
     $(go.Panel, "Auto", {
       segmentIndex: NaN,

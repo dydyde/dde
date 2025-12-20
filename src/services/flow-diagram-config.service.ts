@@ -98,11 +98,14 @@ export class FlowDiagramConfigService {
   
   /** 连接线配置 */
   readonly linkConfig = {
-    cornerRadius: 12,
-    toShortLength: 4,
-    mobileStrokeWidth: 16,
-    desktopStrokeWidth: 8,
-    visibleStrokeWidth: 2
+    cornerRadius: 20,  // 增加圆角
+    toShortLength: 5,  // 减小偏移量，让箭头更贴近目标节点（之前 10 太大会导致箭头角度计算问题）
+    curviness: NaN,    // NaN = 让 GoJS 自动计算最佳曲率，避免固定值导致控制点异常
+    mobileStrokeWidth: 24,   // 移动端透明触控区域
+    desktopStrokeWidth: 14,  // 桌面端透明触控区域
+    visibleStrokeWidth: 3.5, // 可见线条粗度：比之前略粗但保持优雅（原 5 太粗）
+    arrowScale: 1.4,   // 箭头比例以匹配线条粗度
+    arrowType: "Standard"  // 箭头类型
   } as const;
 
   // ========== 数据构建方法 ==========
@@ -179,8 +182,11 @@ export class FlowDiagramConfigService {
       }
     }
     
-    // 添加跨树连接
+    // 添加跨树连接（过滤掉已软删除的连接）
     for (const conn of project.connections) {
+      // 跳过已软删除的连接
+      if (conn.deletedAt) continue;
+      
       const pairKey = `${conn.source}->${conn.target}`;
       if (!parentChildPairs.has(pairKey)) {
         const sourceExists = tasksToShow.some(t => t.id === conn.source);
@@ -419,26 +425,52 @@ export class FlowDiagramConfigService {
    * - 颜色来源于数据预处理阶段注入的 familyColor 属性
    */
   getLinkMainShapesConfig($: any, isMobile: boolean): go.Shape[] {
+    const styles = this.currentStyles();
+    
     return [
-      // 透明粗线便于选择
+      // 透明粗线便于选择（触控区域）
       $(go.Shape, { 
         isPanelMain: true, 
         strokeWidth: isMobile ? this.linkConfig.mobileStrokeWidth : this.linkConfig.desktopStrokeWidth, 
-        stroke: "transparent" 
+        stroke: "transparent",
+        strokeCap: "round",
+        strokeJoin: "round"
       }),
       // 可见线 - 使用家族颜色（血缘聚类）
-      $(go.Shape, { isPanelMain: true, strokeWidth: this.linkConfig.visibleStrokeWidth },
+      $(go.Shape, { 
+        isPanelMain: true,   // 标记为主路径线，让 GoJS 正确计算曲线路径
+        strokeWidth: this.linkConfig.visibleStrokeWidth,
+        strokeCap: "round",  // 线端圆润（解决锐度问题）
+        strokeJoin: "round"  // 拐角圆润
+      },
         // 绑定血缘家族颜色，跨树连线保持紫色
         new go.Binding("stroke", "", (data: any) => {
-          if (data.isCrossTree) return "#6366f1"; // 跨树连线保持紫色
-          return data.familyColor || "#94a3b8"; // 使用预处理注入的家族颜色
+          if (data.isCrossTree) return styles.link.crossTreeColor; // 使用主题定义的跨树连线颜色
+          return data.familyColor || styles.link.parentChildColor; // 优先使用血缘颜色，否则使用主题定义的父子颜色
         }),
         new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 3] : null)),
       // 箭头 - 同样使用家族颜色
-      $(go.Shape, { toArrow: "Standard", stroke: null, scale: 1.2 },
+      // ========== 关键修复：正确配置箭头方向跟随 ==========
+      // toArrow 会自动定位到连接线末端
+      // segmentOrientation: go.Orientation.Along 让箭头沿着线条末端切线方向旋转
+      // segmentIndex: -1 指定定位到最后一段
+      $(go.Shape, { 
+        toArrow: this.linkConfig.arrowType,
+        scale: this.linkConfig.arrowScale,
+        strokeWidth: 0.5,                     // 轻微描边，使箭头边缘清晰但不过于突兀
+        segmentOrientation: go.Orientation.Along,  // 核心：让箭头沿线条方向旋转
+        segmentIndex: -1,                     // -1 表示连接线末端
+        alignmentFocus: go.Spot.Right         // 箭头以右侧（尖端）为对齐基准点
+      },
+        // 箭头填充色
         new go.Binding("fill", "", (data: any) => {
-          if (data.isCrossTree) return "#6366f1";
-          return data.familyColor || "#94a3b8";
+          if (data.isCrossTree) return styles.link.crossTreeColor;
+          return data.familyColor || styles.link.parentChildColor;
+        }),
+        // 箭头描边色（与 fill 相同，保持一致性）
+        new go.Binding("stroke", "", (data: any) => {
+          if (data.isCrossTree) return styles.link.crossTreeColor;
+          return data.familyColor || styles.link.parentChildColor;
         }))
     ];
   }

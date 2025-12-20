@@ -461,7 +461,7 @@ export class TaskOperationAdapterService {
       
       // 保存更新前的状态用于变更追踪
       const beforeTaskMap = new Map(project.tasks.map(t => [t.id, t]));
-      const beforeConnectionSet = new Set(project.connections.map(c => `${c.source}|${c.target}`));
+      const beforeConnectionMap = new Map(project.connections.map(c => [`${c.source}|${c.target}`, c]));
       
       let afterProject: Project | null = null;
       this.projectState.updateProjects(projects => projects.map(p => {
@@ -482,7 +482,7 @@ export class TaskOperationAdapterService {
         }, currentVersion);
         
         // 追踪变更
-        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionSet, afterProject);
+        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionMap, afterProject);
       }
       
       this.syncCoordinator.markLocalChanges('structure');
@@ -518,7 +518,7 @@ export class TaskOperationAdapterService {
       
       // 保存更新前的状态用于变更追踪
       const beforeTaskMap = new Map(project.tasks.map(t => [t.id, t]));
-      const beforeConnectionSet = new Set(project.connections.map(c => `${c.source}|${c.target}`));
+      const beforeConnectionMap = new Map(project.connections.map(c => [`${c.source}|${c.target}`, c]));
       
       let afterProject: Project | null = null;
       this.projectState.updateProjects(projects => projects.map(p => {
@@ -539,7 +539,7 @@ export class TaskOperationAdapterService {
         });
         
         // 追踪变更
-        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionSet, afterProject);
+        this.trackChanges(targetProjectId, beforeTaskMap, beforeConnectionMap, afterProject);
       }
       
       this.syncCoordinator.markLocalChanges('content');
@@ -555,12 +555,12 @@ export class TaskOperationAdapterService {
    * 通过对比更新前后的状态，自动识别：
    * - 新增的任务/连接
    * - 修改的任务/连接
-   * - 删除的任务/连接
+   * - 删除的任务/连接（包括软删除）
    */
   private trackChanges(
     projectId: string,
     beforeTaskMap: Map<string, Task>,
-    beforeConnectionSet: Set<string>,
+    beforeConnectionMap: Map<string, Connection>,
     afterProject: Project
   ): void {
     // 追踪任务变更
@@ -590,25 +590,33 @@ export class TaskOperationAdapterService {
       }
     }
     
-    // 追踪连接变更
-    const afterConnectionSet = new Set<string>();
+    // 追踪连接变更（支持软删除检测）
     const afterConnectionMap = new Map<string, Connection>();
     
     for (const conn of afterProject.connections) {
       const key = `${conn.source}|${conn.target}`;
-      afterConnectionSet.add(key);
       afterConnectionMap.set(key, conn);
       
-      if (!beforeConnectionSet.has(key)) {
+      const beforeConn = beforeConnectionMap.get(key);
+      
+      if (!beforeConn) {
         // 新增连接
         this.changeTracker.trackConnectionCreate(projectId, conn);
+      } else {
+        // 检查 deletedAt 或 description 是否变化
+        const deletedAtChanged = beforeConn.deletedAt !== conn.deletedAt;
+        const descriptionChanged = beforeConn.description !== conn.description;
+        
+        if (deletedAtChanged || descriptionChanged) {
+          // 使用更新来追踪软删除状态变化
+          this.changeTracker.trackConnectionUpdate(projectId, conn);
+        }
       }
-      // 注意：连接的更新需要更细粒度的比较，这里简化处理
     }
     
-    // 检查删除的连接
-    for (const key of beforeConnectionSet) {
-      if (!afterConnectionSet.has(key)) {
+    // 检查从数组中完全移除的连接（硬删除场景，虽然现在不用，但保留兼容性）
+    for (const [key, _] of beforeConnectionMap) {
+      if (!afterConnectionMap.has(key)) {
         const [source, target] = key.split('|');
         this.changeTracker.trackConnectionDelete(projectId, source, target);
       }

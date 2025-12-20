@@ -8,12 +8,12 @@
  * ✗ UI 布局状态 → UiStateService
  * ✗ 用户会话 → UserSessionService
  */
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { SyncService } from './sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { AuthService } from './auth.service';
+import { ThemeService } from './theme.service';
 import { ThemeType, UserPreferences } from '../models';
-import { CACHE_CONFIG } from '../config/constants';
 
 @Injectable({
   providedIn: 'root'
@@ -22,13 +22,12 @@ export class PreferenceService {
   private syncService = inject(SyncService);
   private actionQueue = inject(ActionQueueService);
   private authService = inject(AuthService);
+  private themeService = inject(ThemeService);
 
   /** 当前主题 */
-  readonly theme = signal<ThemeType>('default');
+  readonly theme = this.themeService.theme;
 
-  constructor() {
-    this.loadLocalPreferences();
-  }
+  constructor() {}
 
   // ========== 公共方法 ==========
 
@@ -37,44 +36,21 @@ export class PreferenceService {
    * 同时更新本地存储和云端
    */
   async setTheme(theme: ThemeType): Promise<void> {
-    this.theme.set(theme);
-    this.applyThemeToDOM(theme);
-    localStorage.setItem(CACHE_CONFIG.THEME_CACHE_KEY, theme);
-
-    const userId = this.authService.currentUserId();
-    if (userId) {
-      await this.saveUserPreferences(userId, { theme });
-    }
+    await this.themeService.setTheme(theme);
   }
 
   /**
    * 加载用户偏好（从云端）
    */
   async loadUserPreferences(): Promise<void> {
-    const userId = this.authService.currentUserId();
-    if (!userId) return;
-
-    try {
-      const prefs = await this.syncService.loadUserPreferences(userId);
-      if (prefs?.theme) {
-        this.theme.set(prefs.theme);
-        this.applyThemeToDOM(prefs.theme);
-        localStorage.setItem(CACHE_CONFIG.THEME_CACHE_KEY, prefs.theme);
-      }
-    } catch (error) {
-      console.error('加载用户偏好失败:', error);
-    }
+    await this.themeService.loadUserTheme();
   }
 
   /**
    * 加载本地偏好（从 localStorage）
    */
   loadLocalPreferences(): void {
-    const savedTheme = localStorage.getItem(CACHE_CONFIG.THEME_CACHE_KEY) as ThemeType | null;
-    if (savedTheme) {
-      this.theme.set(savedTheme);
-      this.applyThemeToDOM(savedTheme);
-    }
+    // ThemeService 构造函数会自动加载本地主题
   }
 
   /**
@@ -102,21 +78,6 @@ export class PreferenceService {
         payload: { preferences, userId }
       });
       return false;
-    }
-  }
-
-  // ========== 私有方法 ==========
-
-  /**
-   * 应用主题到 DOM
-   */
-  private applyThemeToDOM(theme: string): void {
-    if (typeof document === 'undefined') return;
-
-    if (theme === 'default') {
-      document.documentElement.removeAttribute('data-theme');
-    } else {
-      document.documentElement.setAttribute('data-theme', theme);
     }
   }
 }

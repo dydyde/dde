@@ -34,6 +34,7 @@ export interface ConnectionRow {
   source_id: string;
   target_id: string;
   description: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -647,7 +648,8 @@ export class TaskRepositoryService {
             project_id: projectId,
             source_id: conn.source,
             target_id: conn.target,
-            description: conn.description
+            description: conn.description,
+            deleted_at: conn.deletedAt || null
           }));
 
           let success = false;
@@ -715,7 +717,8 @@ export class TaskRepositoryService {
       project_id: projectId,
       source_id: conn.source,
       target_id: conn.target,
-      description: conn.description
+      description: conn.description,
+      deleted_at: conn.deletedAt || null
     }));
     
     const { error } = await this.supabase.client()
@@ -858,7 +861,8 @@ export class TaskRepositoryService {
       id: row.id,
       source: row.source_id,
       target: row.target_id,
-      description: row.description ?? undefined
+      description: row.description ?? undefined,
+      deletedAt: row.deleted_at ?? undefined
     };
   }
 
@@ -1058,7 +1062,8 @@ export class TaskRepositoryService {
           project_id: projectId,
           source_id: conn.source,
           target_id: conn.target,
-          description: conn.description
+          description: conn.description,
+          deleted_at: conn.deletedAt || null
         }));
         
         let success = false;
@@ -1081,7 +1086,7 @@ export class TaskRepositoryService {
       }
     }
 
-    // 3. 批量更新连接
+    // 3. 批量更新连接（包括软删除状态）
     if (connectionsToUpdate.length > 0) {
       for (let i = 0; i < connectionsToUpdate.length; i += BATCH_SIZE) {
         const batch = connectionsToUpdate.slice(i, i + BATCH_SIZE);
@@ -1089,7 +1094,8 @@ export class TaskRepositoryService {
           project_id: projectId,
           source_id: conn.source,
           target_id: conn.target,
-          description: conn.description
+          description: conn.description,
+          deleted_at: conn.deletedAt || null  // 包含软删除状态
         }));
         
         let success = false;

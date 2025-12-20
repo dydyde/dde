@@ -2264,8 +2264,23 @@ export class FlowDiagramService {
         getLinkPoint: freeAngleLinkPoint,  // 关键：使用自定义的边界交点计算
         curve: go.Link.Bezier
       },
-      $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
-      $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+      $(go.Shape, { 
+        stroke: "#78716C", 
+        strokeWidth: 3.5, 
+        strokeDashArray: [4, 4],
+        strokeCap: "round",
+        strokeJoin: "round"
+      }),
+      $(go.Shape, { 
+        toArrow: "Standard", 
+        stroke: "#78716C",
+        strokeWidth: 0.5,
+        fill: "#78716C",
+        scale: 1.4,
+        segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
+        segmentIndex: -1,
+        alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+      })
     );
     
     // 重连时使用相同的临时线配置（带边界滑动）
@@ -2275,8 +2290,23 @@ export class FlowDiagramService {
         getLinkPoint: freeAngleLinkPoint,  // 重连时也启用边界滑动
         curve: go.Link.Bezier
       },
-      $(go.Shape, { stroke: "#78716C", strokeWidth: 2, strokeDashArray: [4, 4] }),
-      $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#78716C" })
+      $(go.Shape, { 
+        stroke: "#78716C", 
+        strokeWidth: 3.5, 
+        strokeDashArray: [4, 4],
+        strokeCap: "round",
+        strokeJoin: "round"
+      }),
+      $(go.Shape, { 
+        toArrow: "Standard", 
+        stroke: "#78716C",
+        strokeWidth: 0.5,
+        fill: "#78716C",
+        scale: 1.4,
+        segmentOrientation: go.Orientation.Along, // 箭头沿线条方向旋转
+        segmentIndex: -1,
+        alignmentFocus: go.Spot.Right  // 箭头以尖端为对齐基准
+      })
     );
     
     // ========== 关键配置：RelinkingTool 的手柄原型 ==========
@@ -2309,9 +2339,9 @@ export class FlowDiagramService {
         routing: go.Link.Normal,
         curve: go.Link.Bezier,
         getLinkPoint: freeAngleLinkPoint,  // 关键：永久连接线也使用边界滑动算法
-        toShortLength: 4,
-        fromEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
-        toEndSegmentLength: GOJS_CONFIG.LINK_END_SEGMENT_LENGTH,
+        toShortLength: this.configService.linkConfig.toShortLength, // 使用配置中的偏移量
+        fromEndSegmentLength: 22, // 起点延伸段长度，保持曲线的曲折感
+        toEndSegmentLength: 22,   // 终点延伸段长度，保持曲线的曲折感
         selectable: true,        // 确保连接线可选择（显示重连手柄需要先选中）
         selectionAdorned: true,  // 选中时显示装饰器（重连手柄）
         relinkableFrom: true,

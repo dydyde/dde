@@ -1218,13 +1218,17 @@ export class TaskOperationService {
   }
   
   /**
-   * 移除连接
+   * 移除连接（使用软删除策略）
+   * 设置 deletedAt 时间戳，让同步服务可以正确同步删除状态到其他设备
    */
   removeConnection(sourceId: string, targetId: string): void {
+    const now = new Date().toISOString();
     this.recordAndUpdate(p => ({
       ...p,
-      connections: p.connections.filter(
-        c => !(c.source === sourceId && c.target === targetId)
+      connections: p.connections.map(c => 
+        (c.source === sourceId && c.target === targetId)
+          ? { ...c, deletedAt: now }
+          : c
       )
     }));
   }
