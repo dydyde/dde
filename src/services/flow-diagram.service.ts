@@ -72,6 +72,7 @@ export class FlowDiagramService {
   private isNodeDragging: boolean = false;
   private overviewUpdatePending: boolean = false;
   private overviewBoundsCache: string = '';
+  private wasViewportOutside: boolean = false;
   
   // ========== 定时器 ==========
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -277,6 +278,8 @@ export class FlowDiagramService {
     }
     
     this.overviewContainer = container;
+    this.wasViewportOutside = false;
+    this.overviewBoundsCache = '';
     
     try {
       const $ = go.GraphObject.make;
@@ -449,6 +452,9 @@ export class FlowDiagramService {
         viewportBounds.y < nodeBounds.y - 50 ||
         viewportBounds.right > nodeBounds.right + 50 ||
         viewportBounds.bottom > nodeBounds.bottom + 50;
+
+      const outsideStateChanged = isViewportOutside !== this.wasViewportOutside;
+      this.wasViewportOutside = isViewportOutside;
       
       if (this.overviewContainer) {
         const containerWidth = this.overviewContainer.clientWidth;
@@ -466,7 +472,9 @@ export class FlowDiagramService {
           if (boundsKey !== this.overviewBoundsCache) {
             this.overviewBoundsCache = boundsKey;
             this.setOverviewFixedBounds(displayBounds);
-            this.overview.centerRect(displayBounds);
+            if (outsideStateChanged) {
+              this.overview.centerRect(displayBounds);
+            }
           }
 
           const currentScale = this.overview.scale;
