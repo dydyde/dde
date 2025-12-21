@@ -680,7 +680,7 @@ export class MinimapMathService {
     };
     
     // 合并边界
-    let contentBounds = (session.staticNodesBounds.width === 0 && session.staticNodesBounds.height === 0)
+    const contentBounds = (session.staticNodesBounds.width === 0 && session.staticNodesBounds.height === 0)
       ? currentDraggedBounds
       : this.unionBounds(session.staticNodesBounds, currentDraggedBounds);
     

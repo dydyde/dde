@@ -459,7 +459,7 @@ export class UserSessionService {
    * 迁移项目数据格式
    */
   private migrateProject(project: Project): Project {
-    let migrated = { ...project };
+    const migrated = { ...project };
 
     migrated.updatedAt = migrated.updatedAt || new Date().toISOString();
     migrated.version = CACHE_CONFIG.CACHE_VERSION;

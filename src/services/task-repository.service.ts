@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
-import { Task, Connection, Project } from '../models';
-import { sanitizeTask, sanitizeAttachment } from '../utils/validation';
+import { Task, Connection } from '../models';
+import { sanitizeTask } from '../utils/validation';
 
 /**
  * 数据库行类型定义
@@ -622,7 +622,7 @@ export class TaskRepositoryService {
           
           for (let retry = 0; retry <= MAX_RETRIES && !success; retry++) {
             // 使用 IN 查询批量删除
-            const deleteKeys = batch.map(c => `(${c.source},${c.target})`);
+            const _deleteKeys = batch.map(c => `(${c.source},${c.target})`);
             const { error } = await this.supabase.client()
               .from('connections')
               .delete()

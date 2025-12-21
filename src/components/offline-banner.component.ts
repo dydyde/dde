@@ -1,5 +1,5 @@
 import { Component, inject, effect, ChangeDetectionStrategy, DestroyRef } from '@angular/core';
-import { SyncService } from '../services/sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ToastService } from '../services/toast.service';
 
 /**
@@ -19,7 +19,7 @@ import { ToastService } from '../services/toast.service';
   template: `<!-- 无渲染内容，仅用于监听网络状态变化 -->`,
 })
 export class OfflineBannerComponent {
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private toast = inject(ToastService);
   private destroyRef = inject(DestroyRef);
   

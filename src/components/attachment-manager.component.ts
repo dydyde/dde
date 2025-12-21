@@ -1,6 +1,6 @@
 import { Component, input, Output, EventEmitter, inject, signal, computed, effect, OnInit, OnDestroy, Injector } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AttachmentService, UploadProgress } from '../services/attachment.service';
+import { AttachmentService } from '../services/attachment.service';
 import { ToastService } from '../services/toast.service';
 import { Attachment } from '../models';
 

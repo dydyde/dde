@@ -1,7 +1,7 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { ThemeType } from '../models';
 import { CACHE_CONFIG } from '../config/constants';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';
 
@@ -17,7 +17,7 @@ import { ToastService } from './toast.service';
   providedIn: 'root'
 })
 export class ThemeService {
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private authService = inject(AuthService);
   private toast = inject(ToastService);
   
@@ -48,7 +48,7 @@ export class ThemeService {
       try {
         await this.syncService.saveUserPreferences(userId, { theme });
         // 主题保存成功不需要 Toast 提示（避免频繁打扰）
-      } catch (error) {
+      } catch (_error) {
         // 只在失败时提示
         this.toast.warning('主题保存失败', '将在下次联网时同步');
       } finally {

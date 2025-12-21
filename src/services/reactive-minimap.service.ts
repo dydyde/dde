@@ -229,7 +229,7 @@ export class ReactiveMinimapService {
     }
     
     const session = this.currentSession;
-    const { container, contentLayer, viewportRect } = this.elements;
+    const { container: _container, contentLayer, viewportRect } = this.elements;
     
     // ========== Step 1: Calculate Hypothetical Bounds ==========
     

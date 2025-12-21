@@ -277,8 +277,8 @@ export class FlowDragDropService {
   handleNodeMoved(
     nodeKey: string,
     loc: go.Point,
-    isUnassigned: boolean,
-    diagram: go.Diagram
+    _isUnassigned: boolean,
+    _diagram: go.Diagram
   ): void {
     // 场景二：待分配节点在流程图内移动，仅更新位置。
     // 不再支持“拖到连接线上立即插入并任务化”，任务化只在“拉线”确认时发生。

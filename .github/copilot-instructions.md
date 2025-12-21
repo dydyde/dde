@@ -54,13 +54,30 @@ export class TaskStore {
 ### 4. 移动端 GoJS 懒加载
 
 ```typescript
-// 移动端使用条件渲染完全销毁/重建 FlowView
+// 移动端使用 @defer + 条件渲染完全销毁/重建 FlowView
 @if (!store.isMobile() || store.activeView() === 'flow') {
-  <app-flow-view />
+  @defer (on viewport; prefetch on idle) {
+    <app-flow-view />
+  } @placeholder {
+    <div>加载流程视图...</div>
+  }
 }
 ```
 
 **禁止**：不使用 `visibility: hidden` 隐藏 GoJS canvas（占用内存）。
+
+### 5. RetryQueue 持久化（离线数据保护）
+
+```typescript
+// SimpleSyncService 自动将失败操作持久化到 localStorage
+// 页面刷新后自动恢复，网络恢复后自动重试
+private readonly RETRY_QUEUE_STORAGE_KEY = 'nanoflow.retry-queue';
+private readonly RETRY_QUEUE_VERSION = 1;
+
+// 最多重试 5 次，间隔 5 秒
+private readonly MAX_RETRIES = 5;
+private readonly RETRY_INTERVAL = 5000;
+```
 
 ## 目录结构（新架构）
 
@@ -68,8 +85,8 @@ export class TaskStore {
 src/
 ├── app/
 │   ├── core/              # 核心基础设施（单例服务）
-│   │   ├── services/      # SupabaseClient, SimpleSyncService
-│   │   └── state/         # TaskStore, ProjectStore (Signals)
+│   │   ├── services/      # SimpleSyncService, ModalLoaderService
+│   │   └── state/         # TaskStore, ProjectStore, ConnectionStore (Signals)
 │   ├── features/          # 业务功能
 │   │   ├── flow/          # 流程图视图
 │   │   └── text/          # 文本列表视图
@@ -78,6 +95,14 @@ src/
 │       └── services/      # ThemeService, UiStateService
 ├── components/            # 遗留组件（逐步迁移到 features/）
 ├── services/              # 遗留服务（逐步迁移到 core/）
+│   ├── flow-diagram.service.ts      # GoJS 主服务（~1016 行）
+│   ├── flow-event.service.ts        # 事件处理（新拆分）
+│   ├── flow-template.service.ts     # 模板配置（新拆分）
+│   ├── flow-template-events.ts      # 事件总线（新拆分）
+│   ├── flow-selection.service.ts    # 选择管理（新拆分）
+│   ├── flow-zoom.service.ts         # 缩放控制（新拆分）
+│   ├── flow-layout.service.ts       # 布局计算（新拆分）
+│   └── ...
 ├── models/                # 数据模型
 ├── config/                # 配置常量
 └── utils/                 # 工具函数
@@ -86,33 +111,51 @@ src/
 ## 核心服务架构
 
 ```
-新架构（精简版）
+新架构（精简版）- 2024-12-21 更新
 ├── core/
-│   ├── SupabaseClientService    # Supabase 客户端
-│   ├── AuthService              # 认证
-│   ├── StorageAdapterService    # IndexedDB
-│   └── SimpleSyncService        # 简化同步（LWW + RetryQueue）
+│   ├── SimpleSyncService        # 简化同步（LWW + 持久化 RetryQueue）
+│   ├── ModalLoaderService       # 模态框动态加载
+│   └── state/
+│       ├── TaskStore            # 任务状态 (Map<id, Task>) - O(1) 查找
+│       ├── ProjectStore         # 项目状态 (Map<id, Project>)
+│       └── ConnectionStore      # 连接状态 (Map<id, Connection>)
 │
-├── state/
-│   ├── TaskStore                # 任务状态 (Map<id, Task>)
-│   ├── ProjectStore             # 项目状态
-│   └── ConnectionStore          # 连接状态
+├── flow/                        # GoJS 流程图服务（已完全拆分）
+│   ├── FlowDiagramService       # 主服务：初始化、生命周期、导出 (~1016 行)
+│   ├── FlowEventService         # 事件处理：回调注册、事件代理 (~638 行)
+│   ├── FlowTemplateService      # 模板配置：节点/连接线/Overview (~983 行)
+│   ├── FlowSelectionService     # 选择管理：选中/多选/高亮
+│   ├── FlowZoomService          # 缩放控制：放大/缩小/适应内容
+│   ├── FlowLayoutService        # 布局计算：自动布局/位置保存
+│   ├── FlowDragDropService      # 拖放逻辑
+│   └── flow-template-events.ts  # 事件总线（解耦桥梁）
 │
 ├── features/
 │   ├── TaskOperationService     # 任务 CRUD
 │   ├── AttachmentService        # 附件管理
 │   └── SearchService            # 搜索
 │
-├── flow/
-│   ├── GoJSDiagramService       # GoJS 图表
-│   ├── FlowDragDropService      # 拖放
-│   └── LayoutService            # 布局计算
-│
 └── shared/
     ├── ToastService             # Toast 提示
     ├── LoggerService            # 日志
     └── ThemeService             # 主题
 ```
+
+### 事件代理模式（FlowTemplateService ↔ FlowEventService）
+
+```typescript
+// 模板中发送信号（flow-template.service.ts）
+click: (e: any, node: any) => {
+  flowTemplateEventHandlers.onNodeClick?.(node);
+}
+
+// EventService 注册处理器（flow-event.service.ts）
+flowTemplateEventHandlers.onNodeClick = (node) => {
+  this.zone.run(() => this.emitNodeClick(node.data.key, false));
+};
+```
+
+**好处**：完全解耦，模板不知道回调是谁，EventService 不知道模板长什么样。
 
 ## 开发命令
 
@@ -217,14 +260,16 @@ async pullTasks(projectId: string, since?: string): Promise<Task[]> {
 
 ## GoJS 流程图集成
 
-### 服务拆分
+### 服务拆分（2024-12 优化后）
 
-| 服务 | 职责 |
-|------|------|
-| **GoJSDiagramService** | 图表初始化、节点/连接模板 |
-| **FlowDiagramService** | 数据绑定、节点交互 |
-| **FlowDragDropService** | 拖放逻辑 |
-| **LayoutService** | 布局计算 |
+| 服务 | 职责 | 行数 |
+|------|------|------|
+| **FlowDiagramService** | 主服务：初始化、模板、事件监听 | ~2500 |
+| **FlowSelectionService** | 选择/多选/取消选择 | ~180 |
+| **FlowZoomService** | 缩放/居中/视图状态 | ~230 |
+| **FlowLayoutService** | 自动布局/位置保存 | ~220 |
+| **FlowDragDropService** | 拖放逻辑 | ~300 |
+| **FlowTemplateService** | 节点/连接线模板 | ~200 |
 
 ### 布局算法
 

@@ -1,7 +1,7 @@
 import { Component, inject, signal, computed, input, ChangeDetectionStrategy, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActionQueueService, DeadLetterItem } from '../services/action-queue.service';
-import { SyncService } from '../services/sync.service';
+import { ActionQueueService } from '../services/action-queue.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { SyncCoordinatorService } from '../services/sync-coordinator.service';
 import { AuthService } from '../services/auth.service';
 import { ConflictStorageService } from '../services/conflict-storage.service';
@@ -338,7 +338,7 @@ import { ToastService } from '../services/toast.service';
 })
 export class SyncStatusComponent {
   private actionQueue = inject(ActionQueueService);
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private authService = inject(AuthService);
   private conflictStorage = inject(ConflictStorageService);
   private syncCoordinator = inject(SyncCoordinatorService);
@@ -486,7 +486,7 @@ export class SyncStatusComponent {
       } else {
         this.toastService.error('同步失败', result.message);
       }
-    } catch (e) {
+    } catch (_e) {
       this.toastService.error('同步错误', '重新同步时发生意外错误');
     } finally {
       this.isResyncing.set(false);

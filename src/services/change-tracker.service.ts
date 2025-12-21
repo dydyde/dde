@@ -341,7 +341,7 @@ export class ChangeTrackerService {
     const connectionsToUpdate: Connection[] = [];
     const connectionsToDelete: { source: string; target: string }[] = [];
     
-    for (const [key, record] of this.pendingChanges.entries()) {
+    for (const [_key, record] of this.pendingChanges.entries()) {
       if (record.projectId !== projectId) continue;
       
       if (record.entityType === 'task') {
@@ -503,7 +503,7 @@ export class ChangeTrackerService {
     }
 
     const currentTaskMap = new Map(currentTasks.map(t => [t.id, t]));
-    const currentConnectionSet = new Set(
+    const _currentConnectionSet = new Set(
       currentConnections.map(c => `${c.source}|${c.target}`)
     );
 

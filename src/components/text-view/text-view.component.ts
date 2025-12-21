@@ -12,7 +12,6 @@ import { TextUnassignedComponent } from './text-unassigned.component';
 import { TextStagesComponent } from './text-stages.component';
 import { TextDeleteDialogComponent } from './text-delete-dialog.component';
 import { TextViewDragDropService } from './text-view-drag-drop.service';
-import { DropTargetInfo } from './text-view.types';
 
 /**
  * 文本视图容器组件
@@ -241,7 +240,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
   }
   
   /** 紧急清理处理器：如果有残留的拖拽状态，强制清理 */
-  private handleEmergencyCleanup(event: MouseEvent) {
+  private handleEmergencyCleanup(_event: MouseEvent) {
     // ⚠️ 重要：如果正在触摸拖拽，不要清理！
     // 移动端浏览器在 touchend 后会自动触发 click 事件
     if (this.dragDropService.isTouchDragging) {
@@ -892,7 +891,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
     }
   }
   
-  onTouchEnd(event: TouchEvent) {
+  onTouchEnd(_event: TouchEvent) {
     // console.log('[onTouchEnd] Called');
     const touchEndResult = this.dragDropService.endTouchDrag();
     const mouseExpandedStages = this.dragDropService.endDrag();
@@ -946,7 +945,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
    * 处理触摸取消事件（系统中断触摸，如来电、通知等）
    * 注意：当阶段折叠时也可能触发 touchcancel，此时不应该结束拖拽
    */
-  onTouchCancel(event: TouchEvent) {
+  onTouchCancel(_event: TouchEvent) {
     // 检查是否仍在拖拽状态
     // 如果是因为 DOM 变化（阶段折叠）导致的 touchcancel，不结束拖拽
     // 只有在真正的系统中断时才结束
@@ -1022,7 +1021,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
     //   changedTouchCount: event.changedTouches.length
     // });
     
-    const isTouchDragging = this.dragDropService.isTouchDragging;
+    const _isTouchDragging = this.dragDropService.isTouchDragging;
     const hasTask = !!this.dragDropService.touchDragTask;
     
     // console.log('[GlobalTouchEnd] State check', {

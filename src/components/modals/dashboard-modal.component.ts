@@ -1,7 +1,7 @@
 import { Component, inject, Output, EventEmitter, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActionQueueService } from '../../services/action-queue.service';
-import { SyncService } from '../../services/sync.service';
+import { SimpleSyncService } from '../../app/core/services/simple-sync.service';
 import { AuthService } from '../../services/auth.service';
 import { ConflictStorageService } from '../../services/conflict-storage.service';
 import { ToastService } from '../../services/toast.service';
@@ -279,7 +279,7 @@ import { SyncCoordinatorService } from '../../services/sync-coordinator.service'
 })
 export class DashboardModalComponent {
   private actionQueue = inject(ActionQueueService);
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private authService = inject(AuthService);
   private conflictStorage = inject(ConflictStorageService);
   private syncCoordinator = inject(SyncCoordinatorService);

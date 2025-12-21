@@ -75,7 +75,7 @@ async function waitForDataInit(
  * 
  * 单用户场景：StoreService 加载的项目即为当前用户可访问的全部项目
  */
-export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSnapshot, state) => {
+export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSnapshot, _state) => {
   const store = inject(StoreService);
   const router = inject(Router);
   const toast = inject(ToastService);

@@ -1,6 +1,6 @@
 import { ErrorHandler, Injectable, inject, NgZone, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { LoggerService, LogLevel } from './logger.service';
+import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
 import { TOAST_CONFIG } from '../config/constants';
 
@@ -393,7 +393,7 @@ export class GlobalErrorHandler implements ErrorHandler {
   /**
    * 处理提示级错误
    */
-  private handleNotifyError(message: string, stack?: string, originalError?: unknown): void {
+  private handleNotifyError(message: string, stack?: string, _originalError?: unknown): void {
     // 记录详细日志
     this.logger.warn('Notify-level error', { message, stack });
     

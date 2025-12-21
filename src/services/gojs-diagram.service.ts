@@ -4,7 +4,7 @@ import { LoggerService } from './logger.service';
 import { Task } from '../models';
 import { environment } from '../environments/environment';
 import { GOJS_CONFIG } from '../config/constants';
-import { getFlowStyles, FlowStyleConfig, FlowTheme } from '../config/flow-styles';
+import { getFlowStyles, FlowTheme } from '../config/flow-styles';
 import * as go from 'gojs';
 
 // ---------------------------------------------------------

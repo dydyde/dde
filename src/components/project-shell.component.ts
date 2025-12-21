@@ -187,6 +187,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
         }
 
         <!-- Flow Column - 移动端条件渲染，桌面端始终显示 -->
+        <!-- 使用 @defer 实现 GoJS 懒加载，减少首屏加载体积 -->
         @if (!store.isMobile() || store.activeView() === 'flow') {
            <div class="flex-1 flex flex-col min-w-[300px] min-h-0" 
              style="background-color: var(--theme-bg);"
@@ -205,14 +206,24 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
                   </button>
               }
            </div>
-           <app-error-boundary 
-              [title]="'流程图加载失败'" 
-              [defaultMessage]="'您可以切换到文本视图或刷新页面重试'"
-              [showRetry]="true"
-              [onRetry]="retryFlowView.bind(this)"
-              [containerClass]="'compact'">
-              <app-flow-view class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
-           </app-error-boundary>
+           @defer (on viewport; prefetch on idle) {
+             <app-error-boundary 
+                [title]="'流程图加载失败'" 
+                [defaultMessage]="'您可以切换到文本视图或刷新页面重试'"
+                [showRetry]="true"
+                [onRetry]="retryFlowView.bind(this)"
+                [containerClass]="'compact'">
+                <app-flow-view class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
+             </app-error-boundary>
+           } @placeholder {
+             <div class="flex-1 flex items-center justify-center">
+               <div class="text-stone-400 text-sm">加载流程视图...</div>
+             </div>
+           } @loading (minimum 200ms) {
+             <div class="flex-1 flex items-center justify-center">
+               <div class="animate-pulse text-stone-400 text-sm">正在加载 GoJS...</div>
+             </div>
+           }
           </div>
         }
       } @else {

@@ -6,15 +6,21 @@
  * - 采用 Last-Write-Wins (LWW) 策略
  * - 用户操作 → 立即写入本地 → 后台推送到 Supabase
  * - 错误处理：失败放入 RetryQueue，网络恢复自动重试
+ * 
+ * 设计目标：替代 2300+ 行的 sync.service.ts
+ * - 移除复杂的冲突处理（LWW 足够）
+ * - 移除 RxJS 队列（改用简单数组 + 定时器）
+ * - 保留 Realtime 订阅能力
  */
 
-import { Injectable, inject, signal, DestroyRef } from '@angular/core';
+import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
 import { SupabaseClientService } from '../../../services/supabase-client.service';
 import { LoggerService } from '../../../services/logger.service';
 import { ToastService } from '../../../services/toast.service';
-import { Task, Project, Connection } from '../../../models';
+import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../models';
+import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
 /**
  * 重试队列项
@@ -30,15 +36,39 @@ interface RetryQueueItem {
 }
 
 /**
- * 同步状态
+ * 同步状态 - 兼容旧 SyncService 接口
  */
 interface SyncState {
   isSyncing: boolean;
   isOnline: boolean;
+  offlineMode: boolean;
+  sessionExpired: boolean;
   lastSyncTime: string | null;
   pendingCount: number;
-  error: string | null;
+  syncError: string | null;
+  hasConflict: boolean;
+  conflictData: ConflictData | null;
 }
+
+/**
+ * 冲突数据
+ */
+interface ConflictData {
+  local: Project;
+  remote: Project;
+  remoteData?: Project;  // 兼容旧接口别名
+  projectId: string;
+}
+
+/**
+ * 远程变更回调 - 兼容旧接口
+ */
+export type RemoteChangeCallback = (payload: { eventType?: string; projectId?: string } | undefined) => Promise<void>;
+
+/**
+ * 任务变更回调 - 兼容旧接口
+ */
+export type TaskChangeCallback = (payload: { eventType: string; taskId: string; projectId: string }) => void;
 
 @Injectable({
   providedIn: 'root'
@@ -64,14 +94,32 @@ export class SimpleSyncService {
     }
   }
   
-  /** 同步状态 */
-  readonly state = signal<SyncState>({
+  /** 同步状态 - 兼容旧 SyncService 接口 */
+  readonly syncState = signal<SyncState>({
     isSyncing: false,
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    offlineMode: false,
+    sessionExpired: false,
     lastSyncTime: null,
     pendingCount: 0,
-    error: null
+    syncError: null,
+    hasConflict: false,
+    conflictData: null
   });
+  
+  /** 兼容旧接口：state 别名 */
+  readonly state = this.syncState;
+  
+  /** 便捷 computed 属性 */
+  readonly isOnline = computed(() => this.syncState().isOnline);
+  readonly isSyncing = computed(() => this.syncState().isSyncing);
+  readonly hasConflict = computed(() => this.syncState().hasConflict);
+  
+  /** 是否正在从远程加载 - 兼容旧接口 */
+  readonly isLoadingRemote = signal(false);
+  
+  /** Realtime 更新是否暂停 */
+  private realtimePaused = false;
   
   /** 重试队列 */
   private retryQueue: RetryQueueItem[] = [];
@@ -85,7 +133,20 @@ export class SimpleSyncService {
   /** 重试间隔（毫秒） */
   private readonly RETRY_INTERVAL = 5000;
   
+  /** 重试队列持久化 key */
+  private readonly RETRY_QUEUE_STORAGE_KEY = 'nanoflow.retry-queue';
+  
+  /** 重试队列版本号（用于格式兼容） */
+  private readonly RETRY_QUEUE_VERSION = 1;
+  
+  /** Realtime 订阅通道 */
+  private realtimeChannel: RealtimeChannel | null = null;
+  
+  /** 远程变更回调 */
+  private onRemoteChangeCallback: RemoteChangeCallback | null = null;
+  
   constructor() {
+    this.loadRetryQueueFromStorage(); // 恢复持久化的重试队列
     this.setupNetworkListeners();
     this.startRetryLoop();
     
@@ -208,8 +269,8 @@ export class SimpleSyncService {
       
       if (error) throw error;
       
-      // 转换为本地模型
-      return (data || []).map(row => this.rowToTask(row));
+      // 转换为本地模型（data 类型为 TaskRow[]）
+      return (data as TaskRow[] || []).map(row => this.rowToTask(row));
     } catch (e) {
       this.logger.error('拉取任务失败', e);
       return [];
@@ -294,7 +355,7 @@ export class SimpleSyncService {
       
       if (error) throw error;
       
-      return (data || []).map(row => this.rowToProject(row));
+      return (data as ProjectRow[] || []).map(row => this.rowToProject(row));
     } catch (e) {
       this.logger.error('拉取项目失败', e);
       return [];
@@ -337,6 +398,65 @@ export class SimpleSyncService {
   // ==================== 重试队列 ====================
   
   /**
+   * 从 localStorage 加载重试队列
+   * 在构造函数中调用，恢复页面刷新前未完成的同步操作
+   */
+  private loadRetryQueueFromStorage(): void {
+    if (typeof localStorage === 'undefined') return;
+    
+    try {
+      const stored = localStorage.getItem(this.RETRY_QUEUE_STORAGE_KEY);
+      if (!stored) return;
+      
+      const parsed = JSON.parse(stored);
+      
+      // 版本检查：如果版本不匹配，丢弃旧数据
+      if (parsed.version !== this.RETRY_QUEUE_VERSION) {
+        this.logger.warn('重试队列版本不匹配，清空旧数据');
+        localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+        return;
+      }
+      
+      // 恢复队列
+      if (Array.isArray(parsed.items)) {
+        this.retryQueue = parsed.items;
+        this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
+        this.logger.info(`从存储恢复 ${this.retryQueue.length} 个待同步项`);
+      }
+    } catch (e) {
+      this.logger.error('加载重试队列失败', e);
+      localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+    }
+  }
+  
+  /**
+   * 将重试队列保存到 localStorage
+   * 在队列变化时调用，防止页面刷新丢失
+   */
+  private saveRetryQueueToStorage(): void {
+    if (typeof localStorage === 'undefined') return;
+    
+    try {
+      if (this.retryQueue.length === 0) {
+        // 队列为空时删除存储
+        localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+        return;
+      }
+      
+      const data = {
+        version: this.RETRY_QUEUE_VERSION,
+        items: this.retryQueue,
+        savedAt: Date.now()
+      };
+      
+      localStorage.setItem(this.RETRY_QUEUE_STORAGE_KEY, JSON.stringify(data));
+      this.logger.debug(`保存 ${this.retryQueue.length} 个待同步项到存储`);
+    } catch (e) {
+      this.logger.error('保存重试队列失败', e);
+    }
+  }
+  
+  /**
    * 添加到重试队列
    */
   private addToRetryQueue(
@@ -357,6 +477,7 @@ export class SimpleSyncService {
     
     this.retryQueue.push(item);
     this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
+    this.saveRetryQueueToStorage(); // 持久化
     
     this.logger.debug('添加到重试队列', { type, operation, dataId: data.id });
   }
@@ -402,6 +523,8 @@ export class SimpleSyncService {
       }
     }
     
+    this.saveRetryQueueToStorage(); // 持久化更新后的队列
+    
     this.state.update(s => ({
       ...s,
       isSyncing: false,
@@ -413,40 +536,518 @@ export class SimpleSyncService {
   
   /**
    * 数据库行转换为 Task 模型
+   * 使用 TaskRow 类型确保类型安全
    */
-  private rowToTask(row: any): Task {
+  private rowToTask(row: TaskRow): Task {
     return {
       id: row.id,
       title: row.title || '',
       content: row.content || '',
       stage: row.stage,
       parentId: row.parent_id,
-      order: row.order_num || 0,
+      order: row.order || 0,
       rank: row.rank || 0,
       status: row.status || 'active',
       x: row.x || 0,
       y: row.y || 0,
       createdDate: row.created_at,
       updatedAt: row.updated_at,
-      displayId: row.display_id || '',
-      shortId: row.short_id,
-      deletedAt: row.deleted_at
+      displayId: '',  // displayId 由客户端计算
+      shortId: row.short_id || undefined,
+      deletedAt: row.deleted_at || undefined
     };
   }
   
   /**
    * 数据库行转换为 Project 模型
+   * 使用 ProjectRow 类型确保类型安全
    */
-  private rowToProject(row: any): Project {
+  private rowToProject(row: ProjectRow): Project {
     return {
       id: row.id,
       name: row.title || '',
       description: row.description || '',
-      createdDate: row.created_at,
-      updatedAt: row.updated_at,
+      createdDate: row.created_date || '',
+      updatedAt: row.updated_at || undefined,
       version: row.version || 1,
       tasks: [],
       connections: []
     };
+  }
+  
+  /**
+   * 数据库行转换为 Connection 模型
+   * 使用 ConnectionRow 类型确保类型安全
+   */
+  private rowToConnection(row: ConnectionRow): Connection {
+    return {
+      id: row.id,
+      source: row.source_id,
+      target: row.target_id,
+      description: row.description || ''
+    };
+  }
+  
+  // ==================== Realtime 订阅 ====================
+  
+  /**
+   * 设置远程变更回调
+   */
+  setOnRemoteChange(callback: RemoteChangeCallback): void {
+    this.onRemoteChangeCallback = callback;
+  }
+  
+  /**
+   * 订阅项目实时变更
+   */
+  async subscribeToProject(projectId: string, userId: string): Promise<void> {
+    const client = this.getSupabaseClient();
+    if (!client) return;
+    
+    // 先取消旧订阅
+    await this.unsubscribeFromProject();
+    
+    const channelName = `project:${projectId}:${userId.substring(0, 8)}`;
+    
+    this.realtimeChannel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `project_id=eq.${projectId}`
+        },
+        (payload) => {
+          this.logger.debug('收到任务变更', { event: payload.eventType });
+          if (this.onRemoteChangeCallback && !this.realtimePaused) {
+            this.onRemoteChangeCallback({ 
+              eventType: payload.eventType, 
+              projectId 
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'connections',
+          filter: `project_id=eq.${projectId}`
+        },
+        (payload) => {
+          this.logger.debug('收到连接变更', { event: payload.eventType });
+          if (this.onRemoteChangeCallback && !this.realtimePaused) {
+            this.onRemoteChangeCallback({ 
+              eventType: payload.eventType, 
+              projectId 
+            });
+          }
+        }
+      )
+      .subscribe((status) => {
+        this.logger.info('Realtime 订阅状态', { status, channel: channelName });
+      });
+  }
+  
+  /**
+   * 取消订阅
+   */
+  async unsubscribeFromProject(): Promise<void> {
+    if (this.realtimeChannel) {
+      const client = this.getSupabaseClient();
+      if (client) {
+        await client.removeChannel(this.realtimeChannel);
+      }
+      this.realtimeChannel = null;
+    }
+  }
+  
+  // ==================== 用户偏好 ====================
+  
+  /**
+   * 加载用户偏好
+   */
+  async loadUserPreferences(userId: string): Promise<UserPreferences | null> {
+    const client = this.getSupabaseClient();
+    if (!client) return null;
+    
+    try {
+      const { data, error } = await client
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // 没有找到记录，返回 null
+          return null;
+        }
+        throw error;
+      }
+      
+      return {
+        theme: (data.theme as ThemeType) || 'default',
+        layoutDirection: (data.layout_direction as 'ltr' | 'rtl') || 'ltr',
+        floatingWindowPref: (data.floating_window_pref as 'auto' | 'fixed') || 'auto'
+      };
+    } catch (e) {
+      this.logger.error('加载用户偏好失败', e);
+      return null;
+    }
+  }
+  
+  /**
+   * 保存用户偏好
+   */
+  async saveUserPreferences(userId: string, preferences: Partial<UserPreferences>): Promise<boolean> {
+    const client = this.getSupabaseClient();
+    if (!client) return false;
+    
+    try {
+      const { error } = await client
+        .from('user_preferences')
+        .upsert({
+          user_id: userId,
+          theme: preferences.theme,
+          updated_at: nowISO()
+        });
+      
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      this.logger.error('保存用户偏好失败', e);
+      return false;
+    }
+  }
+  
+  // ==================== 冲突解决（LWW） ====================
+  
+  /**
+   * 解决冲突 - 使用 LWW 策略
+   * @param projectId 项目 ID
+   * @param resolvedProject 解决后的项目
+   * @param strategy 'local' | 'remote' - 仅用于日志
+   */
+  resolveConflict(projectId: string, resolvedProject: Project, strategy: 'local' | 'remote'): void {
+    this.logger.info('解决冲突', { projectId, strategy });
+    
+    // 清除冲突状态
+    this.syncState.update(s => ({
+      ...s,
+      hasConflict: false,
+      conflictData: null
+    }));
+  }
+  
+  /**
+   * 设置冲突状态
+   */
+  setConflict(conflictData: ConflictData): void {
+    this.syncState.update(s => ({
+      ...s,
+      hasConflict: true,
+      conflictData
+    }));
+  }
+  
+  // ==================== 完整项目同步 ====================
+  
+  /**
+   * 保存完整项目到云端（包含任务和连接）
+   * 兼容旧 SyncService 接口
+   */
+  async saveProjectToCloud(
+    project: Project,
+    _userId: string
+  ): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
+    const client = this.getSupabaseClient();
+    if (!client) {
+      this.addToRetryQueue('project', 'upsert', project);
+      return { success: false };
+    }
+    
+    this.syncState.update(s => ({ ...s, isSyncing: true }));
+    
+    try {
+      // 1. 保存项目元数据
+      await this.pushProject(project);
+      
+      // 2. 批量保存任务
+      for (const task of project.tasks) {
+        await this.pushTask(task, project.id);
+      }
+      
+      // 3. 批量保存连接
+      for (const connection of project.connections) {
+        await this.pushConnection(connection, project.id);
+      }
+      
+      this.syncState.update(s => ({
+        ...s,
+        isSyncing: false,
+        lastSyncTime: nowISO()
+      }));
+      
+      return { success: true, newVersion: project.version };
+    } catch (e) {
+      this.logger.error('保存项目失败', e);
+      this.syncState.update(s => ({
+        ...s,
+        isSyncing: false,
+        syncError: '保存失败'
+      }));
+      return { success: false };
+    }
+  }
+  
+  /**
+   * 智能保存项目（兼容旧 SyncService 接口）
+   * SimpleSyncService 使用 LWW 策略，直接调用 saveProjectToCloud
+   */
+  async saveProjectSmart(
+    project: Project,
+    userId: string
+  ): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number; validationWarnings?: string[] }> {
+    const result = await this.saveProjectToCloud(project, userId);
+    return { ...result, newVersion: project.version };
+  }
+  
+  /**
+   * 加载完整项目（包含任务和连接）
+   */
+  async loadFullProject(projectId: string, _userId: string): Promise<Project | null> {
+    const client = this.getSupabaseClient();
+    if (!client) return null;
+    
+    try {
+      // 1. 加载项目元数据
+      const { data: projectData, error: projectError } = await client
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .single();
+      
+      if (projectError) throw projectError;
+      
+      // 2. 加载任务
+      const tasks = await this.pullTasks(projectId);
+      
+      // 3. 加载连接
+      const { data: connectionsData } = await client
+        .from('connections')
+        .select('*')
+        .eq('project_id', projectId)
+        .is('deleted_at', null);
+      
+      const connections = (connectionsData || []).map((row: any) => ({
+        id: row.id,
+        source: row.source_id,
+        target: row.target_id,
+        description: row.description || ''
+      }));
+      
+      const project = this.rowToProject(projectData);
+      project.tasks = tasks.filter(t => !t.deletedAt);
+      project.connections = connections;
+      
+      return project;
+    } catch (e) {
+      this.logger.error('加载项目失败', e);
+      return null;
+    }
+  }
+  
+  /**
+   * 清除离线缓存
+   */
+  clearOfflineCache(): void {
+    this.retryQueue = [];
+    this.syncState.update(s => ({ ...s, pendingCount: 0 }));
+    this.logger.info('离线缓存已清除');
+  }
+  
+  // ==================== 离线快照 ====================
+  
+  private readonly OFFLINE_CACHE_KEY = 'nanoflow.offline-cache';
+  private readonly CACHE_VERSION = 2;
+  
+  /**
+   * 保存离线快照
+   * 用于断网时的数据持久化
+   */
+  saveOfflineSnapshot(projects: Project[]): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(this.OFFLINE_CACHE_KEY, JSON.stringify({
+        projects,
+        version: this.CACHE_VERSION
+      }));
+    } catch (e) {
+      this.logger.warn('离线快照保存失败', e);
+    }
+  }
+  
+  /**
+   * 加载离线快照
+   */
+  loadOfflineSnapshot(): Project[] | null {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem(this.OFFLINE_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed?.projects)) {
+          return parsed.projects;
+        }
+      }
+    } catch (e) {
+      this.logger.warn('离线快照加载失败', e);
+    }
+    return null;
+  }
+  
+  // ==================== 兼容旧 SyncService 接口 ====================
+  
+  /** 任务变更回调 */
+  private taskChangeCallback: TaskChangeCallback | null = null;
+  
+  /**
+   * 设置远程变更回调
+   */
+  setRemoteChangeCallback(callback: RemoteChangeCallback): void {
+    this.onRemoteChangeCallback = callback;
+  }
+  
+  /**
+   * 设置任务变更回调
+   */
+  setTaskChangeCallback(callback: TaskChangeCallback): void {
+    this.taskChangeCallback = callback;
+  }
+  
+  /**
+   * 初始化 Realtime 订阅
+   * @param userId 用户 ID（兼容旧接口，实际订阅在 subscribeToProject 中进行）
+   */
+  async initRealtimeSubscription(userId: string): Promise<void> {
+    // 旧接口兼容：实际订阅在 subscribeToProject 中按项目维度进行
+    // 这里只是标记用户已准备好接收实时更新
+    this.logger.debug('Realtime 订阅已初始化', { userId: userId.substring(0, 8) });
+  }
+  
+  /**
+   * 关闭 Realtime 订阅
+   */
+  teardownRealtimeSubscription(): void {
+    this.unsubscribeFromProject();
+  }
+  
+  /**
+   * 暂停 Realtime 更新
+   */
+  pauseRealtimeUpdates(): void {
+    this.realtimePaused = true;
+    this.logger.debug('Realtime 更新已暂停');
+  }
+  
+  /**
+   * 恢复 Realtime 更新
+   */
+  resumeRealtimeUpdates(): void {
+    this.realtimePaused = false;
+    this.logger.debug('Realtime 更新已恢复');
+  }
+  
+  /**
+   * 从云端加载项目列表
+   * @param userId 用户 ID
+   * @param _silent 静默模式（兼容旧接口，忽略）
+   */
+  async loadProjectsFromCloud(userId: string, _silent?: boolean): Promise<Project[]> {
+    const client = this.getSupabaseClient();
+    if (!client) return [];
+    
+    this.isLoadingRemote.set(true);
+    
+    try {
+      const { data, error } = await client
+        .from('projects')
+        .select('*')
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .order('updated_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      const projects = (data || []).map((row: ProjectRow) => this.rowToProject(row));
+      return projects;
+    } catch (e) {
+      this.logger.error('加载项目列表失败', e);
+      return [];
+    } finally {
+      this.isLoadingRemote.set(false);
+    }
+  }
+  
+  /**
+   * 从云端删除项目
+   */
+  async deleteProjectFromCloud(projectId: string, userId: string): Promise<boolean> {
+    const client = this.getSupabaseClient();
+    if (!client) return false;
+    
+    try {
+      // 软删除：设置 deleted_at
+      const { error } = await client
+        .from('projects')
+        .update({ deleted_at: nowISO() })
+        .eq('id', projectId)
+        .eq('user_id', userId);
+      
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      this.logger.error('删除项目失败', e);
+      return false;
+    }
+  }
+  
+  /**
+   * 加载单个项目
+   */
+  async loadSingleProject(projectId: string, userId: string): Promise<Project | null> {
+    return this.loadFullProject(projectId, userId);
+  }
+  
+  /**
+   * 尝试重新加载冲突数据
+   * @param userId 用户 ID
+   * @param _findProject 查找项目函数（兼容旧接口，忽略）
+   */
+  async tryReloadConflictData(
+    userId: string, 
+    _findProject?: (id: string) => Project | undefined
+  ): Promise<Project | undefined> {
+    // SimpleSyncService 使用 LWW，冲突场景简化处理
+    const state = this.syncState();
+    if (!state.hasConflict || !state.conflictData) {
+      return undefined;
+    }
+    const project = await this.loadFullProject(state.conflictData.projectId, userId);
+    return project ?? undefined;
+  }
+  
+  /**
+   * 销毁服务（清理资源）
+   */
+  destroy(): void {
+    this.cleanup();
+    this.unsubscribeFromProject();
+    this.retryQueue = [];
+    this.logger.info('SimpleSyncService 已销毁');
   }
 }

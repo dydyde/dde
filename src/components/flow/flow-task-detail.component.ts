@@ -560,7 +560,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
   // 桌面端面板拖动
   startDrag(event: MouseEvent | TouchEvent) {
     event.preventDefault();
-    const pos = this.position();
+    const _pos = this.position();
     const clientX = event instanceof MouseEvent ? event.clientX : event.touches[0].clientX;
     const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
     
@@ -576,8 +576,8 @@ export class FlowTaskDetailComponent implements OnDestroy {
     const panelRect = panelEl.getBoundingClientRect();
     
     // 计算面板相对于父容器的当前位置
-    let currentX = panelRect.left - parentRect.left;
-    let currentY = panelRect.top - parentRect.top;
+    const currentX = panelRect.left - parentRect.left;
+    const currentY = panelRect.top - parentRect.top;
     
     this.dragState = {
       isDragging: true,
@@ -709,7 +709,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       
       // 获取触摸移动的方向
       const touchStartScrollTop = (scrollableParent as any)._touchStartScrollTop || 0;
-      const touch = event.touches[0];
+      const _touch = event.touches[0];
       
       // 阻止在顶部继续向下拉或在底部继续向上拉
       if ((scrollTop === 0 && scrollTop >= touchStartScrollTop) || 

@@ -29,4 +29,4 @@ export {
 export { SimpleSyncService } from './services/simple-sync.service';
 
 // 状态管理
-export { TaskStore, ProjectStore, ConnectionStore } from './state';
+export { TaskStore, ProjectStore, ConnectionStore, StorePersistenceService } from './state';

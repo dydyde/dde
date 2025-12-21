@@ -284,10 +284,10 @@ export class AttachmentService {
       });
 
       // 竞速：上传完成或被取消
-      const { data, error } = await Promise.race([
+      const { error } = await Promise.race([
         uploadPromise,
         abortPromise.then(() => ({ data: null, error: new Error('Upload cancelled') }))
-      ]) as { data: any; error: any };
+      ]) as { data: unknown; error: Error | null };
 
       if (error) {
         throw error;
@@ -450,7 +450,7 @@ export class AttachmentService {
    * 恢复软删除的附件
    */
   restoreDeleted(attachment: Attachment): Attachment {
-    const { deletedAt, ...rest } = attachment as Attachment & { deletedAt?: string };
+    const { deletedAt: _deletedAt, ...rest } = attachment as Attachment & { deletedAt?: string };
     return rest as Attachment;
   }
 

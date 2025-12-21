@@ -9,7 +9,7 @@
  * ✗ 用户会话 → UserSessionService
  */
 import { Injectable, inject } from '@angular/core';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { AuthService } from './auth.service';
 import { ThemeService } from './theme.service';
@@ -19,7 +19,7 @@ import { ThemeType, UserPreferences } from '../models';
   providedIn: 'root'
 })
 export class PreferenceService {
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private actionQueue = inject(ActionQueueService);
   private authService = inject(AuthService);
   private themeService = inject(ThemeService);

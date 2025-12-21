@@ -1,24 +1,23 @@
-import { Injectable, inject, signal, NgZone, ElementRef } from '@angular/core';
+import { Injectable, inject, signal, NgZone } from '@angular/core';
 import { StoreService } from './store.service';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
-import { Task, Project } from '../models';
+import { FlowLayoutService } from './flow-layout.service';
+import { FlowSelectionService } from './flow-selection.service';
+import { FlowZoomService } from './flow-zoom.service';
+import { FlowEventService } from './flow-event.service';
+import { FlowTemplateService } from './flow-template.service';
+import { Task } from '../models';
 import { environment } from '../environments/environment';
-import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
+import { UI_CONFIG } from '../config/constants';
 import * as go from 'gojs';
 
 /**
- * GoJS Diagram 监听器信息
- */
-interface DiagramListener {
-  name: go.DiagramEventName;
-  handler: (e: any) => void;
-}
-
-/**
  * 视图状态（用于保存/恢复）
+ * @internal 仅用于文档目的
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface ViewState {
   scale: number;
   positionX: number;
@@ -26,83 +25,21 @@ interface ViewState {
 }
 
 /**
- * 节点点击回调
- */
-export interface NodeClickCallback {
-  (taskId: string, isDoubleClick: boolean): void;
-}
-
-/**
- * 连接线点击回调
- * @param linkData 连接线数据
- * @param x 点击位置 X
- * @param y 点击位置 Y
- * @param isDoubleClick 是否是双击事件（默认 false）
- */
-export interface LinkClickCallback {
-  (linkData: any, x: number, y: number, isDoubleClick?: boolean): void;
-}
-
-/**
- * 连接线删除回调（右键菜单删除）
- */
-export interface LinkDeleteCallback {
-  (linkData: any): void;
-}
-
-/**
- * 连接手势回调
- */
-export interface LinkGestureCallback {
-  (sourceId: string, targetId: string, x: number, y: number, link: any): void;
-}
-
-/**
- * 选择移动完成回调
- */
-export interface SelectionMovedCallback {
-  (movedNodes: Array<{ key: string; x: number; y: number; isUnassigned: boolean }>): void;
-}
-
-/**
- * 连接线重连回调（子树迁移/跨树连接重连）
- * @param linkType 连接类型 'parent-child' | 'cross-tree'
- * @param relinkInfo 重连详细信息
- * @param x 操作位置 X
- * @param y 操作位置 Y
- * @param gojsLink GoJS Link 对象
- */
-export interface LinkRelinkInfo {
-  /** 被改变的端点：'from' 或 'to' */
-  changedEnd: 'from' | 'to';
-  /** 原始起点节点 ID */
-  oldFromId: string;
-  /** 原始终点节点 ID */
-  oldToId: string;
-  /** 新起点节点 ID */
-  newFromId: string;
-  /** 新终点节点 ID */
-  newToId: string;
-}
-
-export interface LinkRelinkCallback {
-  (linkType: 'parent-child' | 'cross-tree', relinkInfo: LinkRelinkInfo, x: number, y: number, gojsLink: any): void;
-}
-
-/**
- * FlowDiagramService - GoJS 图表核心服务
+ * FlowDiagramService - GoJS 图表核心服务（精简版）
  * 
- * 职责：
+ * 重构后职责：
  * - GoJS Diagram 实例的生命周期管理
- * - 节点和连接线模板配置
- * - 缩放、平移、布局操作
+ * - 小地图 (Overview) 管理
  * - 图表数据更新
- * - 事件监听器管理
+ * - 视图状态保存/恢复
+ * - 导出功能
  * 
- * 设计原则：
- * - 封装所有 GoJS 相关操作
- * - 通过回调与组件通信，保持解耦
- * - 统一管理事件监听器，防止内存泄漏
+ * 已委托的职责：
+ * - 模板配置 → FlowTemplateService
+ * - 事件处理 → FlowEventService
+ * - 布局操作 → FlowLayoutService
+ * - 选择管理 → FlowSelectionService
+ * - 缩放控制 → FlowZoomService
  */
 @Injectable({
   providedIn: 'root'
@@ -115,10 +52,16 @@ export class FlowDiagramService {
   private readonly zone = inject(NgZone);
   private readonly configService = inject(FlowDiagramConfigService);
   
+  // ========== 委托的子服务 ==========
+  private readonly layoutService = inject(FlowLayoutService);
+  private readonly selectionService = inject(FlowSelectionService);
+  private readonly zoomService = inject(FlowZoomService);
+  private readonly eventService = inject(FlowEventService);
+  private readonly templateService = inject(FlowTemplateService);
+  
   // ========== 内部状态 ==========
   private diagram: go.Diagram | null = null;
   private diagramDiv: HTMLDivElement | null = null;
-  private diagramListeners: DiagramListener[] = [];
   private resizeObserver: ResizeObserver | null = null;
   private isDestroyed = false;
   
@@ -127,25 +70,8 @@ export class FlowDiagramService {
   private overviewContainer: HTMLDivElement | null = null;
   private lastOverviewScale: number = 0.1;
   private isNodeDragging: boolean = false;
-
-  private readCssColorVar(varName: string): string | null {
-    try {
-      if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-      const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-      return value || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private getOverviewBackgroundColor(): string {
-    const styles = this.configService.currentStyles();
-    // 概览图需要让“白色/浅色任务块”清晰可见，因此背景使用更深的主题色。
-    return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
-  }
   
   // ========== 定时器 ==========
-  private positionSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private viewStateSaveTimer: ReturnType<typeof setTimeout> | null = null;
   private restoreViewStateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,85 +82,33 @@ export class FlowDiagramService {
   
   // ========== 首次加载标志 ==========
   private isFirstLoad = true;
-  private _familyColorLogged = false;  // 避免重复打印日志
+  private _familyColorLogged = false;
   
-  // ========== 僵尸模式：逻辑冻结 ==========
-  private isSuspended = false;  // 是否处于暂停状态
-  private suspendedResizeObserver: ResizeObserver | null = null;  // 暂停前的 ResizeObserver
-  
-  // ========== 回调函数 ==========
-  private nodeClickCallback: NodeClickCallback | null = null;
-  private linkClickCallback: LinkClickCallback | null = null;
-  private linkDeleteCallback: LinkDeleteCallback | null = null;
-  private linkGestureCallback: LinkGestureCallback | null = null;
-  private linkRelinkCallback: LinkRelinkCallback | null = null;
-  private selectionMovedCallback: SelectionMovedCallback | null = null;
-  private backgroundClickCallback: (() => void) | null = null;
+  // ========== 僵尸模式 ==========
+  private isSuspended = false;
+  private suspendedResizeObserver: ResizeObserver | null = null;
   
   // ========== 公开信号 ==========
-  /** 初始化错误信息 */
   readonly error = signal<string | null>(null);
   
   // ========== 公开属性 ==========
   
-  /** 获取 GoJS Diagram 实例（只读访问） */
   get diagramInstance(): go.Diagram | null {
     return this.diagram;
   }
   
-  /** 是否已初始化 */
   get isInitialized(): boolean {
     return this.diagram !== null && !this.isDestroyed;
   }
   
-  /** 是否处于僵尸模式（暂停状态） */
   get isSuspendedMode(): boolean {
     return this.isSuspended;
-  }
-  
-  // ========== 回调注册 ==========
-  
-  /** 注册节点点击回调 */
-  onNodeClick(callback: NodeClickCallback): void {
-    this.nodeClickCallback = callback;
-  }
-  
-  /** 注册连接线点击回调 */
-  onLinkClick(callback: LinkClickCallback): void {
-    this.linkClickCallback = callback;
-  }
-  
-  /** 注册连接线删除回调（右键菜单） */
-  onLinkDelete(callback: LinkDeleteCallback): void {
-    this.linkDeleteCallback = callback;
-  }
-  
-  /** 注册连接线重连回调（子树迁移） */
-  onLinkRelink(callback: LinkRelinkCallback): void {
-    this.linkRelinkCallback = callback;
-  }
-  
-  /** 注册连接手势回调（绘制/重连连接线） */
-  onLinkGesture(callback: LinkGestureCallback): void {
-    this.linkGestureCallback = callback;
-  }
-  
-  /** 注册选择移动完成回调 */
-  onSelectionMoved(callback: SelectionMovedCallback): void {
-    this.selectionMovedCallback = callback;
-  }
-  
-  /** 注册背景点击回调 */
-  onBackgroundClick(callback: () => void): void {
-    this.backgroundClickCallback = callback;
   }
   
   // ========== 生命周期方法 ==========
   
   /**
    * 初始化 GoJS Diagram
-   * @param container 图表容器元素
-   * @returns 是否初始化成功
    */
   initialize(container: HTMLDivElement): boolean {
     if (typeof go === 'undefined') {
@@ -244,10 +118,9 @@ export class FlowDiagramService {
     
     try {
       this.isDestroyed = false;
-      this.isFirstLoad = true; // 重置首次加载标志
+      this.isFirstLoad = true;
       this.diagramDiv = container;
       
-      // 注入 GoJS License Key
       if (environment.gojsLicenseKey) {
         (go.Diagram as any).licenseKey = environment.gojsLicenseKey;
       }
@@ -259,34 +132,35 @@ export class FlowDiagramService {
         "undoManager.isEnabled": false,
         "animationManager.isEnabled": false,
         "allowDrop": true,
-        layout: $(go.Layout), // 无操作布局，保持用户位置
+        layout: $(go.Layout),
         "autoScale": go.Diagram.None,
         "initialAutoScale": go.Diagram.None,
-        // 关键：设置非常大的滚动边距，实现"无限画布"效果
         "scrollMargin": new go.Margin(5000, 5000, 5000, 5000),
         "draggingTool.isGridSnapEnabled": false,
-        // 禁用固定边界，允许无限滚动
         "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN),
-        // 高 DPI 屏幕优化：使用设备像素比确保清晰渲染
         "computePixelRatio": () => window.devicePixelRatio || 1
       });
-      
-      // 设置节点模板
-      this.setupNodeTemplate($);
-      
-      // 设置连接线模板
-      this.setupLinkTemplate($);
+
+      // 委托给 FlowTemplateService 设置图层和模板
+      this.templateService.ensureDiagramLayers(this.diagram);
+      this.templateService.setupNodeTemplate(this.diagram);
+      this.templateService.setupLinkTemplate(this.diagram);
       
       // 初始化模型
       this.diagram!.model = new go.GraphLinksModel([], [], {
         linkKeyProperty: 'key',
         nodeKeyProperty: 'key',
-        linkFromPortIdProperty: 'fromPortId',  // ⚠️ 关键：告诉 GoJS 我们用 fromPortId 存储端口信息
-        linkToPortIdProperty: 'toPortId'       // ⚠️ 关键：告诉 GoJS 我们用 toPortId 存储端口信息
+        linkFromPortIdProperty: 'fromPortId',
+        linkToPortIdProperty: 'toPortId'
       });
       
-      // 设置事件监听器
-      this.setupEventListeners();
+      // 委托给 FlowEventService 设置事件监听
+      this.eventService.setDiagram(this.diagram, this.diagramDiv);
+      
+      // 添加视口变化监听（用于保存视图状态）
+      this.diagram.addDiagramListener('ViewportBoundsChanged', () => {
+        this.saveViewState();
+      });
       
       // 设置 ResizeObserver
       this.setupResizeObserver();
@@ -294,9 +168,12 @@ export class FlowDiagramService {
       // 恢复视图状态
       this.restoreViewState();
       
-      // 清除错误状态
-      this.error.set(null);
+      // 将 diagram 实例传递给其他子服务
+      this.layoutService.setDiagram(this.diagram);
+      this.selectionService.setDiagram(this.diagram);
+      this.zoomService.setDiagram(this.diagram);
       
+      this.error.set(null);
       this.logger.info('GoJS Diagram 初始化成功');
       return true;
       
@@ -308,108 +185,65 @@ export class FlowDiagramService {
   
   /**
    * 暂停图表（僵尸模式）
-   * 停止所有交互和动画，保留 DOM 但冻结逻辑
-   * 关键：不使用 isEnabled（会清空 canvas），改用更温和的方式
    */
   suspend(): void {
     if (!this.diagram || this.isSuspended) return;
     
     try {
-      this.logger.info('进入僵尸模式：暂停 GoJS 图表');
+      this.logger.info('进入僵尸模式');
       
-      // 1. 设置为只读模式（保留渲染，但禁用编辑）
       this.diagram.isReadOnly = true;
-      
-      // 2. 禁用动画管理器（停止所有动画）
       this.diagram.animationManager.isEnabled = false;
       
-      // 3. 停止 ResizeObserver（避免响应容器大小变化）
       if (this.resizeObserver) {
         this.suspendedResizeObserver = this.resizeObserver;
         this.resizeObserver.disconnect();
         this.resizeObserver = null;
       }
       
-      // 4. 清除所有定时器
-      if (this.positionSaveTimer) {
-        clearTimeout(this.positionSaveTimer);
-        this.positionSaveTimer = null;
-      }
-      if (this.resizeDebounceTimer) {
-        clearTimeout(this.resizeDebounceTimer);
-        this.resizeDebounceTimer = null;
-      }
-      if (this.viewStateSaveTimer) {
-        clearTimeout(this.viewStateSaveTimer);
-        this.viewStateSaveTimer = null;
-      }
-      if (this.restoreViewStateTimer) {
-        clearTimeout(this.restoreViewStateTimer);
-        this.restoreViewStateTimer = null;
-      }
-      if (this.autoFitTimer) {
-        clearTimeout(this.autoFitTimer);
-        this.autoFitTimer = null;
-      }
+      this.clearAllTimers();
       
-      // 5. 暂停 Overview（如果存在）
       if (this.overview) {
         this.overview.animationManager.isEnabled = false;
       }
       
-      // 6. 标记为已暂停
       this.isSuspended = true;
-      
     } catch (error) {
       this.logger.error('暂停图表失败:', error);
     }
   }
   
   /**
-   * 恢复图表（退出僵尸模式）
-   * 重新启用交互和动画
+   * 恢复图表
    */
   resume(): void {
     if (!this.diagram || !this.isSuspended) return;
     
     try {
-      this.logger.info('退出僵尸模式：恢复 GoJS 图表');
+      this.logger.info('退出僵尸模式');
       
-      // 1. 标记为已恢复（提前标记，避免中间状态）
       this.isSuspended = false;
-      
-      // 2. 恢复只读模式
       this.diagram.isReadOnly = false;
+      this.diagram.animationManager.isEnabled = false;
       
-      // 3. 恢复动画管理器
-      this.diagram.animationManager.isEnabled = false; // 保持禁用（我们不使用 GoJS 动画）
-      
-      // 4. 恢复 ResizeObserver
       if (this.suspendedResizeObserver && this.diagramDiv) {
         this.resizeObserver = this.suspendedResizeObserver;
         this.resizeObserver.observe(this.diagramDiv);
         this.suspendedResizeObserver = null;
       } else if (!this.resizeObserver && this.diagramDiv) {
-        // 如果没有保存的 observer，重新创建
         this.setupResizeObserver();
       }
       
-      // 5. 恢复 Overview（如果存在）
       if (this.overview) {
-        this.overview.animationManager.isEnabled = false; // 保持禁用
+        this.overview.animationManager.isEnabled = false;
         this.overview.requestUpdate();
       }
       
-      // 6. 强制重绘 canvas（修复 visibility:hidden 导致的渲染跳过）
-      // 当元素从 visibility:hidden 变为 visible 时，浏览器可能不会立即重绘 canvas
-      // 必须强制触发重绘
       this.diagram.requestUpdate();
       
-      // 使用 rAF 确保在下一帧强制重新布局和渲染
       requestAnimationFrame(() => {
         if (!this.diagram || this.isDestroyed) return;
         
-        // 强制重新计算所有节点和链接的路由
         this.diagram.nodes.each((node: go.Node) => {
           node.invalidateLayout();
         });
@@ -417,15 +251,12 @@ export class FlowDiagramService {
           link.invalidateRoute();
         });
         
-        // 再次请求更新，确保所有变化被渲染
         this.diagram.requestUpdate();
         
-        // 如果有 Overview，也强制刷新
         if (this.overview) {
           this.overview.requestUpdate();
         }
       });
-      
     } catch (error) {
       this.logger.error('恢复图表失败:', error);
     }
@@ -434,24 +265,11 @@ export class FlowDiagramService {
   // ========== 小地图 ==========
   
   /**
-   * 初始化小地图 (Overview)
-   * 
-   * ========== 核心设计理念：热力图效果 ==========
-   * 
-   * GoJS Overview 支持自定义模板！虽然它共享主图的 Model 数据，
-   * 但可以使用独立的模板来渲染，实现"热力图"视觉效果。
-   * 
-   * 方案：
-   * - 为 Overview 定义"特供版"节点模板：去掉文字，只留彩色色块
-   * - 为 Overview 定义"特供版"连线模板：极粗线条，形成"路网"感
-   * - 保留原生视口框交互功能（拖动框 -> 主图滚动）
-   * 
-   * 【关键】：模板必须在设置 observed 之前定义！
+   * 初始化小地图
    */
   initializeOverview(container: HTMLDivElement): void {
     if (!this.diagram || this.isDestroyed) return;
     
-    // 如果已经有 Overview，先销毁它
     if (this.overview) {
       this.disposeOverview();
     }
@@ -460,76 +278,21 @@ export class FlowDiagramService {
     
     try {
       const $ = go.GraphObject.make;
-
       const overviewBackground = this.getOverviewBackgroundColor();
-      const styles = this.configService.currentStyles();
-      // 保底：即使 GoJS canvas 透明，也能有一致的背景。
       container.style.backgroundColor = overviewBackground;
       
-      
-      // ========== 1. 创建 Overview（先不设置 observed）==========
       this.overview = $(go.Overview, container, {
         contentAlignment: go.Spot.Center,
         "animationManager.isEnabled": false,
-        // 高 DPI 屏幕优化：使用设备像素比确保清晰渲染，解决模糊问题
         "computePixelRatio": () => window.devicePixelRatio || 1
       });
       
-      // 注意：GoJS Overview 不支持 background 属性
-      // 背景色已经通过 container.style.backgroundColor 设置，这就足够了
+      // 委托给 FlowTemplateService 设置 Overview 模板
+      this.templateService.setupOverviewNodeTemplate(this.overview);
+      this.templateService.setupOverviewLinkTemplate(this.overview);
       
-      // ========== 2.【关键】先定义模板，再设置 observed ==========
-      // Overview 专用节点模板：去掉文字，只留色块
-      this.overview.nodeTemplate = $(go.Node, "Spot",
-        {
-          locationSpot: go.Spot.Center,
-          // 确保节点在概览图中有最小可见尺寸
-          minSize: new go.Size(4, 4)
-        },
-        new go.Binding("location", "loc", go.Point.parse),
-        $(go.Shape, "Rectangle",
-          {
-            name: "SHAPE",
-            // 注意：Overview 会整体缩放；如果这里使用太小的固定尺寸，
-            // 当图的边界很大/Overview 缩放很小时，节点会缩小到不可见。
-            // 使用更大的固定尺寸以确保在缩放后仍然可见
-            height: 80,
-            strokeWidth: 3,  // 增加描边宽度，确保在小缩放下仍可见
-            opacity: 1
-          },
-          // 宽度与主图保持一致（更利于在小缩放下保持可见）
-          new go.Binding("width", "isUnassigned", (isUnassigned: boolean) =>
-            isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH
-          ),
-          // 绑定任务节点颜色（白色/已完成色等），提高与深背景的对比度
-          new go.Binding("fill", "color", (color: string) => color || "#ffffff"),
-          new go.Binding("stroke", "borderColor", (color: string) => color || styles.node.defaultBorder)
-        )
-      );
-      
-      // Overview 专用连线模板：加粗线条，形成"路网"感
-      this.overview.linkTemplate = $(go.Link,
-        {
-          routing: go.Link.Normal,  // 简化路由，提升性能
-          curve: go.Link.None       // 直线，减少计算
-        },
-        $(go.Shape,
-          {
-            strokeWidth: 12,        // 增加线宽，确保在概览图中清晰可见
-            opacity: 0.8            // 适当增加不透明度，提高可见性
-          },
-          // 连线用类型色（父子/跨树）
-          new go.Binding("stroke", "isCrossTree", (isCrossTree: boolean) =>
-            isCrossTree ? styles.link.crossTreeColor : styles.link.parentChildColor
-          )
-        )
-      );
-      
-      // ========== 3.【关键】模板设置完成后，再绑定观察的图表 ==========
       this.overview.observed = this.diagram;
       
-      // 强制更新概览图以确保所有节点正确渲染
-      // 某些情况下 GoJS 可能需要手动触发更新才能正确显示节点
       if (this.diagram) {
         this.diagram.requestUpdate();
       }
@@ -537,43 +300,43 @@ export class FlowDiagramService {
         this.overview.requestUpdate();
       }
       
-      // ========== 4. 自定义视口框样式 ==========
-      // 原生的视口框依然存在且可用，只是改变样式
-      const box = this.overview.box;
-      if (box && box.elt(0)) {
-        (box.elt(0) as go.Shape).stroke = "#ffffff";
-        (box.elt(0) as go.Shape).strokeWidth = 2;
-        (box.elt(0) as go.Shape).fill = "rgba(255, 255, 255, 0.15)";
-      }
+      // 设置视口框样式
+      this.templateService.setupOverviewBoxStyle(this.overview);
       
-      // 设置初始缩放
       this.overview.scale = 0.15;
       this.lastOverviewScale = 0.15;
       
-      // 启用自动缩放逻辑
       this.setupOverviewAutoScale();
       
-      // 记录概览图初始化的调试信息
       const nodeCount = this.diagram.nodes.count;
       const linkCount = this.diagram.links.count;
-      this.logger.info(`Overview 热力图模式初始化成功 - 节点数: ${nodeCount}, 连接数: ${linkCount}, 初始缩放: ${this.overview.scale}`);
+      this.logger.info(`Overview 初始化成功 - 节点数: ${nodeCount}, 连接数: ${linkCount}`);
     } catch (error) {
       this.logger.error('Overview 初始化失败:', error);
     }
   }
   
+  private getOverviewBackgroundColor(): string {
+    const styles = this.configService.currentStyles();
+    return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
+  }
+  
+  private readCssColorVar(varName: string): string | null {
+    try {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+      const value = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  }
+  
   /**
    * 设置小地图自动缩放
-   * 
-   * 核心逻辑：
-   * 1. 初始化时计算一个固定的基准缩放（baseScale）
-   * 2. 在节点范围内缩放时，保持 baseScale 不变，视口框自然变化
-   * 3. 只在视口超出节点边界时，才按比例缩小 overview.scale
    */
   private setupOverviewAutoScale(): void {
     if (!this.diagram || !this.overview) return;
     
-    // 获取实际节点边界
     const getNodesBounds = (): go.Rect => {
       if (!this.diagram) return new go.Rect(0, 0, 500, 500);
       
@@ -599,7 +362,6 @@ export class FlowDiagramService {
                          maxX - minX + padding * 2, maxY - minY + padding * 2);
     };
     
-    // 计算基准缩放（只在初始化和节点变化时调用）
     const calculateBaseScale = (): number => {
       if (!this.overviewContainer || !this.diagram) return 0.15;
       
@@ -617,38 +379,30 @@ export class FlowDiagramService {
     };
 
     const clampScale = (scale: number): number => {
-      // 保证最小可见性：避免用户把主视口拖到很远的空白区域时，把概览图缩到“全黑看不到块”。
       return Math.max(0.02, Math.min(0.5, scale));
     };
     
-    // 初始化：计算并设置固定的基准缩放
     let baseScale = calculateBaseScale();
     let lastNodeDataCount = ((this.diagram.model as any)?.nodeDataArray?.length ?? 0);
     this.lastOverviewScale = clampScale(baseScale);
     this.overview.scale = this.lastOverviewScale;
     
-    // 确保初始时 Overview 正确居中到文档内容
     const nodeBounds = getNodesBounds();
     this.overview.centerRect(nodeBounds);
     
-    // 记录初始化信息用于调试
-    this.logger.debug(`Overview 自动缩放初始化 - 节点数: ${lastNodeDataCount}, 基准缩放: ${baseScale.toFixed(3)}, 实际缩放: ${this.lastOverviewScale.toFixed(3)}, 节点边界: ${nodeBounds.toString()}`);
-    
-    // 监听文档变化：只在节点增删时重新计算基准缩放
-    this.addTrackedListener('DocumentBoundsChanged', () => {
+    // 监听文档变化
+    this.diagram.addDiagramListener('DocumentBoundsChanged', () => {
       if (!this.overview || !this.diagram) return;
 
       const currentNodeDataCount = ((this.diagram.model as any)?.nodeDataArray?.length ?? 0);
       const nodeCountChanged = currentNodeDataCount !== lastNodeDataCount;
       
       const newBaseScale = calculateBaseScale();
-      // 只有变化显著、或节点数量发生变化（新增/删除）时才更新。
       if (nodeCountChanged || Math.abs(newBaseScale - baseScale) > 0.02) {
         baseScale = newBaseScale;
         this.overview.scale = clampScale(baseScale);
         this.lastOverviewScale = this.overview.scale;
 
-        // 关键：节点结构变化后，重新居中到所有节点边界，避免“新任务块在概览图里看不到”。
         if (nodeCountChanged) {
           const bounds = getNodesBounds();
           this.overview.centerRect(bounds);
@@ -657,19 +411,16 @@ export class FlowDiagramService {
       }
     });
     
-    // 监听视口变化：实现丝滑的自动缩放效果
-    // 当用户缩放或移动主视图时，如果视口超出节点边界，概览图会自动缩小以显示完整范围
-    this.addTrackedListener('ViewportBoundsChanged', () => {
+    // 监听视口变化
+    this.diagram.addDiagramListener('ViewportBoundsChanged', () => {
       if (!this.overview || !this.diagram || this.isNodeDragging) return;
       
       const viewportBounds = this.diagram.viewportBounds;
       if (!viewportBounds.isReal()) return;
       
-      // 计算总边界（文档 + 视口的并集）
       const totalBounds = this.calculateTotalBounds();
       const nodeBounds = getNodesBounds();
       
-      // 检查视口是否超出节点边界
       const isViewportOutside = 
         viewportBounds.x < nodeBounds.x - 50 ||
         viewportBounds.y < nodeBounds.y - 50 ||
@@ -681,30 +432,22 @@ export class FlowDiagramService {
         const containerHeight = this.overviewContainer.clientHeight;
         
         if (containerWidth > 0 && containerHeight > 0 && totalBounds.width > 0 && totalBounds.height > 0) {
-          // 计算需要显示的范围：取节点边界和总边界中较大的
-          // 这确保了即使视口在节点范围内，视口框也不会超出容器
           const displayBounds = isViewportOutside ? totalBounds : nodeBounds;
-          
-          // 额外检查：确保视口框本身不会超出容器
-          // 计算视口框在当前缩放下的尺寸
           const currentScale = this.overview.scale;
           const viewportBoxWidth = viewportBounds.width * currentScale;
           const viewportBoxHeight = viewportBounds.height * currentScale;
           
-          // 如果视口框接近或超出容器尺寸，强制缩小
-          const boxPadding = 20; // 视口框距离容器边缘的最小距离
+          const boxPadding = 20;
           const needsShrinkForBox = 
             viewportBoxWidth > containerWidth - boxPadding ||
             viewportBoxHeight > containerHeight - boxPadding;
           
           if (isViewportOutside || needsShrinkForBox) {
-            // 计算合适的缩放比例
-            const padding = 0.15; // 增加边距以确保视口框有足够空间
+            const padding = 0.15;
             const scaleX = (containerWidth * (1 - padding * 2)) / displayBounds.width;
             const scaleY = (containerHeight * (1 - padding * 2)) / displayBounds.height;
             let targetScale = clampScale(Math.min(scaleX, scaleY, 0.5));
             
-            // 二次检查：确保在新缩放下，视口框不会超出
             const newViewportBoxWidth = viewportBounds.width * targetScale;
             const newViewportBoxHeight = viewportBounds.height * targetScale;
             
@@ -717,17 +460,13 @@ export class FlowDiagramService {
             
             targetScale = clampScale(targetScale);
             
-            // 丝滑过渡：如果缩放变化超过阈值，才更新
             if (Math.abs(targetScale - this.overview.scale) > 0.005) {
               this.overview.scale = targetScale;
               this.lastOverviewScale = targetScale;
             }
           } else {
-            // 视口在节点范围内且视口框不会超出，恢复基准缩放
-            const currentScale = this.overview.scale;
             const targetScale = clampScale(baseScale);
             
-            // 但仍需确保视口框不超出
             const testBoxWidth = viewportBounds.width * targetScale;
             const testBoxHeight = viewportBounds.height * targetScale;
             
@@ -741,7 +480,6 @@ export class FlowDiagramService {
             
             finalScale = clampScale(finalScale);
             
-            // 如果当前缩放小于目标缩放，逐渐恢复
             if (currentScale < finalScale - 0.01) {
               this.overview.scale = finalScale;
               this.lastOverviewScale = finalScale;
@@ -754,91 +492,16 @@ export class FlowDiagramService {
     this.logger.debug('Overview 自动缩放已启用');
   }
   
-  /**
-   * 计算仅基于文档边界的缩放比例（不考虑视口超出部分）
-   */
-  private calculateDocumentOnlyScale(): number | null {
-    if (!this.overview || !this.diagram || !this.overviewContainer) return null;
-    
-    const container = this.overviewContainer;
-    const minimapWidth = container.clientWidth;
-    const minimapHeight = container.clientHeight;
-    
-    if (minimapWidth <= 0 || minimapHeight <= 0) return null;
-    
-    const docBounds = this.diagram.documentBounds;
-    if (!docBounds.isReal() || docBounds.width <= 0 || docBounds.height <= 0) {
-      return 0.1; // 默认值
-    }
-    
-    // 计算合适的缩放比例（留出 10% 边距）
-    const padding = 0.1;
-    const effectiveWidth = minimapWidth * (1 - padding * 2);
-    const effectiveHeight = minimapHeight * (1 - padding * 2);
-    
-    const scaleX = effectiveWidth / docBounds.width;
-    const scaleY = effectiveHeight / docBounds.height;
-    
-    const scale = Math.min(scaleX, scaleY, 0.5);
-    return Math.max(0.005, scale);
-  }
-  
-  /**
-   * 计算目标缩放比例
-   */
-  private calculateTargetScale(): number | null {
-    if (!this.overview || !this.diagram || !this.overviewContainer) return null;
-    
-    const container = this.overviewContainer;
-    const minimapWidth = container.clientWidth;
-    const minimapHeight = container.clientHeight;
-    
-    if (minimapWidth <= 0 || minimapHeight <= 0) return null;
-    
-    // 计算总边界（文档 + 视口的并集）
-    const totalBounds = this.calculateTotalBounds();
-    if (totalBounds.width <= 0 || totalBounds.height <= 0) return null;
-    
-    // 计算合适的缩放比例（留出 10% 边距）
-    const padding = 0.1;
-    const effectiveWidth = minimapWidth * (1 - padding * 2);
-    const effectiveHeight = minimapHeight * (1 - padding * 2);
-    
-    const scaleX = effectiveWidth / totalBounds.width;
-    const scaleY = effectiveHeight / totalBounds.height;
-    const scale = Math.min(scaleX, scaleY, 0.5); // 最大 0.5
-    
-    return Math.max(0.005, scale); // 最小 0.005
-  }
-  
-  /**
-   * 更新小地图缩放比例（保留用于直接调用）
-   */
-  private updateOverviewScale(): void {
-    const scale = this.calculateTargetScale();
-    if (scale !== null && this.overview) {
-      this.overview.scale = scale;
-      this.lastOverviewScale = scale;
-    }
-  }
-  
-  /**
-   * 计算总边界（文档边界 + 视口边界的并集）
-   * 
-   * 这确保了当视口拖到文档外部时，小地图会扩大显示范围
-   */
   private calculateTotalBounds(): go.Rect {
     if (!this.diagram) return new go.Rect(0, 0, 100, 100);
     
     const docBounds = this.diagram.documentBounds;
     const viewBounds = this.diagram.viewportBounds;
     
-    // 如果文档为空，使用视口边界
     if (!docBounds.isReal() || (docBounds.width === 0 && docBounds.height === 0)) {
       return viewBounds.copy();
     }
     
-    // 计算并集
     const minX = Math.min(docBounds.x, viewBounds.x);
     const minY = Math.min(docBounds.y, viewBounds.y);
     const maxX = Math.max(docBounds.x + docBounds.width, viewBounds.x + viewBounds.width);
@@ -847,9 +510,6 @@ export class FlowDiagramService {
     return new go.Rect(minX, minY, maxX - minX, maxY - minY);
   }
   
-  /**
-   * 销毁小地图
-   */
   disposeOverview(): void {
     if (this.overview) {
       this.overview.div = null;
@@ -859,36 +519,24 @@ export class FlowDiagramService {
   }
   
   /**
-   * 销毁 Diagram 实例和相关资源
+   * 销毁 Diagram 实例
    */
   dispose(): void {
     this.isDestroyed = true;
-    this.isFirstLoad = true; // 重置首次加载标志
+    this.isFirstLoad = true;
     
-    // 清理小地图
     this.disposeOverview();
-    
-    // 清理定时器
     this.clearAllTimers();
     
-    // 清理 ResizeObserver
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
     
-    // 清理事件监听器
+    // 清理事件服务
+    this.eventService.dispose();
+    
     if (this.diagram) {
-      for (const listener of this.diagramListeners) {
-        try {
-          this.diagram.removeDiagramListener(listener.name, listener.handler);
-        } catch (e) {
-          // 忽略移除失败的错误
-        }
-      }
-      this.diagramListeners = [];
-      
-      // 清理 Diagram
       this.diagram.div = null;
       this.diagram.clear();
       this.diagram = null;
@@ -896,41 +544,16 @@ export class FlowDiagramService {
     
     this.diagramDiv = null;
     
-    // 清理回调
-    this.nodeClickCallback = null;
-    this.linkClickCallback = null;
-    this.linkDeleteCallback = null;
-    this.linkGestureCallback = null;
-    this.selectionMovedCallback = null;
-    this.backgroundClickCallback = null;
+    // 清理子服务
+    this.layoutService.dispose();
+    this.selectionService.setDiagram(null);
+    this.zoomService.dispose();
     
     this.logger.info('GoJS Diagram 已销毁');
   }
   
-  // ========== 图表操作方法 ==========
+  // ========== 导出功能 ==========
   
-  /**
-   * 放大
-   */
-  zoomIn(): void {
-    if (this.diagram) {
-      this.diagram.commandHandler.increaseZoom();
-    }
-  }
-  
-  /**
-   * 缩小
-   */
-  zoomOut(): void {
-    if (this.diagram) {
-      this.diagram.commandHandler.decreaseZoom();
-    }
-  }
-  
-  /**
-   * 导出为 PNG 图片
-   * @returns Promise<Blob | null> 图片 Blob 或 null
-   */
   async exportToPng(): Promise<Blob | null> {
     if (!this.diagram) {
       this.toast.error('导出失败', '流程图未加载');
@@ -938,12 +561,11 @@ export class FlowDiagramService {
     }
     
     try {
-      // 使用 GoJS 的 makeImageData 方法生成 base64 图片
       const imgData = this.diagram.makeImageData({
-        scale: 2, // 2x 分辨率，更清晰
-        background: '#F5F2E9', // 使用流程图背景色
+        scale: 2,
+        background: '#F5F2E9',
         type: 'image/png',
-        maxSize: new go.Size(4096, 4096) // 限制最大尺寸
+        maxSize: new go.Size(4096, 4096)
       }) as string;
       
       if (!imgData) {
@@ -951,11 +573,9 @@ export class FlowDiagramService {
         return null;
       }
       
-      // 将 base64 转换为 Blob
       const response = await fetch(imgData);
       const blob = await response.blob();
       
-      // 触发下载
       this.downloadBlob(blob, `流程图_${this.getExportFileName()}.png`);
       this.toast.success('导出成功', 'PNG 图片已下载');
       
@@ -967,10 +587,6 @@ export class FlowDiagramService {
     }
   }
   
-  /**
-   * 导出为 SVG 图片
-   * @returns Promise<Blob | null> SVG Blob 或 null
-   */
   async exportToSvg(): Promise<Blob | null> {
     if (!this.diagram) {
       this.toast.error('导出失败', '流程图未加载');
@@ -978,7 +594,6 @@ export class FlowDiagramService {
     }
     
     try {
-      // 使用 GoJS 的 makeSvg 方法生成 SVG
       const svg = this.diagram.makeSvg({
         scale: 1,
         background: '#F5F2E9',
@@ -990,14 +605,10 @@ export class FlowDiagramService {
         return null;
       }
       
-      // 序列化 SVG 为字符串
       const serializer = new XMLSerializer();
       const svgString = serializer.serializeToString(svg);
-      
-      // 创建 Blob
       const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
       
-      // 触发下载
       this.downloadBlob(blob, `流程图_${this.getExportFileName()}.svg`);
       this.toast.success('导出成功', 'SVG 图片已下载');
       
@@ -1009,9 +620,6 @@ export class FlowDiagramService {
     }
   }
   
-  /**
-   * 生成导出文件名
-   */
   private getExportFileName(): string {
     const project = this.store.activeProject();
     const projectName = project?.name || '未命名项目';
@@ -1019,9 +627,6 @@ export class FlowDiagramService {
     return `${projectName}_${date}`;
   }
   
-  /**
-   * 触发 Blob 文件下载
-   */
   private downloadBlob(blob: Blob, filename: string): void {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1033,54 +638,20 @@ export class FlowDiagramService {
     URL.revokeObjectURL(url);
   }
   
-  /**
-   * 设置缩放级别
-   */
-  setZoom(scale: number): void {
-    if (this.diagram) {
-      this.diagram.scale = scale;
-    }
-  }
+  // ========== 图表操作 ==========
   
   /**
-   * 应用自动布局
+   * 移除连接线
    */
-  applyAutoLayout(): void {
-    if (!this.diagram) return;
-    
-    const $ = go.GraphObject.make;
-    
-    this.diagram.startTransaction('auto-layout');
-    this.diagram.layout = $(go.LayeredDigraphLayout, {
-      direction: 0,
-      layerSpacing: GOJS_CONFIG.LAYER_SPACING,
-      columnSpacing: GOJS_CONFIG.COLUMN_SPACING,
-      setsPortSpots: false
-    });
-    this.diagram.layoutDiagram(true);
-    
-    // 布局完成后保存位置并恢复无操作布局
-    setTimeout(() => {
-      if (this.isDestroyed || !this.diagram) return;
-      this.saveAllNodePositions();
-      this.diagram.layout = $(go.Layout);
-      this.diagram.commitTransaction('auto-layout');
-    }, UI_CONFIG.SHORT_DELAY);
-  }
-  
-  /**
-   * 定位到指定节点
-   * @param nodeKey 节点 key
-   * @param select 是否选中节点
-   */
-  centerOnNode(nodeKey: string, select: boolean = true): void {
-    if (!this.diagram) return;
-    
-    const node = this.diagram.findNodeForKey(nodeKey);
-    if (node) {
-      this.diagram.centerRect(node.actualBounds);
-      if (select) {
-        this.diagram.select(node);
+  removeLink(link: go.Link): void {
+    if (this.diagram && link) {
+      const model = this.diagram.model as go.GraphLinksModel;
+      if (link.data && model.linkDataArray) {
+        this.diagram.startTransaction('remove-link');
+        model.removeLinkData(link.data);
+        this.diagram.commitTransaction('remove-link');
+      } else {
+        this.diagram.remove(link);
       }
     }
   }
@@ -1089,87 +660,24 @@ export class FlowDiagramService {
    * 选中指定节点
    */
   selectNode(nodeKey: string): void {
-    if (!this.diagram) return;
-    
-    const node = this.diagram.findNodeForKey(nodeKey);
-    if (node) {
-      this.diagram.select(node);
-      // 如果节点不在视图中，滚动到节点位置
-      if (!this.diagram.viewportBounds.containsRect(node.actualBounds)) {
-        this.diagram.centerRect(node.actualBounds);
-      }
-    }
+    this.selectionService.selectNode(nodeKey, true);
   }
   
   /**
-   * 适应内容：将所有节点缩放并居中显示在视口中
-   * 主要用于移动端首次加载时确保节点可见
+   * 获取最后的输入点
    */
-  fitToContents(): void {
-    if (!this.diagram) return;
-    
-    // 获取所有节点的边界
-    const bounds = this.diagram.documentBounds;
-    if (!bounds.isReal() || bounds.width === 0 || bounds.height === 0) {
-      // 如果没有有效的边界，尝试滚动到原点
-      this.diagram.scrollToRect(new go.Rect(0, 0, 100, 100));
-      return;
-    }
-    
-    // 添加一些内边距
-    const padding = 50;
-    const paddedBounds = bounds.copy().inflate(padding, padding);
-    
-    // 计算需要的缩放比例
-    const viewportWidth = this.diagram.viewportBounds.width;
-    const viewportHeight = this.diagram.viewportBounds.height;
-    
-    if (viewportWidth <= 0 || viewportHeight <= 0) {
-      return; // 视口无效
-    }
-    
-    const scaleX = viewportWidth / paddedBounds.width;
-    const scaleY = viewportHeight / paddedBounds.height;
-    let scale = Math.min(scaleX, scaleY);
-    
-    // 限制缩放范围：不要太小也不要太大
-    scale = Math.max(0.3, Math.min(1.5, scale));
-    
-    // 应用缩放
-    this.diagram.scale = scale;
-    
-    // 居中显示
-    this.diagram.centerRect(bounds);
+  getLastInputViewPoint(): go.Point | null {
+    return this.diagram?.lastInput?.viewPoint || null;
   }
   
   /**
-   * 清除选择
-   */
-  clearSelection(): void {
-    if (this.diagram) {
-      this.diagram.clearSelection();
-    }
-  }
-  
-  /**
-   * 请求重新渲染
-   */
-  requestUpdate(): void {
-    if (this.diagram) {
-      this.diagram.requestUpdate();
-    }
-  }
-
-  /**
-   * 由外部在 Flow 视图真正可见/激活时调用。
-   * 用于把被延后的 auto-fit（fitToContents）安全地执行一次，避免在 text 视图期间触发导致切换时跳动。
+   * 由外部在 Flow 视图激活时调用
    */
   onFlowActivated(): void {
     if (this.isDestroyed || !this.diagram) return;
     if (this.store.activeView() !== 'flow') return;
     if (!this.pendingAutoFitToContents) return;
 
-    // 若此时 viewState 已经可用，优先恢复 viewState（比 auto-fit 更稳定，也更符合用户上次视图）。
     const viewState = this.store.getViewState();
     if (viewState) {
       this.pendingAutoFitToContents = false;
@@ -1179,117 +687,27 @@ export class FlowDiagramService {
     }
 
     this.pendingAutoFitToContents = false;
-    // 双 rAF：避免在同一帧里又被 resize/route 更新打断，导致“跳两次”。
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (this.isDestroyed || !this.diagram) return;
-        this.fitToContents();
+        this.zoomService.fitToContents();
       });
     });
-  }
-  
-  /**
-   * 保存所有节点位置到 store
-   */
-  saveAllNodePositions(): void {
-    if (!this.diagram) return;
-    
-    this.diagram.nodes.each((node: any) => {
-      const loc = node.location;
-      if (node.data && node.data.key && loc.isReal()) {
-        this.store.updateTaskPosition(node.data.key, loc.x, loc.y);
-      }
-    });
-  }
-  
-  /**
-   * 获取选中节点的 key 列表
-   */
-  getSelectedNodeKeys(): string[] {
-    const keys: string[] = [];
-    if (this.diagram) {
-      this.diagram.selection.each((part: any) => {
-        if (part instanceof go.Node && part.data?.key) {
-          keys.push(part.data.key);
-        }
-      });
-    }
-    return keys;
-  }
-  
-  /**
-   * 移除连接线（从视图和模型中同时移除）
-   */
-  removeLink(link: go.Link): void {
-    if (this.diagram && link) {
-      const model = this.diagram.model as go.GraphLinksModel;
-      if (link.data && model.linkDataArray) {
-        // 从模型中移除数据，这会自动从视图中移除
-        this.diagram.startTransaction('remove-link');
-        model.removeLinkData(link.data);
-        this.diagram.commitTransaction('remove-link');
-      } else {
-        // 备用：直接从视图中移除
-        this.diagram.remove(link);
-      }
-    }
-  }
-  
-  /**
-   * 将视口坐标转换为文档坐标
-   */
-  transformViewToDoc(viewPoint: go.Point): go.Point {
-    if (this.diagram) {
-      return this.diagram.transformViewToDoc(viewPoint);
-    }
-    return viewPoint;
-  }
-  
-  /**
-   * 将文档坐标转换为视口坐标
-   */
-  transformDocToView(docPoint: go.Point): go.Point {
-    if (this.diagram) {
-      return this.diagram.transformDocToView(docPoint);
-    }
-    return docPoint;
-  }
-  
-  /**
-   * 获取最后的输入点（视口坐标）
-   */
-  getLastInputViewPoint(): go.Point | null {
-    return this.diagram?.lastInput?.viewPoint || null;
   }
   
   // ========== 图表数据更新 ==========
   
-  /**
-   * 检测是否有结构性变化
-   * 用于判断是否需要完整重建图表数据（包括 familyColor 重新计算）
-   * 
-   * @param currentNodeMap 当前图表中的节点映射
-   * @param newTasks 新的任务列表
-   * @returns 是否有结构性变化
-   */
   private detectStructuralChange(currentNodeMap: Map<string, any>, newTasks: Task[]): boolean {
-    // 1. 检查节点数量变化
     if (currentNodeMap.size !== newTasks.length) {
       return true;
     }
     
-    // 2. 检查每个任务的关键属性是否变化
     for (const task of newTasks) {
       const existing = currentNodeMap.get(task.id);
       if (!existing) {
-        // 新任务
         return true;
       }
       
-      // 检查影响显示的关键属性
-      // stage 变化会影响任务在图表中的位置和可见性
-      // status 变化会影响节点颜色
-      // parentId 变化会影响连线和 familyColor
       if (existing.stage !== task.stage ||
           existing.status !== task.status ||
           existing.parentId !== task.parentId) {
@@ -1297,7 +715,6 @@ export class FlowDiagramService {
       }
     }
     
-    // 3. 检查是否有任务被删除（在 currentNodeMap 中存在但在 newTasks 中不存在）
     const newTaskIds = new Set(newTasks.map(t => t.id));
     for (const key of currentNodeMap.keys()) {
       if (!newTaskIds.has(key)) {
@@ -1305,7 +722,6 @@ export class FlowDiagramService {
       }
     }
     
-    // 4. 检查跨树连接变化（这是之前遗漏的检查）
     const project = this.store.activeProject();
     if (project) {
       const model = this.diagram?.model as any;
@@ -1325,8 +741,6 @@ export class FlowDiagramService {
 
   /**
    * 更新图表数据
-   * @param tasks 任务列表
-   * @param forceRefresh 是否强制刷新
    */
   updateDiagram(tasks: Task[], forceRefresh: boolean = false): void {
     if (this.error() || !this.diagram) {
@@ -1339,11 +753,8 @@ export class FlowDiagramService {
     }
     
     try {
-      // 检查更新类型
       const lastUpdateType = this.store.getLastUpdateType();
       
-      // 检查是否有结构性变化
-      // 这对于远程同步更新尤其重要，因为 lastUpdateType 可能是上次本地操作的状态
       const model = this.diagram.model as any;
       const currentNodeMap = new Map<string, any>();
       (model.nodeDataArray || []).forEach((n: any) => {
@@ -1353,12 +764,10 @@ export class FlowDiagramService {
       const activeTasks = tasks.filter(t => !t.deletedAt);
       const hasStructuralChange = this.detectStructuralChange(currentNodeMap, activeTasks);
       
-      // 如果仅是位置更新且没有结构性变化，跳过更新（优化拖动性能）
       if (lastUpdateType === 'position' && !forceRefresh && !hasStructuralChange) {
         return;
       }
       
-      // 构建图表数据
       const existingNodeMap = new Map<string, any>();
       (this.diagram.model as any).nodeDataArray.forEach((n: any) => {
         if (n.key) {
@@ -1368,13 +777,12 @@ export class FlowDiagramService {
       
       const searchQuery = this.store.searchQuery();
       const diagramData = this.configService.buildDiagramData(
-        tasks.filter(t => !t.deletedAt), // 排除软删除的任务
+        tasks.filter(t => !t.deletedAt),
         project,
         searchQuery,
         existingNodeMap
       );
       
-      // 保存当前选中状态
       const selectedKeys = new Set<string>();
       this.diagram.selection.each((part: any) => {
         if (part.data?.key) {
@@ -1382,30 +790,19 @@ export class FlowDiagramService {
         }
       });
       
-      // 更新模型
       this.diagram.startTransaction('update');
       this.diagram.skipsUndoManager = true;
       
-      // 重用之前获取的 model 引用
       model.mergeNodeDataArray(diagramData.nodeDataArray);
       
-      // ========== 确保所有连接线使用主端口（空字符串）==========
-      // 这样才能启用 Perimeter Intersection（边界滑动）效果
       const linkDataWithPorts = diagramData.linkDataArray.map(link => ({
         ...link,
-        fromPortId: "",  // 空字符串 = 主节点端口
-        toPortId: ""     // 空字符串 = 主节点端口
+        fromPortId: "",
+        toPortId: ""
       }));
-      
-      // 调试：检查跨树连接数据
-      const crossTreeLinks = linkDataWithPorts.filter((l: any) => l.isCrossTree);
-      if (crossTreeLinks.length > 0) {
-        console.log('[FlowDiagram] 跨树连接数据:', crossTreeLinks);
-      }
       
       model.mergeLinkDataArray(linkDataWithPorts);
       
-      // 移除不存在的节点和连接线
       const nodeKeys = new Set(diagramData.nodeDataArray.map(n => n.key));
       const linkKeys = new Set(diagramData.linkDataArray.map(l => l.key));
       
@@ -1418,7 +815,6 @@ export class FlowDiagramService {
       this.diagram.skipsUndoManager = false;
       this.diagram.commitTransaction('update');
       
-      // 恢复选中状态
       if (selectedKeys.size > 0) {
         this.diagram.nodes.each((node: any) => {
           if (selectedKeys.has(node.data?.key)) {
@@ -1427,48 +823,32 @@ export class FlowDiagramService {
         });
       }
       
-      // 强制刷新所有链接路由（确保端口 Side Spot 分散计算生效）
       this.diagram.links.each((link: go.Link) => {
         link.invalidateRoute();
       });
       
-      // ========== Debug: 检查 familyColor ==========
+      // Debug 日志
       const linkData = model.linkDataArray;
       if (linkData?.length > 0 && !this._familyColorLogged) {
         this._familyColorLogged = true;
         this.logger.info(`[LineageColor] 首条连线数据: ${JSON.stringify(linkData[0])}`);
-        if (model.nodeDataArray?.length > 0) {
-          this.logger.info(`[LineageColor] 首个节点数据: familyColor=${model.nodeDataArray[0].familyColor}`);
-        }
       }
       
-      // ========== Overview 数据同步调试 ==========
       if (this.overview?.observed) {
-        const ovModel = this.overview.observed.model;
-        console.log('[Overview] Main diagram nodes:', ovModel.nodeDataArray?.length || 0);
-        console.log('[Overview] Main diagram links:', (ovModel as any).linkDataArray?.length || 0);
-        if (ovModel.nodeDataArray?.length > 0) {
-          console.log('[Overview] First node familyColor:', (ovModel.nodeDataArray[0] as any).familyColor);
-        }
-        // 尝试强制刷新 Overview
         this.overview.updateAllTargetBindings();
       }
       
-      // 首次加载完成后，在移动端自动适应内容
       if (this.isFirstLoad && diagramData.nodeDataArray.length > 0) {
         this.isFirstLoad = false;
-        // 延迟执行，确保节点布局完成
         setTimeout(() => {
           if (this.isDestroyed || !this.diagram) return;
-          // 检查是否有保存的视图状态
           const viewState = this.store.getViewState();
           if (!viewState) {
-            // 如果当前不在 flow 视图，延后到 flow 激活时再执行一次，避免切换时“跳一下”。
             if (this.store.activeView() !== 'flow') {
               this.pendingAutoFitToContents = true;
               return;
             }
-            this.fitToContents();
+            this.zoomService.fitToContents();
           }
         }, 100);
       }
@@ -1480,10 +860,6 @@ export class FlowDiagramService {
   
   // ========== 拖放支持 ==========
   
-  /**
-   * 设置拖放事件处理
-   * @param onDrop 拖放回调
-   */
   setupDropHandler(onDrop: (taskData: any, docPoint: go.Point) => void): void {
     if (!this.diagramDiv) return;
     
@@ -1496,16 +872,13 @@ export class FlowDiagramService {
     
     this.diagramDiv.addEventListener('drop', (e: DragEvent) => {
       e.preventDefault();
-      // 优先使用 application/json 类型，确保是我们自己设置的拖放数据
       const jsonData = e.dataTransfer?.getData("application/json");
       const textData = e.dataTransfer?.getData("text");
       const data = jsonData || textData;
       if (!data || !this.diagram) return;
       
-      // 验证是否为有效 JSON（必须以 { 或 [ 开头）
       const trimmed = data.trim();
       if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-        // 不是 JSON 数据，忽略此次拖放（可能是文本拖放）
         return;
       }
       
@@ -1522,1331 +895,6 @@ export class FlowDiagramService {
   
   // ========== 私有方法 ==========
   
-  /**
-   * 设置节点模板
-   * 
-   * 设计：
-   * - 主体区域只能拖动，不能拉线
-   * - 四边有明确可见的"连接手柄"（小方块），只有点击手柄才能拉线
-   * - 连接线分散到各边（使用 Side spots）
-   */
-  private setupNodeTemplate($: any): void {
-    if (!this.diagram) return;
-    
-    const self = this;
-    const isMobile = this.store.isMobile();
-    const portSize = isMobile ? 24 : 10;  // 连接手柄大小 - 移动端增大到 24px 便于触摸
-    
-    /**
-     * 创建边缘连接手柄
-     * @param name 端口名称
-     * @param spot 位置（Top/Bottom/Left/Right）
-     */
-    /**
-     * 获取边缘 Spot（用于连接线方向）
-     */
-    function makePort(name: string, spot: go.Spot): go.Shape {
-      // ========== 边缘触发端口（紫色小圆点）==========
-      // 作用：仅作为 UI 交互手柄，用户点击它触发 LinkingTool
-      // 
-      // 关键设计：
-      // - 这个端口 **不参与** 连接线的视觉锚点计算
-      // - fromSpot/toSpot 设为 None，避免在小圆点边界上打转
-      // - 实际连接点由主节点（portId: ""）+ getLinkPoint 计算
-      // - 结果：点击紫色小框，线在整个圆角矩形边界上滑动
-      return $(go.Shape, "Circle", {
-        fill: "transparent",       // 默认透明
-        stroke: null,              // 默认无边框
-        strokeWidth: isMobile ? 2 : 1,  // 移动端加粗边框更明显
-        desiredSize: new go.Size(portSize, portSize),
-        alignment: spot,
-        alignmentFocus: go.Spot.Center,  // 关键修复：端口中心对齐到节点边缘，而不是端口边缘
-        portId: name,              // T, B, L, R - 仅用于识别点击位置
-        fromLinkable: true,        // 允许触发连线（作为起点）
-        toLinkable: true,          // 也允许作为终点（findTargetPort 会重定向到主端口）
-        fromSpot: go.Spot.None,    // 不在端口边界计算
-        toSpot: go.Spot.None,      // 不在端口边界计算
-        isActionable: false,       // 关键：让端口不阻挡其他操作，仅响应 LinkingTool
-        cursor: "crosshair",       // 十字光标表示可连接
-        // 鼠标悬停效果
-        mouseEnter: (e: any, port: go.Shape) => {
-          if (e.diagram.isReadOnly) return;
-          port.fill = "#4A8C8C";   // retro.teal
-          port.stroke = "#44403C"; // retro.dark
-        },
-        mouseLeave: (e: any, port: go.Shape) => {
-          port.fill = "transparent";
-          port.stroke = null;
-        }
-      });
-    }
-    
-    this.diagram.nodeTemplate = $(go.Node, "Spot",
-      {
-        locationSpot: go.Spot.Center,
-        selectionAdorned: true,
-        // ========== 关键：让节点本身可以作为连接目标 ==========
-        // 即使鼠标在节点的任何位置，都能被 LinkingTool 检测到
-        fromLinkable: false,       // 不从节点本身拉线（从边缘端口拉）
-        toLinkable: true,          // 允许连接到节点（任何位置）
-        fromLinkableDuplicates: false,
-        toLinkableDuplicates: true,
-        click: (e: any, node: any) => {
-          if (e.diagram.lastInput.dragging) return;
-          // 防止双击时触发单击事件
-          if (e.diagram.lastInput.clickCount >= 2) return;
-          self.zone.run(() => {
-            self.nodeClickCallback?.(node.data.key, false);
-          });
-        },
-        doubleClick: (e: any, node: any) => {
-          e.handled = true; // 标记事件已处理，防止触发单击
-          self.zone.run(() => {
-            self.nodeClickCallback?.(node.data.key, true);
-          });
-        }
-      },
-      new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
-      
-      // ========== 主面板（蓝色大背景框）==========
-      // 作用：作为连线的真正起点/终点，配合 getLinkPoint 实现边界滑动
-      $(go.Panel, "Auto",
-        {
-          name: "BODY",
-          // 关键：让整个 Panel 可以接受连接
-          portId: "",              // 主体端口（空字符串）- 真正的连线计算端口
-          fromLinkable: false,     // 默认不能从主体拉线（由 doActivate 临时启用）
-          toLinkable: true,        // 允许连接到主体（整个节点区域都可接受连接）
-          fromSpot: go.Spot.AllSides, // 出线动态寻找离目标最近的边界点
-          toSpot: go.Spot.AllSides,   // 入线动态寻找离源头最近的边界点
-          cursor: "move"           // 移动光标
-        },
-        new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => 
-          isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH),
-        $(go.Shape, "RoundedRectangle", {
-          name: "SHAPE",
-          fill: "white",
-          stroke: "#78716C",       // retro.muted
-          strokeWidth: 1,
-          parameter1: 10,
-          isPanelMain: true        // 标记为主元素，不阻挡其他元素的鼠标事件
-          // ========== go.Spot.AllSides - 核心配置 ==========
-          // 这就是你描述的"水珠在玻璃边缘滑动"的效果
-          // 算法名称：Perimeter Intersection（周界交点计算）
-          // 原理：连接线不死死定在一个坐标点，而是动态计算与节点边界的交点
-        },
-        new go.Binding("fill", "color"),
-        new go.Binding("stroke", "", (data: any, obj: any) => {
-          if (obj.part.isSelected) return data.selectedBorderColor || "#4A8C8C";
-          return data.borderColor || "#78716C";
-        }).ofObject(),
-        new go.Binding("strokeWidth", "borderWidth")),
-        
-        $(go.Panel, "Vertical",
-          new go.Binding("margin", "isUnassigned", (isUnassigned: boolean) => isUnassigned ? 10 : 16),
-          $(go.TextBlock, { font: "bold 9px \"LXGW WenKai Screen\", sans-serif", stroke: "#78716C", alignment: go.Spot.Left },
-            new go.Binding("text", "displayId"),
-            new go.Binding("stroke", "displayIdColor"),
-            new go.Binding("visible", "isUnassigned", (isUnassigned: boolean) => !isUnassigned)),
-          $(go.TextBlock, { margin: new go.Margin(4, 0, 0, 0), font: "400 12px \"LXGW WenKai Screen\", sans-serif", stroke: "#44403C" },
-            new go.Binding("text", "title"),
-            new go.Binding("font", "isUnassigned", (isUnassigned: boolean) => 
-              isUnassigned ? "500 11px \"LXGW WenKai Screen\", sans-serif" : "400 12px \"LXGW WenKai Screen\", sans-serif"),
-            new go.Binding("stroke", "titleColor"),
-            new go.Binding("maxSize", "isUnassigned", (isUnassigned: boolean) => 
-              isUnassigned ? new go.Size(120, NaN) : new go.Size(160, NaN)))
-        )
-      ),
-      
-      // ========== 边缘连接手柄（小圆点）==========
-      makePort("T", go.Spot.Top),
-      makePort("B", go.Spot.Bottom),
-      makePort("L", go.Spot.Left),
-      makePort("R", go.Spot.Right)
-    );
-  }
-  
-  /**
-   * 设置连接线模板
-   */
-  private setupLinkTemplate($: any): void {
-    if (!this.diagram) return;
-    
-    const self = this;
-    const isMobile = this.store.isMobile();
-    const allowedPortIds = ["T", "B", "L", "R"];
-    const rawCaptureRadius = GOJS_CONFIG.LINK_CAPTURE_THRESHOLD ?? 80;
-    const TARGET_CAPTURE_RADIUS = this.store.isMobile()
-      ? Math.min(Math.max(rawCaptureRadius, 28), 60)
-      : Math.min(Math.max(rawCaptureRadius, 16), 36);
-    const pointerTolerance = this.store.isMobile() ? 6 : 3;
-    
-    /**
-     * ========== Perimeter Intersection（周界交点计算）算法 ==========
-     * 
-     * 这就是你看到的"水珠在玻璃边缘滑动"的核心实现
-     * 
-     * 原理：
-     * 1. 射线：从节点中心指向目标点（鼠标位置）画一条虚拟射线
-     * 2. 求交：计算这条射线与节点矩形边界的交点
-     * 3. 渲染：将交点作为连接线的实际起点/终点
-     * 
-     * 效果：当你移动鼠标时，交点会沿着矩形边框自动移动，
-     *      就像水珠在玻璃边缘滑动一样，总是寻找离鼠标最近的那个点
-     * 
-     * @param node - 节点对象
-     * @param targetPoint - 目标点（通常是鼠标位置或对方节点位置）
-     * @returns 节点边界上的交点坐标
-     */
-    const computeNodeEdgePoint = (node: go.Node, targetPoint: go.Point): go.Point => {
-      // 获取节点主体面板（BODY）的边界
-      // 关键：我们要计算的是整个蓝色大框的边界，而不是紫色小圆点的边界
-      const bodyPanel = node.findObject("BODY") as go.Panel;
-      
-      // 后备方案：如果 BODY 面板不存在，尝试使用节点的实际边界
-      let bounds: go.Rect;
-      
-      if (bodyPanel) {
-        bounds = bodyPanel.getDocumentBounds();
-        // 调试：验证我们使用的是主节点边界，而不是端口边界
-      } else {
-        // 使用节点自身的边界作为后备
-        bounds = node.actualBounds;
-        if (!bounds.isReal() || bounds.width === 0 || bounds.height === 0) {
-          // 如果连边界都没有，返回节点中心
-          return node.getDocumentPoint(go.Spot.Center);
-        }
-        // 转换为文档坐标
-        const loc = node.location;
-        bounds = new go.Rect(
-          loc.x - bounds.width / 2,
-          loc.y - bounds.height / 2,
-          bounds.width,
-          bounds.height
-        );
-      }
-      
-      if (!bounds.isReal()) {
-        return node.getDocumentPoint(go.Spot.Center);
-      }
-      
-      // 计算从节点中心指向目标点的方向向量
-      const center = new go.Point(bounds.centerX, bounds.centerY);
-      const dx = targetPoint.x - center.x;
-      const dy = targetPoint.y - center.y;
-      
-      if (dx === 0 && dy === 0) return center;
-      
-      // ========== 射线与矩形边界求交算法 ==========
-      // 计算射线 (center + t * direction) 与矩形边界的交点
-      const halfWidth = bounds.width / 2;
-      const halfHeight = bounds.height / 2;
-      
-      // 计算到达各边所需的参数 t（射线参数方程的参数）
-      // 射线方程：Point = center + t * (dx, dy)
-      // 当射线到达矩形边界时，找到最小的 t 值
-      let t = Number.POSITIVE_INFINITY;
-      
-      if (dx !== 0) {
-        const tRight = halfWidth / Math.abs(dx);
-        const tLeft = halfWidth / Math.abs(dx);
-        t = Math.min(t, dx > 0 ? tRight : tLeft);
-      }
-      
-      if (dy !== 0) {
-        const tBottom = halfHeight / Math.abs(dy);
-        const tTop = halfHeight / Math.abs(dy);
-        t = Math.min(t, dy > 0 ? tBottom : tTop);
-      }
-      
-      // 计算边界上的交点：这就是连接线的实际起点/终点
-      // 这个点会随着目标位置（鼠标）的移动而沿边界滑动
-      return new go.Point(center.x + dx * t, center.y + dy * t);
-    };
-
-    const getNodeBodyBounds = (node: go.Node): go.Rect | null => {
-      const bodyPanel = node.findObject("BODY") as go.Panel;
-      if (bodyPanel) {
-        const panelBounds = bodyPanel.getDocumentBounds();
-        if (panelBounds.isReal()) {
-          return panelBounds;
-        }
-      }
-      const bounds = node.actualBounds;
-      return bounds.isReal() ? bounds : null;
-    };
-
-    const isPointerNearBody = (node: go.Node, pointer: go.Point, tolerance: number): boolean => {
-      const bounds = getNodeBodyBounds(node);
-      if (!bounds) return false;
-      const expanded = bounds.copy();
-      expanded.inflate(tolerance, tolerance);
-      return expanded.containsPoint(pointer);
-    };
-
-    const distanceToBodySquared = (node: go.Node, pointer: go.Point): number => {
-      const bounds = getNodeBodyBounds(node);
-      if (!bounds) return Number.POSITIVE_INFINITY;
-      const clampedX = Math.min(Math.max(pointer.x, bounds.x), bounds.right);
-      const clampedY = Math.min(Math.max(pointer.y, bounds.y), bounds.bottom);
-      const dx = pointer.x - clampedX;
-      const dy = pointer.y - clampedY;
-      return dx * dx + dy * dy;
-    };
-
-    // ========== getLinkPoint - 连接线端点计算函数 ==========
-    // 这是 GoJS 每次渲染连接线时调用的回调函数
-    // 配合 go.Spot.AllSides 使用，实现动态边界滑动效果
-    // 
-    // 关键修复：传入的 node 参数可能是端口对象，我们需要获取真正的 Node
-    // ========== getLinkPoint - 连接线端点计算函数 ==========
-    // 这是 GoJS 每次渲染连接线时调用的回调函数
-    // 配合 go.Spot.AllSides 使用，实现动态边界滑动效果
-    // 
-    // 关键：需要处理两种情况
-    // 1. 临时连接线（拖动时）：fromNode/toNode 可能是 undefined，需要从 port 向上查找
-    // 2. 永久连接线：fromNode/toNode 是实际节点
-    const freeAngleLinkPoint: go.Link['getLinkPoint'] = function(this: go.Link, node, port, spot, from, _ortho, otherNode, otherPort) {
-      // ========== 多重策略查找实际节点 ==========
-      let actualNode: go.Node | null = null;
-      
-      // 🔍 调试信息：记录调用上下文
-      const debugInfo = {
-        from,
-        linkType: (this as any).constructor?.name || 'Unknown',
-        hasFromNode: !!this.fromNode,
-        hasToNode: !!this.toNode,
-        fromNodeData: this.fromNode ? (this.fromNode as any).data?.key : 'none',
-        toNodeData: this.toNode ? (this.toNode as any).data?.key : 'none',
-        nodeType: node ? node.constructor?.name : 'none',
-        portType: port ? (port as any).constructor?.name : 'none',
-        portId: port ? (port as any).portId : 'none',
-        activeTool: 'none'
-      };
-      
-      if (this.diagram) {
-        const linkingTool = this.diagram.toolManager.linkingTool;
-        const relinkingTool = this.diagram.toolManager.relinkingTool;
-        const reshapingTool = this.diagram.toolManager.linkReshapingTool;
-        
-        if (linkingTool.isActive) debugInfo.activeTool = 'LinkingTool';
-        else if (relinkingTool.isActive) debugInfo.activeTool = 'RelinkingTool';
-        else if (reshapingTool.isActive) debugInfo.activeTool = 'ReshapingTool';
-      }
-      
-      console.log('[getLinkPoint] 调用上下文:', debugInfo);
-      
-      // 策略1: 从连接线的 fromNode/toNode 获取（永久连接线）
-      // 注意：需要验证节点是否有效（有 data 或有 BODY 面板）
-      if (from) {
-        console.log('[getLinkPoint] 策略1: from=true, 检查 this.fromNode');
-        if (this.fromNode) {
-          const hasData = !!(this.fromNode as any).data;
-          const hasBody = !!(this.fromNode as any).findObject?.('BODY');
-          console.log('[getLinkPoint] 策略1检查:', { 
-            hasData, 
-            hasBody, 
-            dataType: typeof (this.fromNode as any).data,
-            dataValue: (this.fromNode as any).data
-          });
-          if (hasData || hasBody) {
-            actualNode = this.fromNode;
-            console.log('[getLinkPoint] ✓ 策略1成功: 使用 this.fromNode', (actualNode as any).data?.key);
-          } else {
-            console.log('[getLinkPoint] ✗ 策略1失败: hasData=false 且 hasBody=false');
-          }
-        } else {
-          console.log('[getLinkPoint] ✗ 策略1跳过: this.fromNode 不存在');
-        }
-      } else {
-        console.log('[getLinkPoint] 策略1: from=false, 检查 this.toNode');
-        if (this.toNode) {
-          const hasData = !!(this.toNode as any).data;
-          const hasBody = !!(this.toNode as any).findObject?.('BODY');
-          console.log('[getLinkPoint] 策略1检查:', { hasData, hasBody });
-          if (hasData || hasBody) {
-            actualNode = this.toNode;
-            console.log('[getLinkPoint] ✓ 策略1成功: 使用 this.toNode', (actualNode as any).data?.key);
-          } else {
-            console.log('[getLinkPoint] ✗ 策略1失败: hasData=false 且 hasBody=false');
-          }
-        } else {
-          console.log('[getLinkPoint] ✗ 策略1跳过: this.toNode 不存在');
-        }
-      }
-      
-      // 策略2: 使用传入的 node 参数
-      if (!actualNode && node instanceof go.Node) {
-        console.log('[getLinkPoint] 策略2: 检查传入的 node 参数');
-        const hasData = !!(node as any).data;
-        const hasBody = !!(node as any).findObject?.('BODY');
-        console.log('[getLinkPoint] 策略2检查:', { hasData, hasBody });
-        if (hasData || hasBody) {
-          actualNode = node;
-          console.log('[getLinkPoint] ✓ 策略2成功: 使用传入的 node 参数', (actualNode as any).data?.key);
-        } else {
-          console.log('[getLinkPoint] ✗ 策略2失败: hasData=false 且 hasBody=false');
-        }
-      } else if (!actualNode) {
-        console.log('[getLinkPoint] ✗ 策略2跳过: node 不是 go.Node 类型');
-      }
-      
-      // 策略3: 从 port.part 获取节点（port 是节点的一部分）
-      if (!actualNode && port && (port as any).part instanceof go.Node) {
-        console.log('[getLinkPoint] 策略3: 检查 port.part');
-        const partNode = (port as any).part;
-        const hasData = !!(partNode as any).data;
-        const hasBody = !!(partNode as any).findObject?.('BODY');
-        console.log('[getLinkPoint] 策略3检查:', { hasData, hasBody });
-        if (hasData || hasBody) {
-          actualNode = partNode;
-          console.log('[getLinkPoint] ✓ 策略3成功: 使用 port.part', (actualNode as any).data?.key);
-        } else {
-          console.log('[getLinkPoint] ✗ 策略3失败: hasData=false 且 hasBody=false');
-        }
-      } else if (!actualNode) {
-        console.log('[getLinkPoint] ✗ 策略3跳过: port 不存在或 port.part 不是 go.Node');
-      }
-      
-      // 策略4: 临时连接线的特殊处理 - 从 LinkingTool 获取原始节点
-      if (!actualNode && this.diagram) {
-        console.log('[getLinkPoint] 策略4: 检查工具状态');
-        const linkingTool = this.diagram.toolManager.linkingTool;
-        const relinkingTool = this.diagram.toolManager.relinkingTool;
-        
-        // 检查 LinkingTool 是否激活
-        if (linkingTool.isActive) {
-          console.log('[getLinkPoint] 策略4-LinkingTool 激活');
-          // 根据是起点还是终点，选择不同的端口
-          let originalPort = from 
-            ? ((linkingTool as any).originalFromPort || (linkingTool as any)._tempMainPort)
-            : (linkingTool as any).originalToPort;
-          
-          console.log('[getLinkPoint] 策略4-LinkingTool: originalPort =', originalPort, '类型:', typeof originalPort);
-          
-          // 如果 originalPort 是字符串（节点key），需要查找节点
-          if (typeof originalPort === 'string') {
-            const foundNode = this.diagram.findNodeForKey(originalPort);
-            actualNode = foundNode;
-            console.log('[getLinkPoint] ✓ 策略4成功: LinkingTool 通过 key 找到节点', originalPort);
-          } else if (originalPort && originalPort.part instanceof go.Node) {
-            // 如果是端口对象，获取其所属节点
-            actualNode = originalPort.part;
-            console.log('[getLinkPoint] ✓ 策略4成功: LinkingTool 通过 port.part 找到节点', (actualNode as any).data?.key);
-          } else {
-            console.log('[getLinkPoint] ✗ 策略4-LinkingTool 失败: originalPort 无效');
-          }
-        } else {
-          console.log('[getLinkPoint] ✗ 策略4-LinkingTool 未激活');
-        }
-        
-        // 检查 RelinkingTool 是否激活（从连接线拖出新连接）
-        if (!actualNode && relinkingTool.isActive) {
-          console.log('[getLinkPoint] 策略4-RelinkingTool 激活, from =', from);
-          
-          // 尝试多种方式获取原始连接线
-          let adornedLink = (relinkingTool as any).adornedLink;
-          
-          // 如果 adornedLink 为空，尝试其他属性
-          if (!adornedLink) {
-            adornedLink = (relinkingTool as any).adornedObject;
-          }
-          if (!adornedLink) {
-            adornedLink = (relinkingTool as any).originalLink;
-          }
-          // 从 diagram.selection 获取选中的连接线
-          if (!adornedLink && this.diagram.selection) {
-            this.diagram.selection.each((part: any) => {
-              if (part instanceof go.Link && !adornedLink) {
-                adornedLink = part;
-              }
-            });
-          }
-          
-          console.log('[getLinkPoint] 策略4-RelinkingTool: adornedLink =', adornedLink);
-          
-          if (adornedLink instanceof go.Link) {
-            console.log('[getLinkPoint] adornedLink.fromNode =', adornedLink.fromNode ? (adornedLink.fromNode as any).data?.key : 'none');
-            console.log('[getLinkPoint] adornedLink.toNode =', adornedLink.toNode ? (adornedLink.toNode as any).data?.key : 'none');
-            
-            // 判断用户正在拖拽哪一端
-            const isRelinkingFrom = (relinkingTool as any).isForwards === false; // 拖拽起点
-            const isRelinkingTo = (relinkingTool as any).isForwards === true;   // 拖拽终点
-            
-            console.log('[getLinkPoint] RelinkingTool 状态: isForwards =', (relinkingTool as any).isForwards, 
-                        '拖拽起点:', isRelinkingFrom, '拖拽终点:', isRelinkingTo);
-            
-            if (from) {
-              // 计算起点位置
-              if (isRelinkingFrom) {
-                // 用户正在拖拽起点，此时起点应该跟随鼠标，不应该固定在节点上
-                // 返回 null，让 GoJS 使用默认行为（鼠标位置）
-                console.log('[getLinkPoint] ✓ 策略4: 拖拽起点，跳过固定节点，使用鼠标位置');
-                actualNode = null;
-              } else {
-                // 用户正在拖拽终点，起点保持不变
-                actualNode = adornedLink.fromNode;
-                console.log('[getLinkPoint] ✓ 策略4成功: 拖拽终点，起点固定为 adornedLink.fromNode', (actualNode as any)?.data?.key);
-              }
-            } else {
-              // 计算终点位置
-              if (isRelinkingTo) {
-                // 用户正在拖拽终点，此时终点应该跟随鼠标，不应该固定在节点上
-                // 返回 null，让 GoJS 使用默认行为（鼠标位置）
-                console.log('[getLinkPoint] ✓ 策略4: 拖拽终点，跳过固定节点，使用鼠标位置');
-                actualNode = null;
-              } else {
-                // 用户正在拖拽起点，终点保持不变
-                actualNode = adornedLink.toNode;
-                console.log('[getLinkPoint] ✓ 策略4成功: 拖拽起点，终点固定为 adornedLink.toNode', (actualNode as any)?.data?.key);
-              }
-            }
-          } else {
-            console.log('[getLinkPoint] ✗ 策略4-RelinkingTool 失败: adornedLink 不是 Link');
-          }
-        } else if (!actualNode) {
-          console.log('[getLinkPoint] ✗ 策略4-RelinkingTool 未激活');
-        }
-      } else if (!actualNode) {
-        console.log('[getLinkPoint] ✗ 策略4跳过: diagram 不存在');
-      }
-      
-      if (!actualNode) {
-        console.warn('[getLinkPoint] ❌ 所有策略失败！actualNode = null');
-        console.log('[getLinkPoint] from =', from, '使用鼠标位置作为连接点');
-        // 当 actualNode 为 null 时，返回 null 让 GoJS 使用默认行为（鼠标位置）
-        // 这样拖拽端就能跟随鼠标自由移动
-        if (this.diagram?.lastInput?.documentPoint) {
-          console.log('[getLinkPoint] 返回鼠标位置:', this.diagram.lastInput.documentPoint);
-          return this.diagram.lastInput.documentPoint;
-        }
-        // 如果连鼠标位置都获取不到，返回原点作为最终后备
-        console.warn('[getLinkPoint] 无法获取鼠标位置，返回原点');
-        return new go.Point();
-      }
-      
-      console.log('[getLinkPoint] ✅ 最终使用节点:', (actualNode as any).data?.key);
-      
-      const doc = actualNode.diagram;
-      
-      // 获取目标点（可能是鼠标位置、对方端口或对方节点中心）
-      const target = otherPort?.getDocumentPoint(go.Spot.Center)
-        || otherNode?.getDocumentPoint(go.Spot.Center)
-        || doc?.lastInput?.documentPoint
-        || actualNode.getDocumentPoint(go.Spot.Center);
-      
-      // 调用 Perimeter Intersection 算法计算边界交点
-      return computeNodeEdgePoint(actualNode, target);
-    };
-    
-    // 配置拖动时的临时连接线样式
-    const linkingTool = this.diagram.toolManager.linkingTool;
-    const relinkingTool = this.diagram.toolManager.relinkingTool;
-
-    // 只允许从四个边缘小圆点开始拉线，避免从主体区域误触导致无法拖动节点
-    const originalCanStart = linkingTool.canStart;
-    linkingTool.canStart = function() {
-      if (!originalCanStart.call(this)) return false;
-      const dia = this.diagram;
-      if (!dia) return false;
-      const input = dia.lastInput;
-      if (!input) return false;
-      const port = dia.findObjectAt(input.documentPoint, (obj: any) => {
-        if (obj && typeof obj.portId === "string" && obj.portId.length > 0 && allowedPortIds.includes(obj.portId)) {
-          return obj;
-        }
-        return null;
-      }, null) as any;
-      if (!port) return false;
-      return allowedPortIds.includes(port.portId);
-    };
-    
-    // ========== "偷梁换柱"技术：解决触发者与表现者分离问题 ==========
-    // 
-    // 问题：用户期望的交互逻辑
-    //   - 触发：点击紫色小圆点（边缘端口）开始拖拽
-    //   - 表现：连接线沿着蓝色大框（主节点）的边界滑动
-    // 
-    // 矛盾：如果直接从紫色小圆点拉线
-    //   - 线只会绕着小圆点自己的微小边界转，而不是绕着整个节点转
-    // 
-    // 解决方案：偷梁换柱
-    //   1. 用户点击紫色小圆点 → 触发 LinkingTool（触发器）
-    //   2. 激活后立即替换起点 → 改用主节点端口（portId: ""）作为真正起点
-    //   3. 主节点配合 getLinkPoint → 计算边界交点，实现沿边滑动效果
-    // 
-    // 这样就实现了："点击紫色小框，但线绕着蓝色大框转"
-    
-    const originalDoActivate = linkingTool.doActivate;
-    linkingTool.doActivate = function() {
-      originalDoActivate.call(this);
-      
-      const startPort = (this as any).startPort 
-        || (this as any).originalFromPort 
-        || (this as any).fromPort;
-      
-      let edgePortObj: any = null;
-      
-      if (startPort && typeof startPort === 'object' && startPort.portId) {
-        edgePortObj = startPort;
-      } else if (startPort && typeof startPort === 'string' && allowedPortIds.includes(startPort)) {
-        const originalNode = (this as any).originalFromNode || (this as any).fromNode;
-        if (originalNode instanceof go.Node) {
-          edgePortObj = originalNode.findPort(startPort);
-        }
-      }
-      
-      if (edgePortObj && allowedPortIds.includes(edgePortObj.portId)) {
-        const node = edgePortObj.part;
-        if (node instanceof go.Node) {
-          // 记录起始节点：用于拖拽过程中排除“吸附到自身”的目标捕获
-          (this as any)._originNode = node;
-
-          const mainPort = node.findPort("");
-          if (mainPort) {
-            (this as any)._tempMainPort = mainPort;
-            (this as any)._savedFromLinkable = mainPort.fromLinkable;
-            (this as any)._savedToLinkable = mainPort.toLinkable;
-            
-            mainPort.fromLinkable = true;
-            // 保持 toLinkable = true，允许其他连接线连接到此节点
-            
-            (this as any).startPort = mainPort;
-            (this as any).originalFromPort = mainPort;
-            (this as any).fromPort = mainPort;
-            
-            // 修改临时连接线，使用主节点端口
-            if (this.temporaryLink) {
-              (this.temporaryLink as any).fromNode = node;
-              this.temporaryLink.fromPortId = "";
-              this.temporaryLink.fromSpot = go.Spot.AllSides;
-              this.temporaryLink.toSpot = go.Spot.AllSides;
-              this.temporaryLink.invalidateRoute();
-            }
-          }
-        }
-      }
-    };
-
-    // 重写 doDeactivate：恢复主节点端口状态
-    const originalDoDeactivate = linkingTool.doDeactivate;
-    linkingTool.doDeactivate = function() {
-      // 恢复主体端口的原始配置（fromLinkable = false）
-      const mainPort = (this as any)._tempMainPort;
-      if (mainPort) {
-        mainPort.fromLinkable = (this as any)._savedFromLinkable;
-        mainPort.toLinkable = (this as any)._savedToLinkable;
-        (this as any)._tempMainPort = null;
-      }
-      (this as any)._originNode = null;
-      originalDoDeactivate.call(this);
-    };
-    
-    // ========== 连接验证：禁止节点连接到自身 ==========
-    const originalIsValidLink = linkingTool.isValidLink;
-    linkingTool.isValidLink = function(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): boolean {
-      // 阻止节点连接到自身
-      if (fromNode === toNode) {
-        return false;
-      }
-      // 调用原始验证逻辑
-      return originalIsValidLink.call(this, fromNode, fromPort, toNode, toPort);
-    };
-    
-    // 同样为 relinkingTool 添加验证
-    const originalRelinkIsValidLink = relinkingTool.isValidLink;
-    relinkingTool.isValidLink = function(fromNode: go.Node, fromPort: go.GraphObject, toNode: go.Node, toPort: go.GraphObject): boolean {
-      // 阻止节点连接到自身
-      if (fromNode === toNode) {
-        return false;
-      }
-      // 调用原始验证逻辑
-      return originalRelinkIsValidLink.call(this, fromNode, fromPort, toNode, toPort);
-    };
-
-    // ========== findTargetPort 重写：解决边缘端口阻挡连接问题 ==========
-    // 问题：边缘端口或节点边界可能形成"透明墙"阻挡连接
-    // 解决：为 LinkingTool / RelinkingTool 提供统一的智能捕获逻辑
-    const radiusSquared = TARGET_CAPTURE_RADIUS * TARGET_CAPTURE_RADIUS;
-    const isRealNode = (node: go.Node | null, excludeNode: go.Node | null): node is go.Node => {
-      if (!node || node === excludeNode) return false;
-      const hasData = !!(node as any).data;
-      const hasBody = !!node.findObject?.('BODY');
-      if (!hasData && !hasBody) return false;
-      const mainPort = node.findPort("");
-      return !!(mainPort && (mainPort as any).toLinkable);
-    };
-    const getMainPort = (node: go.Node | null): go.GraphObject | null => {
-      if (!node) return null;
-      const mainPort = node.findPort("");
-      if (mainPort && (mainPort as any).toLinkable) {
-        return mainPort;
-      }
-      return null;
-    };
-    const normalizePort = (port: go.GraphObject | null): go.GraphObject | null => {
-      if (!port) return null;
-      const node = port.part;
-      if (node instanceof go.Node) {
-        const portId = port.portId || '';
-        if (portId === "") {
-          return (port as any).toLinkable ? port : getMainPort(node);
-        }
-        if (allowedPortIds.includes(portId)) {
-          return getMainPort(node) || port;
-        }
-      }
-      return port;
-    };
-    const findNodeNearPointer = (tool: go.LinkingTool, fromEnd: boolean): go.Node | null => {
-      const diagram = tool.diagram;
-      const pointer = diagram?.lastInput?.documentPoint;
-      if (!diagram || !pointer) return null;
-      const toolAny = tool as any;
-      // 关键：拖拽“连接终点”时必须排除起始节点本身，否则会出现吸附/高亮到自身导致能连回自己。
-      // - LinkingTool：fromNode 可能因为“偷梁换柱”端口替换而短时不稳定，所以需要多重兜底。
-      // - RelinkingTool：仍以 GoJS 自己的 fromNode/toNode 为主，必要时补充原始节点。
-      const excludeNode = fromEnd
-        ? (toolAny.toNode || toolAny.originalToNode)
-        : (toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode);
-      const directParts = diagram.findPartsAt(pointer, true);
-      let found: go.Node | null = null;
-      directParts.each((part: go.Part) => {
-        if (!found && part instanceof go.Node && isRealNode(part, excludeNode) && isPointerNearBody(part, pointer, pointerTolerance)) {
-          found = part;
-        }
-      });
-      if (found) return found;
-      const searchRect = new go.Rect(
-        pointer.x - TARGET_CAPTURE_RADIUS,
-        pointer.y - TARGET_CAPTURE_RADIUS,
-        TARGET_CAPTURE_RADIUS * 2,
-        TARGET_CAPTURE_RADIUS * 2
-      );
-      let closest: go.Node | null = null;
-      let closestDist = Number.POSITIVE_INFINITY;
-      diagram.findPartsIn(searchRect, true, true).each((part: go.Part) => {
-        if (!(part instanceof go.Node) || !isRealNode(part, excludeNode)) return;
-        if (!isPointerNearBody(part, pointer, pointerTolerance)) return;
-        const dist = distanceToBodySquared(part, pointer);
-        if (dist <= radiusSquared && dist < closestDist) {
-          closestDist = dist;
-          closest = part;
-        }
-      });
-      if (closest) return closest;
-      diagram.nodes.each((node: go.Node) => {
-        if (!isRealNode(node, excludeNode)) return;
-        if (!isPointerNearBody(node, pointer, pointerTolerance)) return;
-        const dist = distanceToBodySquared(node, pointer);
-        if (dist <= radiusSquared && dist < closestDist) {
-          closestDist = dist;
-          closest = node;
-        }
-      });
-      return closest;
-    };
-    const enhanceTargetFinding = (
-      tool: go.LinkingTool,
-      original: go.LinkingTool['findTargetPort']
-    ): void => {
-      tool.findTargetPort = function(fromEnd: boolean) {
-        const node = findNodeNearPointer(this, fromEnd);
-        const directPort = getMainPort(node);
-        
-        // 额外检查：确保找到的节点不是起始节点本身
-        const toolAny = this as any;
-        const originNode = toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode;
-        if (node && originNode && node === originNode) {
-          // 节点不能连接到自己，返回 null
-          return null;
-        }
-        
-        if (directPort) {
-          return directPort;
-        }
-        return normalizePort(original.call(this, fromEnd));
-      };
-    };
-    const originalFindTargetPort = linkingTool.findTargetPort;
-    enhanceTargetFinding(linkingTool, originalFindTargetPort);
-    const originalRelinkingFindTargetPort = relinkingTool.findTargetPort;
-    enhanceTargetFinding(
-      relinkingTool as unknown as go.LinkingTool,
-      originalRelinkingFindTargetPort as unknown as go.LinkingTool['findTargetPort']
-    );
-    
-    // ========== 关键配置：扩大端口检测范围 ==========
-    // portGravity: 端口的"引力"范围，数值越大越容易被检测到
-    const portGravity = Math.max(4, pointerTolerance * 2);
-    linkingTool.portGravity = portGravity;
-    (relinkingTool as any).portGravity = portGravity;
-    
-    // 优化拖拽体验：解除端口方向限制
-    (linkingTool as any).temporaryFromSpot = go.Spot.AllSides;
-    (linkingTool as any).temporaryToSpot = go.Spot.AllSides;
-
-    // ========== 配置临时连接线 ==========
-    // 拖拽过程中显示的虚线，配合 getLinkPoint 实现动态边界滑动
-    linkingTool.temporaryLink = $(go.Link,
-      { 
-        layerName: "Tool", 
-        getLinkPoint: freeAngleLinkPoint,  // 关键：使用自定义的边界交点计算
-        curve: go.Link.Bezier
-      },
-      $(go.Shape, { 
-        stroke: "#78716C", 
-        strokeWidth: 6, 
-        strokeDashArray: [4, 4],
-        strokeCap: "round",
-        strokeJoin: "round"
-      }),
-      $(go.Shape, { 
-        toArrow: "Standard",
-        fill: "#78716C",
-        stroke: "#78716C",     // 与 fill 一致
-        strokeWidth: 7,        // 粗描边让圆角效果明显
-        strokeCap: "round",
-        strokeJoin: "round",   // 让箭头顶点圆润
-        scale: 0.9,            // 调小补偿描边膨胀
-        segmentOrientation: go.Orientation.Along,
-        segmentIndex: -1,
-        alignmentFocus: go.Spot.Right
-      })
-    );
-    
-    // 重连时使用相同的临时线配置（带边界滑动）
-    relinkingTool.temporaryLink = $(go.Link,
-      { 
-        layerName: "Tool", 
-        getLinkPoint: freeAngleLinkPoint,
-        curve: go.Link.Bezier
-      },
-      $(go.Shape, { 
-        stroke: "#78716C", 
-        strokeWidth: 6, 
-        strokeDashArray: [4, 4],
-        strokeCap: "round",
-        strokeJoin: "round"
-      }),
-      $(go.Shape, { 
-        toArrow: "Standard",
-        fill: "#78716C",
-        stroke: "#78716C",     // 与 fill 一致
-        strokeWidth: 7,        // 粗描边让圆角效果明显
-        strokeCap: "round",
-        strokeJoin: "round",   // 让箭头顶点圆润
-        scale: 0.9,            // 调小补偿描边膨胀
-        segmentOrientation: go.Orientation.Along,
-        segmentIndex: -1,
-        alignmentFocus: go.Spot.Right
-      })
-    );
-    
-    // ========== 关键配置：RelinkingTool 的手柄原型 ==========
-    // 这些配置让 GoJS 创建独立的工具手柄 Adornment（类别为 "RelinkFrom"/"RelinkTo"）
-    // RelinkingTool.canStart() 会通过 findToolHandleAt() 查找这些手柄
-    // 当用户拖拽手柄时，连接线会"脱离"原端口，临时连接线跟随鼠标移动
-    console.log('[FlowDiagram] 配置 RelinkingTool 手柄原型...');
-    relinkingTool.fromHandleArchetype = $(go.Shape, "Diamond", {
-      desiredSize: new go.Size(14, 14),
-      fill: "#8b5cf6",      // 紫色填充
-      stroke: "#6d28d9",    // 深紫边框
-      strokeWidth: 2,
-      cursor: "pointer",
-      segmentIndex: 0       // 定位到连线起点
-    });
-    
-    relinkingTool.toHandleArchetype = $(go.Shape, "Diamond", {
-      desiredSize: new go.Size(14, 14),
-      fill: "#8b5cf6",      // 紫色填充
-      stroke: "#6d28d9",    // 深紫边框
-      strokeWidth: 2,
-      cursor: "pointer",
-      segmentIndex: -1      // 定位到连线终点
-    });
-    
-    // ========== 最终连接线模板 ==========
-    // 创建连接后的永久连接线，同样使用 getLinkPoint 保持边界滑动效果
-    this.diagram.linkTemplate = $(go.Link,
-      {
-        routing: go.Link.Normal,
-        curve: go.Link.Bezier,
-        getLinkPoint: freeAngleLinkPoint,  // 关键：永久连接线也使用边界滑动算法
-        toShortLength: this.configService.linkConfig.toShortLength, // 使用配置中的偏移量
-        fromEndSegmentLength: 22, // 起点延伸段长度，保持曲线的曲折感
-        toEndSegmentLength: 22,   // 终点延伸段长度，保持曲线的曲折感
-        selectable: true,        // 确保连接线可选择（显示重连手柄需要先选中）
-        selectionAdorned: true,  // 选中时显示装饰器（重连手柄）
-        relinkableFrom: true,
-        relinkableTo: true,
-        reshapable: true,
-        resegmentable: false,
-        // 桌面端：允许直接点击“跨树关联线条”打开关联详情（联系块编辑器）。
-        // 注意：移动端已有 ObjectSingleClicked / ObjectDoubleClicked 统一处理，避免双触发。
-        // 同时标签面板自身会设置 e.handled=true，因此这里优先尊重已处理的事件。
-        click: isMobile
-          ? () => { /* 移动端空处理器，避免 undefined */ }
-          : (e: any, link: any) => {
-              console.log('[FlowDiagram] Link click 事件触发', { 
-                handled: e?.handled, 
-                linkData: link?.data,
-                isCrossTree: link?.data?.isCrossTree 
-              });
-
-              if (e?.handled) {
-                console.log('[FlowDiagram] Link click 已被标签面板处理，跳过');
-                return;
-              }
-
-              const linkData = link?.data;
-              if (!linkData) return;
-              if (!self.diagramDiv || !self.diagram) return;
-
-              const docPt = e.documentPoint;
-              const viewPt = self.diagram.transformDocToView(docPt);
-              const rect = self.diagramDiv.getBoundingClientRect();
-              const clickX = rect.left + viewPt.x;
-              const clickY = rect.top + viewPt.y;
-
-              console.log('[FlowDiagram] Link click 调用 linkClickCallback', { 
-                isCrossTree: linkData.isCrossTree,
-                from: linkData.from,
-                to: linkData.to
-              });
-
-              e.handled = true;
-              self.zone.run(() => {
-                self.linkClickCallback?.(linkData, clickX, clickY);
-              });
-            },
-        // 注意：不要在 Link 上设置 click，因为子 Panel 有自己的 click 处理
-        // 只选择在点击位置不是标签面板时进行选择
-        contextMenu: $(go.Adornment, "Vertical",
-          $("ContextMenuButton",
-            $(go.TextBlock, "删除连接", { margin: 5 }),
-            {
-              click: (e: any, obj: any) => {
-                const link = obj.part?.adornedPart;
-                if (link?.data) {
-                  console.log('[FlowDiagram] 右键菜单删除连接', link.data);
-                  self.zone.run(() => {
-                    self.linkDeleteCallback?.(link.data);
-                  });
-                }
-              }
-            }
-          )
-        )
-      },
-      ...this.configService.getLinkMainShapesConfig($, isMobile),
-      this.createConnectionLabelPanel($, self)
-    );
-    
-    // ========== 调试：监听选择变化，验证 RelinkingTool 手柄是否显示 ==========
-    this.diagram.addDiagramListener("ChangedSelection", (e: any) => {
-      const selection = this.diagram?.selection;
-      if (!selection) return;
-      
-      selection.each((part: any) => {
-        if (part instanceof go.Link) {
-          console.log('[FlowDiagram] Link 被选中:', {
-            from: part.data?.from,
-            to: part.data?.to,
-            relinkableFrom: part.relinkableFrom,
-            relinkableTo: part.relinkableTo,
-            selectable: part.selectable,
-            selectionAdorned: part.selectionAdorned
-          });
-          
-          // 检查是否有 RelinkFrom/RelinkTo Adornment
-          const adornments: string[] = [];
-          part.adornments.each((ad: any) => {
-            adornments.push(ad.category);
-          });
-          console.log('[FlowDiagram] Link Adornments:', adornments);
-        }
-      });
-    });
-  }
-  
-  /**
-   * 创建联系块标签面板
-   */
-  private createConnectionLabelPanel($: any, self: FlowDiagramService): go.Panel {
-    const handleCrossTreeLabelClick = (e: any, obj: any) => {
-      // obj 可能是 Shape/TextBlock/Panel；它们的 part 都应指向承载它们的 Link
-      const link = obj?.part;
-      const linkData = link?.data;
-
-      console.log('[FlowDiagram] 标签面板点击', { linkData, isCrossTree: linkData?.isCrossTree });
-
-      // 只处理跨树连接，否则不设置 handled，让连接线本身的处理器接管
-      if (!linkData?.isCrossTree || !self.diagramDiv || !self.diagram) return;
-      
-      e.handled = true;
-
-      const docPt = e.documentPoint;
-      const viewPt = self.diagram.transformDocToView(docPt);
-      const rect = self.diagramDiv.getBoundingClientRect();
-      const clickX = rect.left + viewPt.x;
-      const clickY = rect.top + viewPt.y;
-
-      console.log('[FlowDiagram] 触发 linkClickCallback', { clickX, clickY, from: linkData.from, to: linkData.to });
-
-      self.zone.run(() => {
-        self.linkClickCallback?.(linkData, clickX, clickY);
-      });
-    };
-
-    return $(go.Panel, "Auto",
-      {
-        segmentIndex: NaN,
-        segmentFraction: 0.5,
-        cursor: "pointer",
-        // 设置 isActionable 使面板能够接收点击事件
-        isActionable: true,
-        // 设置 background 确保整个面板区域都能接收点击
-        background: "transparent",
-        // 注意：GoJS 点击不会“冒泡”到父 Panel；因此下面还会在子 Shape/Text 上重复绑定。
-        click: handleCrossTreeLabelClick
-      },
-      new go.Binding("visible", "isCrossTree"),
-      $(go.Shape, "RoundedRectangle", {
-        fill: "#f5f3ff",
-        stroke: "#8b5cf6",
-        strokeWidth: 1,
-        parameter1: 4,
-        cursor: "pointer",
-        isActionable: true,
-        click: handleCrossTreeLabelClick
-      }),
-      $(go.Panel, "Horizontal",
-        { margin: 3, defaultAlignment: go.Spot.Center, cursor: "pointer", isActionable: true, click: handleCrossTreeLabelClick },
-        $(go.TextBlock, "🔗", { font: "8px \"LXGW WenKai Screen\", sans-serif", cursor: "pointer", isActionable: true, click: handleCrossTreeLabelClick }),
-        $(go.TextBlock, {
-          font: "500 8px \"LXGW WenKai Screen\", sans-serif",
-          stroke: "#6d28d9",
-          maxSize: new go.Size(50, 14),
-          overflow: go.TextBlock.OverflowEllipsis,
-          margin: new go.Margin(0, 0, 0, 2),
-          cursor: "pointer",
-          isActionable: true,
-          click: handleCrossTreeLabelClick
-        },
-        new go.Binding("text", "description", (desc: string) => desc ? desc.substring(0, 6) : "..."))
-      )
-    );
-  }
-  
-  /**
-   * 设置事件监听器
-   */
-  private setupEventListeners(): void {
-    if (!this.diagram) return;
-    
-    const self = this;
-    
-    // 选择移动完成
-    this.addTrackedListener('SelectionMoved', (e: any) => {
-      const projectIdAtMove = self.store.activeProjectId();
-      
-      if (self.positionSaveTimer) {
-        clearTimeout(self.positionSaveTimer);
-      }
-      
-      self.positionSaveTimer = setTimeout(() => {
-        if (self.isDestroyed) return;
-        if (self.store.activeProjectId() !== projectIdAtMove) return;
-        
-        const movedNodes: Array<{ key: string; x: number; y: number; isUnassigned: boolean }> = [];
-        
-        e.subject.each((part: any) => {
-          if (part instanceof go.Node) {
-            const loc = part.location;
-            const nodeData = part.data;
-            
-            movedNodes.push({
-              key: nodeData.key,
-              x: loc.x,
-              y: loc.y,
-              isUnassigned: nodeData?.isUnassigned || nodeData?.stage === null
-            });
-          }
-        });
-        
-        if (movedNodes.length > 0) {
-          self.zone.run(() => {
-            self.selectionMovedCallback?.(movedNodes);
-          });
-        }
-      }, GOJS_CONFIG.POSITION_SAVE_DEBOUNCE);
-    });
-    
-    // 连接线绘制/重连
-    this.addTrackedListener('LinkDrawn', (e: any) => {
-      const link = e.subject;
-      
-      if (!environment.production) {
-        console.log('🔗 LinkDrawn 事件', {
-          link存在: !!link,
-          linkData存在: !!link?.data,
-          fromNode: link?.fromNode?.data?.key,
-          toNode: link?.toNode?.data?.key,
-          fromPortId: link?.fromPortId,
-          toPortId: link?.toPortId
-        });
-      }
-      
-      if (link && link.data) {
-        const model = this.diagram!.model as go.GraphLinksModel;
-        model.setDataProperty(link.data, 'fromPortId', '');
-        model.setDataProperty(link.data, 'toPortId', '');
-        link.invalidateRoute();
-      }
-      this.handleLinkGestureInternal(e);
-    });
-    
-    // 连接线重连事件（用户拖动重连手柄）
-    this.addTrackedListener('LinkRelinked', (e: any) => this.handleLinkRelinkedInternal(e));
-    
-    // 背景点击
-    this.addTrackedListener('BackgroundSingleClicked', () => {
-      self.zone.run(() => {
-        self.backgroundClickCallback?.();
-      });
-    });
-    
-    // 视口变化
-    this.addTrackedListener('ViewportBoundsChanged', () => {
-      self.saveViewState();
-    });
-    
-    // 移动端连接线单击（打开编辑器）
-    if (this.store.isMobile()) {
-      this.addTrackedListener('ObjectSingleClicked', (e: any) => {
-        const part = e.subject.part;
-        if (part instanceof go.Link && part.data) {
-          // 单击用于打开跨树连接的关联块编辑器
-          const midPoint = part.midPoint;
-          if (midPoint && self.diagramDiv) {
-            const viewPt = self.diagram!.transformDocToView(midPoint);
-            const rect = self.diagramDiv.getBoundingClientRect();
-            self.zone.run(() => {
-              self.linkClickCallback?.(part.data, rect.left + viewPt.x, rect.top + viewPt.y, false);
-            });
-          }
-        }
-      });
-      
-      // 移动端连接线双击/长按（显示删除提示）
-      this.addTrackedListener('ObjectDoubleClicked', (e: any) => {
-        const part = e.subject.part;
-        if (part instanceof go.Link && part.data) {
-          // 双击用于显示删除提示（所有类型连接线）
-          const midPoint = part.midPoint;
-          if (midPoint && self.diagramDiv) {
-            const viewPt = self.diagram!.transformDocToView(midPoint);
-            const rect = self.diagramDiv.getBoundingClientRect();
-            self.zone.run(() => {
-              self.linkClickCallback?.(part.data, rect.left + viewPt.x, rect.top + viewPt.y, true);
-            });
-          }
-        }
-      });
-    }
-  }
-  
-  /**
-   * 处理连接手势（内部）
-   */
-  private handleLinkGestureInternal(e: any): void {
-    if (!this.diagram || !this.diagramDiv) return;
-    
-    const link = e.subject;
-    const fromNode = link?.fromNode;
-    const toNode = link?.toNode;
-    const sourceId = fromNode?.data?.key;
-    const targetId = toNode?.data?.key;
-
-    if (!sourceId || !targetId) return;
-
-    // 兜底防护：即使 LinkingTool 校验失效，也绝不允许“自连接”落到模型里。
-    // 这能覆盖：拖拽结束点落在同一节点上、以及重连时回连自身等情况。
-    if (sourceId === targetId) {
-      if (link?.data) {
-        const model = this.diagram.model as go.GraphLinksModel;
-        this.diagram.startTransaction('reject-self-link');
-        model.removeLinkData(link.data);
-        this.diagram.commitTransaction('reject-self-link');
-      } else if (link instanceof go.Link) {
-        // 极端情况下没有 data，也从视图移除
-        this.diagram.remove(link);
-      }
-      return;
-    }
-    
-    // 获取连接终点位置
-    const midPoint = link.midPoint || toNode.location;
-    const viewPt = this.diagram.transformDocToView(midPoint);
-    const diagramRect = this.diagramDiv.getBoundingClientRect();
-    const x = diagramRect.left + viewPt.x;
-    const y = diagramRect.top + viewPt.y;
-    
-    this.zone.run(() => {
-      this.linkGestureCallback?.(sourceId, targetId, x, y, link);
-    });
-  }
-  
-  /**
-   * 处理连接线重连事件（内部）
-   * 当用户拖动重连手柄将连接线的一端移到新节点时触发
-   * 
-   * 重要：GoJS 在触发 LinkRelinked 事件之前就会更新 link.data.from/to，
-   * 所以我们需要从 e.parameter 获取被断开连接的原始端口来推断原始值。
-   * e.parameter 是被断开的 GraphObject port
-   */
-  private handleLinkRelinkedInternal(e: any): void {
-    if (!this.diagram || !this.diagramDiv) return;
-    
-    const link = e.subject;
-    // e.parameter 是被断开连接的原始端口
-    const disconnectedPort = e.parameter;
-    const disconnectedNodeId = disconnectedPort?.part?.data?.key;
-    
-    const fromNode = link?.fromNode;
-    const toNode = link?.toNode;
-    const newFromId = fromNode?.data?.key;
-    const newToId = toNode?.data?.key;
-    
-    // 从 link.data 获取当前（已更新后的）值
-    const linkData = link?.data;
-    const isCrossTree = linkData?.isCrossTree;
-    
-    console.log('[FlowDiagram] LinkRelinked 事件', {
-      disconnectedNodeId,
-      newFromId,
-      newToId,
-      isCrossTree
-    });
-    
-    if (!newFromId || !newToId || !disconnectedNodeId) return;
-    
-    // 防止自连接
-    if (newFromId === newToId) {
-      if (link?.data) {
-        const model = this.diagram.model as go.GraphLinksModel;
-        this.diagram.startTransaction('reject-self-link');
-        model.removeLinkData(link.data);
-        this.diagram.commitTransaction('reject-self-link');
-      }
-      return;
-    }
-    
-    // 获取连接终点位置
-    const midPoint = link.midPoint || toNode.location;
-    const viewPt = this.diagram.transformDocToView(midPoint);
-    const diagramRect = this.diagramDiv.getBoundingClientRect();
-    const x = diagramRect.left + viewPt.x;
-    const y = diagramRect.top + viewPt.y;
-    
-    // 判断连接类型
-    const linkType: 'parent-child' | 'cross-tree' = isCrossTree ? 'cross-tree' : 'parent-child';
-    
-    // 确定是 from 端还是 to 端被重连
-    // disconnectedNodeId 是被断开的那个节点
-    // 如果 disconnectedNodeId 不等于 newFromId，说明 from 端被改变了（原来的 from 是 disconnectedNodeId）
-    // 如果 disconnectedNodeId 不等于 newToId，说明 to 端被改变了（原来的 to 是 disconnectedNodeId）
-    // 注意：只能有一端被改变，不可能两端同时改变
-    
-    // 判断哪一端被改变：如果 disconnectedNodeId 等于 newToId，说明 to 没变，from 变了
-    // 如果 disconnectedNodeId 等于 newFromId，说明 from 没变，to 变了
-    // 如果都不等于，说明 disconnectedNodeId 是被替换掉的那个节点
-    let changedEnd: 'from' | 'to';
-    let oldFromId: string;
-    let oldToId: string;
-    
-    if (disconnectedNodeId === newToId) {
-      // disconnectedNodeId 现在变成了 to 端，这不可能，逻辑有问题
-      // 实际上这意味着 to 端没变，disconnectedNodeId 是原来的 from 端
-      changedEnd = 'from';
-      oldFromId = disconnectedNodeId;
-      oldToId = newToId;
-    } else if (disconnectedNodeId === newFromId) {
-      // disconnectedNodeId 现在变成了 from 端，这不可能，逻辑有问题
-      // 实际上这意味着 from 端没变，disconnectedNodeId 是原来的 to 端
-      changedEnd = 'to';
-      oldFromId = newFromId;
-      oldToId = disconnectedNodeId;
-    } else {
-      // disconnectedNodeId 既不等于 newFromId 也不等于 newToId
-      // 说明 disconnectedNodeId 是被完全替换掉的节点
-      // 需要判断它原来是 from 还是 to
-      // 由于 GoJS 会保持另一端不变，我们可以通过比较来判断
-      // 如果 newToId 还在原来的位置（没变），那么被替换的是 from 端
-      // 这里需要额外信息，暂时通过比较 relinkingTool 的信息来判断
-      
-      // 简化逻辑：检查 disconnectedNodeId 在原始连接中是哪一端
-      // 由于我们没有原始连接信息，使用启发式方法：
-      // 如果 relinkingTool.isForwards 为 true，说明是从 from 端开始拖的
-      const relinkingTool = this.diagram?.toolManager.relinkingTool;
-      if (relinkingTool?.isForwards) {
-        // 从 to 端拖动（重新连接 to 端）
-        changedEnd = 'to';
-        oldFromId = newFromId;
-        oldToId = disconnectedNodeId;
-      } else {
-        // 从 from 端拖动（重新连接 from 端）
-        changedEnd = 'from';
-        oldFromId = disconnectedNodeId;
-        oldToId = newToId;
-      }
-    }
-    
-    console.log('[FlowDiagram] LinkRelinked 分析', {
-      linkType,
-      changedEnd,
-      oldFromId,
-      oldToId,
-      newFromId,
-      newToId,
-      disconnectedNodeId
-    });
-    
-    // 构建重连信息
-    const relinkInfo: LinkRelinkInfo = {
-      changedEnd,
-      oldFromId,
-      oldToId,
-      newFromId,
-      newToId
-    };
-    
-    // 调用重连回调
-    if (this.linkRelinkCallback) {
-      this.zone.run(() => {
-        this.linkRelinkCallback!(linkType, relinkInfo, x, y, link);
-      });
-    } else {
-      // 没有注册重连回调，降级为普通连接手势
-      this.zone.run(() => {
-        this.linkGestureCallback?.(newFromId, newToId, x, y, link);
-      });
-    }
-  }
-  
-  /**
-   * 添加追踪的事件监听器
-   */
-  private addTrackedListener(name: go.DiagramEventName, handler: (e: any) => void): void {
-    if (!this.diagram) return;
-    this.diagram.addDiagramListener(name, handler);
-    this.diagramListeners.push({ name, handler });
-  }
-  
-  /**
-   * 设置 ResizeObserver
-   */
   private setupResizeObserver(): void {
     if (!this.diagramDiv) return;
     
@@ -2862,9 +910,6 @@ export class FlowDiagramService {
         const height = this.diagramDiv.clientHeight;
         
         if (width > 0 && height > 0) {
-          // 重要：不要在 resize 时反复把 diagram.div 置空再重新绑定。
-          // 在移动端（尤其 Chrome 地址栏收起/展开触发的频繁 resize）这会导致视口位置/缩放出现“跳一下”。
-          // GoJS 会在 requestUpdate 时读取最新的 DIV 尺寸并重绘。
           this.diagram.requestUpdate();
         }
       }, UI_CONFIG.RESIZE_DEBOUNCE_DELAY);
@@ -2873,9 +918,6 @@ export class FlowDiagramService {
     this.resizeObserver.observe(this.diagramDiv);
   }
   
-  /**
-   * 保存视图状态（防抖）
-   */
   private saveViewState(): void {
     if (!this.diagram) return;
     
@@ -2902,14 +944,9 @@ export class FlowDiagramService {
     }, 1000);
   }
   
-  /**
-   * 恢复视图状态
-   * 如果没有保存的视图状态，则自动适应内容
-   */
   private restoreViewState(): void {
     if (!this.diagram) return;
 
-    // 如果视图状态已可用，立即应用，避免后续定时器导致“切到 flow 再跳一下”。
     const immediateViewState = this.store.getViewState();
     if (immediateViewState) {
       this.pendingAutoFitToContents = false;
@@ -2926,23 +963,18 @@ export class FlowDiagramService {
     this.restoreViewStateTimer = setTimeout(() => {
       if (this.isDestroyed || !this.diagram) return;
 
-      // 注意：不要在外部缓存 viewState。
-      // 项目/视图状态可能在初始化后的异步加载过程中才出现；这里必须读取“最新值”。
       const viewState = this.store.getViewState();
       
       if (viewState) {
-        // 恢复保存的视图状态
         this.pendingAutoFitToContents = false;
         this.diagram.scale = viewState.scale;
         this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);
       } else {
-        // 没有保存的视图状态：如果当前不在 flow 视图，延后到 flow 激活时再执行一次。
         if (this.store.activeView() !== 'flow') {
           this.pendingAutoFitToContents = true;
           return;
         }
 
-        // 当前就在 flow：稍后执行，确保节点已经加载
         if (this.autoFitTimer) {
           clearTimeout(this.autoFitTimer);
           this.autoFitTimer = null;
@@ -2950,7 +982,7 @@ export class FlowDiagramService {
 
         this.autoFitTimer = setTimeout(() => {
           if (this.isDestroyed || !this.diagram) return;
-          this.fitToContents();
+          this.zoomService.fitToContents();
           this.autoFitTimer = null;
         }, 300);
       }
@@ -2958,14 +990,7 @@ export class FlowDiagramService {
     }, 200);
   }
   
-  /**
-   * 清理所有定时器
-   */
   private clearAllTimers(): void {
-    if (this.positionSaveTimer) {
-      clearTimeout(this.positionSaveTimer);
-      this.positionSaveTimer = null;
-    }
     if (this.resizeDebounceTimer) {
       clearTimeout(this.resizeDebounceTimer);
       this.resizeDebounceTimer = null;
@@ -2984,11 +1009,8 @@ export class FlowDiagramService {
     }
   }
   
-  /**
-   * 处理错误
-   */
   private handleError(userMessage: string, error: unknown): void {
-    const errorStr = error instanceof Error ? error.message : String(error);
+    const _errorStr = error instanceof Error ? error.message : String(error);
     this.logger.error(`❌ Flow diagram error: ${userMessage}`, error);
     this.error.set(userMessage);
     this.toast.error('流程图错误', `${userMessage}。请刷新页面重试。`);

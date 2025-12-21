@@ -8,7 +8,7 @@
  * - 避免深层嵌套对象的 Signal，保持扁平化
  */
 
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { Project, Task, Connection } from '../../../models';
 
 /**

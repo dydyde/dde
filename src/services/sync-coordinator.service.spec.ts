@@ -14,7 +14,7 @@ import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { Subject } from 'rxjs';
 import { SyncCoordinatorService } from './sync-coordinator.service';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { ConflictResolutionService } from './conflict-resolution.service';
 import { ConflictStorageService } from './conflict-storage.service';
@@ -226,7 +226,7 @@ describe('SyncCoordinatorService', () => {
     TestBed.configureTestingModule({
       providers: [
         SyncCoordinatorService,
-        { provide: SyncService, useValue: mockSyncService },
+        { provide: SimpleSyncService, useValue: mockSyncService },
         { provide: ActionQueueService, useValue: mockActionQueueService },
         { provide: ConflictResolutionService, useValue: mockConflictService },
         { provide: ConflictStorageService, useValue: mockConflictStorageService },
@@ -875,7 +875,7 @@ describe('SyncCoordinatorService 集成场景', () => {
     TestBed.configureTestingModule({
       providers: [
         SyncCoordinatorService,
-        { provide: SyncService, useValue: mockSyncService },
+        { provide: SimpleSyncService, useValue: mockSyncService },
         { provide: ActionQueueService, useValue: mockActionQueueService },
         { provide: ConflictResolutionService, useValue: mockConflictService },
         { provide: ConflictStorageService, useValue: mockConflictStorageService },

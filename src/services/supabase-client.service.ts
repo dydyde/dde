@@ -130,7 +130,7 @@ export class SupabaseClientService {
           return true;
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // 解析失败，不是有效的 JWT，检查字符串模式
     }
     

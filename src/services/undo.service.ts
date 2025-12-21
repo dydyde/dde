@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { UndoAction, Project, Task } from '../models';
+import { UndoAction, Project } from '../models';
 import { UNDO_CONFIG } from '../config/constants';
 
 /**

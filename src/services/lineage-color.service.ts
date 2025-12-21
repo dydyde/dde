@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Task, Connection } from '../models';
+import { Task } from '../models';
 import { GoJSNodeData, GoJSLinkData } from './flow-diagram-config.service';
 
 /**
@@ -248,7 +248,7 @@ export class LineageColorService {
     
     // 使用黄金角度（约137.5度）来分布颜色
     const goldenAngle = 137.508;
-    let hue = (this.HUE_OFFSET + index * goldenAngle) % 360;
+    const hue = (this.HUE_OFFSET + index * goldenAngle) % 360;
     
     return `hsl(${Math.round(hue)}, ${this.SATURATION}%, ${this.LIGHTNESS}%)`;
   }

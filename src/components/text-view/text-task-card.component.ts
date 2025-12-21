@@ -3,7 +3,7 @@ import { CommonModule, DatePipe } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../services/store.service';
 import { Task } from '../../models';
-import { extractPlainText, renderMarkdownSafe } from '../../utils/markdown';
+import { renderMarkdownSafe } from '../../utils/markdown';
 import { TextTaskEditorComponent } from './text-task-editor.component';
 
 /**

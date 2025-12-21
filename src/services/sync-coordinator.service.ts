@@ -17,7 +17,7 @@
  */
 import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
 import { Subject } from 'rxjs';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { ConflictResolutionService } from './conflict-resolution.service';
 import { ConflictStorageService } from './conflict-storage.service';
@@ -66,7 +66,7 @@ interface PersistState {
 export class SyncCoordinatorService {
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('SyncCoordinator');
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private actionQueue = inject(ActionQueueService);
   private conflictService = inject(ConflictResolutionService);
   private conflictStorage = inject(ConflictStorageService);

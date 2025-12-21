@@ -16,7 +16,7 @@ export { TaskOperationAdapterService } from './task-operation-adapter.service';
 export { RemoteChangeHandlerService, type RemoteProjectChangePayload as RemoteProjectPayload, type RemoteTaskChangePayload as RemoteTaskPayload } from './remote-change-handler.service';
 
 // 同步相关服务
-export { SyncService, type RemoteProjectChangePayload, type RemoteTaskChangePayload } from './sync.service';
+// SyncService 已被 SimpleSyncService 替代，请从 '@app/core' 导入
 export { SyncCoordinatorService } from './sync-coordinator.service';
 export { ConflictResolutionService } from './conflict-resolution.service';
 export { ActionQueueService, type QueuedAction, type DeadLetterItem, type EnqueueParams } from './action-queue.service';
@@ -72,8 +72,11 @@ export { FlowDragDropService, type InsertPositionInfo, type DropResultCallback }
 export { FlowTouchService, type TouchDropCallback } from './flow-touch.service';
 export { FlowLinkService, type LinkType } from './flow-link.service';
 export { FlowTaskOperationsService } from './flow-task-operations.service';
+export { FlowSelectionService, type SelectedNodeInfo } from './flow-selection.service';
+export { FlowZoomService, type ViewState } from './flow-zoom.service';
+export { FlowLayoutService, type NodePosition, type LayoutOptions } from './flow-layout.service';
 export { MinimapMathService, type WorldPoint, type MinimapPoint, type WorldBounds, type MinimapState, type DragSession, type RealTimeScaleResult, type VirtualBoundsResult } from './minimap-math.service';
-export { ReactiveMinimapService, type MinimapElements, type NodePosition, type MainCanvasViewport, type ReactiveDragSession, type MinimapTransform } from './reactive-minimap.service';
+export { ReactiveMinimapService, type MinimapElements, type NodePosition as MinimapNodePosition, type MainCanvasViewport, type ReactiveDragSession, type MinimapTransform } from './reactive-minimap.service';
 export { LineageColorService, type LineageData, type LineageNodeData, type LineageLinkData } from './lineage-color.service';
 
 // Guards

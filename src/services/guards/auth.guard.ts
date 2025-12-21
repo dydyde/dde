@@ -1,5 +1,5 @@
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { CanActivateFn } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { ModalService } from '../modal.service';
 import { GUARD_CONFIG, AUTH_CONFIG } from '../../config/constants';
@@ -205,7 +205,6 @@ export function getDataIsolationId(authService: AuthService): string | null {
  */
 export const requireAuthGuard: CanActivateFn = async (route, state) => {
   const authService = inject(AuthService);
-  const router = inject(Router);
   const modalService = inject(ModalService);
   
   console.log('[Guard] requireAuthGuard 开始执行，目标路由:', state.url);

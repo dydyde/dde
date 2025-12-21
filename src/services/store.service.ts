@@ -34,7 +34,7 @@
  * │ - 项目/任务状态   │  │ - UI 状态         │  │ - 搜索逻辑       │
  * └─────────────────┘   └─────────────────┘   └─────────────────┘
  */
-import { Injectable, inject, computed, DestroyRef } from '@angular/core';
+import { Injectable, inject, DestroyRef } from '@angular/core';
 import { AuthService } from './auth.service';
 import { LoggerService } from './logger.service';
 import { UndoService } from './undo.service';
@@ -347,7 +347,7 @@ export class StoreService {
           } else if (syncResult.conflict) {
             this.toastService.error('同步冲突', '解决冲突后又发生新冲突，请稍后重试');
           }
-        } catch (e) {
+        } catch (_e) {
           this.actionQueue.enqueue({
             type: 'update',
             entityType: 'project',
@@ -404,7 +404,7 @@ export class StoreService {
           // 成功：提交快照
           this.optimisticState.commitSnapshot(snapshot.id);
         }
-      } catch (e) {
+      } catch (_e) {
         // 异常：回滚
         this.optimisticState.rollbackSnapshot(snapshot.id, false);
         this.toastService.error('创建失败', '发生未知错误，请稍后重试');
@@ -459,7 +459,7 @@ export class StoreService {
           // 成功：提交快照
           this.optimisticState.commitSnapshot(snapshot.id);
         }
-      } catch (e) {
+      } catch (_e) {
         // 异常：回滚
         this.optimisticState.rollbackSnapshot(snapshot.id, false);
         this.toastService.error('删除失败', '发生未知错误，请稍后重试');

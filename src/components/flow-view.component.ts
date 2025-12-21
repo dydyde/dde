@@ -5,12 +5,16 @@ import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
 import { LoggerService } from '../services/logger.service';
 import { FlowDiagramService } from '../services/flow-diagram.service';
+import { FlowEventService } from '../services/flow-event.service';
+import { FlowZoomService } from '../services/flow-zoom.service';
+import { FlowSelectionService } from '../services/flow-selection.service';
+import { FlowLayoutService } from '../services/flow-layout.service';
 import { FlowDragDropService, InsertPositionInfo } from '../services/flow-drag-drop.service';
 import { FlowTouchService } from '../services/flow-touch.service';
 import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
 import { Task } from '../models';
-import { GOJS_CONFIG, UI_CONFIG, FLOW_VIEW_CONFIG } from '../config/constants';
+import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../config/constants';
 import { 
   FlowToolbarComponent, 
   FlowPaletteComponent, 
@@ -353,6 +357,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   // 核心服务
   readonly diagram = inject(FlowDiagramService);
+  private readonly eventService = inject(FlowEventService);
+  private readonly zoomService = inject(FlowZoomService);
+  private readonly selectionService = inject(FlowSelectionService);
+  private readonly layoutService = inject(FlowLayoutService);
   readonly dragDrop = inject(FlowDragDropService);
   readonly touch = inject(FlowTouchService);
   readonly link = inject(FlowLinkService);
@@ -465,7 +473,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // 监听搜索查询变化，使用 rAF 更新图表高亮
     effect(() => {
-      const query = this.store.searchQuery();
+      const _query = this.store.searchQuery();
       if (this.diagram.isInitialized) {
         this.scheduleRafDiagramUpdate(this.store.tasks(), true);
       }
@@ -473,7 +481,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // 监听主题变化，使用 rAF 更新图表节点颜色
     effect(() => {
-      const theme = this.store.theme();
+      const _theme = this.store.theme();
       if (this.diagram.isInitialized) {
         this.scheduleRafDiagramUpdate(this.store.tasks(), true);
       }
@@ -558,8 +566,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     const success = this.diagram.initialize(this.diagramDiv.nativeElement);
     if (!success) return;
     
-    // 注册回调
-    this.diagram.onNodeClick((taskId, isDoubleClick) => {
+    // 注册回调（通过 EventService）
+    // 注：eventService.setDiagram() 已由 diagram.initialize() 内部调用
+    this.eventService.onNodeClick((taskId, isDoubleClick) => {
       if (this.link.isLinkMode()) {
         const created = this.link.handleLinkModeClick(taskId);
         if (created) {
@@ -573,7 +582,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       }
     });
     
-    this.diagram.onLinkClick((linkData, x, y, isDoubleClick = false) => {
+    this.eventService.onLinkClick((linkData, x, y, isDoubleClick = false) => {
       console.log('[FlowView] onLinkClick 回调触发', { 
         linkData, 
         isCrossTree: linkData?.isCrossTree,
@@ -603,7 +612,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     });
     
     // 注册连接线删除回调（右键菜单）
-    this.diagram.onLinkDelete((linkData) => {
+    this.eventService.onLinkDelete((linkData) => {
       console.log('[FlowView] onLinkDelete 回调触发（右键菜单）', { linkData });
       const result = this.link.deleteLink(linkData);
       if (result) {
@@ -612,7 +621,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       }
     });
     
-    this.diagram.onLinkGesture((sourceId, targetId, x, y, gojsLink) => {
+    this.eventService.onLinkGesture((sourceId, targetId, x, y, gojsLink) => {
       // 移除临时连接线
       this.diagram.removeLink(gojsLink);
       
@@ -623,7 +632,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     });
     
     // 注册连接线重连回调（子树迁移/跨树连接重连）
-    this.diagram.onLinkRelink((linkType, relinkInfo, _x, _y, gojsLink) => {
+    this.eventService.onLinkRelink((linkType, relinkInfo, _x, _y, gojsLink) => {
       console.log('[FlowView] onLinkRelink 回调触发', { linkType, relinkInfo });
       
       // 移除 GoJS 中的临时连接线（实际数据由 store 管理）
@@ -660,7 +669,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       }
     });
     
-    this.diagram.onSelectionMoved((movedNodes) => {
+    this.eventService.onSelectionMoved((movedNodes) => {
       movedNodes.forEach(node => {
         if (node.isUnassigned) {
           // 检测是否拖到连接线上
@@ -675,7 +684,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       });
     });
     
-    this.diagram.onBackgroundClick(() => {
+    this.eventService.onBackgroundClick(() => {
       console.log('[FlowView] backgroundClick 触发，关闭编辑器和删除提示');
       this.link.closeConnectionEditor();
       // 移动端：同时关闭删除提示
@@ -803,15 +812,15 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // ========== 图表操作 ==========
   
   zoomIn(): void {
-    this.diagram.zoomIn();
+    this.zoomService.zoomIn();
   }
   
   zoomOut(): void {
-    this.diagram.zoomOut();
+    this.zoomService.zoomOut();
   }
   
   applyAutoLayout(): void {
-    this.diagram.applyAutoLayout();
+    this.layoutService.applyAutoLayout();
   }
   
   exportToPng(): void {
@@ -828,7 +837,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
 
   centerOnNode(taskId: string, openDetail: boolean = true): void {
-    this.diagram.centerOnNode(taskId);
+    this.zoomService.centerOnNode(taskId);
     this.selectedTaskId.set(taskId);
     if (openDetail) {
       this.store.isFlowDetailOpen.set(true);
@@ -838,7 +847,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   refreshLayout(): void {
     // 视图切换到 flow 后，触发一次“延后 auto-fit”的落地（若有）。
     this.diagram.onFlowActivated();
-    this.diagram.requestUpdate();
+    this.zoomService.requestUpdate();
   }
   
   private refreshDiagram(): void {
@@ -1123,7 +1132,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // Alt+Z: 解除父子关系
     if (key === 'z') {
-      const selectedKeys = this.diagram.getSelectedNodeKeys();
+      const selectedKeys = this.selectionService.getSelectedNodeKeys();
       if (!selectedKeys.length) return;
       
       event.preventDefault();

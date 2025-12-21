@@ -314,7 +314,7 @@ export class TextViewDragDropService {
   }
   
   /** 更新触摸目标位置（只更新任务位置，不改变阶段追踪） */
-  updateTouchTarget(stageNumber: number | null, beforeTaskId: string | null, options?: { autoExpanded?: boolean }): number | null {
+  updateTouchTarget(stageNumber: number | null, beforeTaskId: string | null, _options?: { autoExpanded?: boolean }): number | null {
     // 只更新任务位置，不修改阶段追踪状态
     if (stageNumber !== null) {
       this.touchState.targetStage = stageNumber;

@@ -3,7 +3,7 @@ import { ThemeService } from './theme.service';
 import { getFlowStyles, FlowStyleConfig, FlowTheme } from '../config/flow-styles';
 import { GOJS_CONFIG, SUPERSCRIPT_DIGITS } from '../config/constants';
 import { Task, Project } from '../models';
-import { LineageColorService, LineageNodeData, LineageLinkData } from './lineage-color.service';
+import { LineageColorService } from './lineage-color.service';
 import * as go from 'gojs';
 
 /**

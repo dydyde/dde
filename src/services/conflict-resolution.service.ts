@@ -1,5 +1,5 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
-import { SyncService } from './sync.service';
+import { Injectable, inject, computed } from '@angular/core';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { LayoutService } from './layout.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
@@ -51,7 +51,7 @@ export interface MergeResult {
   providedIn: 'root'
 })
 export class ConflictResolutionService {
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private layoutService = inject(LayoutService);
   private toast = inject(ToastService);
   private readonly loggerService = inject(LoggerService);
@@ -165,7 +165,7 @@ export class ConflictResolutionService {
     }
     
     // 创建任务映射
-    const localTaskMap = new Map(localTasks.map(t => [t.id, t]));
+    const _localTaskMap = new Map(localTasks.map(t => [t.id, t]));
     const remoteTaskMap = new Map(remoteTasks.map(t => [t.id, t]));
     
     const mergedTasks: Task[] = [];
@@ -238,7 +238,7 @@ export class ConflictResolutionService {
     
     // 确定基础版本（使用更新时间较新的）
     const baseTask = remoteTime > localTime ? remote : local;
-    const otherTask = remoteTime > localTime ? local : remote;
+    const _otherTask = remoteTime > localTime ? local : remote;
     
     let hasConflict = false;
     

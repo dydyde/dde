@@ -161,8 +161,6 @@ export function renderMarkdown(content: string): string {
   const htmlLines: string[] = [];
   let inCodeBlock = false;
   let codeBlockContent: string[] = [];
-  let codeBlockLang = '';
-  let inList = false;
   let listItems: string[] = [];
   
   const flushList = () => {
@@ -173,7 +171,6 @@ export function renderMarkdown(content: string): string {
       });
       htmlLines.push('</ul>');
       listItems = [];
-      inList = false;
     }
   };
   
@@ -190,7 +187,7 @@ export function renderMarkdown(content: string): string {
       } else {
         // 开始代码块
         flushList();
-        codeBlockLang = line.slice(3).trim();
+        const _codeBlockLang = line.slice(3).trim();
         inCodeBlock = true;
       }
       continue;
@@ -237,7 +234,6 @@ export function renderMarkdown(content: string): string {
     // 无序列表
     const ulMatch = line.match(/^[-*+]\s+(.+)$/);
     if (ulMatch) {
-      inList = true;
       listItems.push(parseInline(ulMatch[1]));
       continue;
     }

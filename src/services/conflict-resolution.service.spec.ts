@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ConflictResolutionService, ConflictResolutionStrategy, MergeResult } from './conflict-resolution.service';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { LayoutService } from './layout.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
@@ -119,7 +119,7 @@ describe('ConflictResolutionService', () => {
     TestBed.configureTestingModule({
       providers: [
         ConflictResolutionService,
-        { provide: SyncService, useValue: mockSyncService },
+        { provide: SimpleSyncService, useValue: mockSyncService },
         { provide: LayoutService, useValue: mockLayoutService },
         { provide: ToastService, useValue: mockToastService },
         { provide: LoggerService, useValue: mockLoggerService },
@@ -404,16 +404,20 @@ describe('ConflictResolutionService', () => {
     });
 
     it('标签应该合并去重', () => {
+      // 设置相同的时间戳，确保合并逻辑能正确保留两边的新标签
+      const sameTime = '2024-01-01T12:00:00.000Z';
       const localProject = createTestProject({
         tasks: [createTestTask({
           id: 'task-1',
           tags: ['tag1', 'tag2'],
+          updatedAt: sameTime,
         })],
       });
       const remoteProject = createTestProject({
         tasks: [createTestTask({
           id: 'task-1',
           tags: ['tag2', 'tag3'],
+          updatedAt: sameTime,
         })],
       });
 

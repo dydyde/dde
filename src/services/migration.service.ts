@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { SyncService } from './sync.service';
+import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ToastService } from './toast.service';
 import { Project, Task } from '../models';
 import { CACHE_CONFIG } from '../config/constants';
@@ -31,7 +31,7 @@ export interface MigrationResult {
   providedIn: 'root'
 })
 export class MigrationService {
-  private syncService = inject(SyncService);
+  private syncService = inject(SimpleSyncService);
   private toast = inject(ToastService);
   
   /** 是否需要迁移（有本地数据且用户刚登录） */

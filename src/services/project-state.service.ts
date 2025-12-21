@@ -1,18 +1,20 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, computed, inject } from '@angular/core';
 import { Project, Task, Connection, UnfinishedItem } from '../models';
 import { LayoutService } from './layout.service';
 import { UiStateService } from './ui-state.service';
-import { LAYOUT_CONFIG, LETTERS, SUPERSCRIPT_DIGITS } from '../config/constants';
-import {
-  Result, OperationError, ErrorCodes, success, failure
-} from '../utils/result';
+import { TaskStore, ProjectStore, ConnectionStore } from '../app/core/state/stores';
+import { SUPERSCRIPT_DIGITS } from '../config/constants';
 
 /**
  * 项目状态服务
  * 从 StoreService 拆分出来，专注于项目和任务的状态管理
  * 
+ * 【架构升级】
+ * 底层使用 TaskStore/ProjectStore/ConnectionStore 实现 O(1) 查找
+ * 对外保持原有接口兼容
+ * 
  * 【职责边界】
- * ✓ 项目/任务/连接的状态存储（signals）
+ * ✓ 项目/任务/连接的状态存储（通过 Store 代理）
  * ✓ 计算属性（stages, unassignedTasks, deletedTasks 等）
  * ✓ 纯状态读取操作
  * ✓ displayId 压缩显示
@@ -27,18 +29,32 @@ export class ProjectStateService {
   private layoutService = inject(LayoutService);
   private uiState = inject(UiStateService);
   
-  // ========== 核心数据状态 ==========
+  // ========== 新架构：底层 Store ==========
+  private readonly taskStore = inject(TaskStore);
+  private readonly projectStore = inject(ProjectStore);
+  private readonly connectionStore = inject(ConnectionStore);
   
-  readonly projects = signal<Project[]>([]);
-  readonly activeProjectId = signal<string | null>(null);
+  // ========== 核心数据状态（代理到 Store） ==========
+  
+  /** 项目列表 - 代理到 ProjectStore */
+  readonly projects = computed(() => this.projectStore.projects());
+  
+  /** 
+   * 活动项目 ID - 直接暴露 ProjectStore 的 WritableSignal
+   * 保持 .set() 可用性
+   */
+  readonly activeProjectId = this.projectStore.activeProjectId;
 
   // ========== 计算属性 ==========
 
-  readonly activeProject = computed(() => 
-    this.projects().find(p => p.id === this.activeProjectId()) || null
-  );
+  readonly activeProject = computed(() => this.projectStore.activeProject());
 
-  readonly tasks = computed(() => this.activeProject()?.tasks || []);
+  /** 当前项目的任务列表 - 使用 TaskStore O(1) 查找 */
+  readonly tasks = computed(() => {
+    const projectId = this.activeProjectId();
+    if (!projectId) return [];
+    return this.taskStore.getTasksByProject(projectId);
+  });
 
   readonly stages = computed(() => {
     const tasks = this.tasks();
@@ -216,30 +232,82 @@ export class ProjectStateService {
 
   /**
    * 直接更新项目列表
+   * 同时更新 ProjectStore、TaskStore、ConnectionStore
    */
   setProjects(projects: Project[]): void {
-    this.projects.set(projects);
+    // 更新 ProjectStore
+    this.projectStore.setProjects(projects);
+    
+    // 同步任务和连接到对应 Store
+    for (const project of projects) {
+      if (project.tasks?.length) {
+        this.taskStore.setTasks(project.tasks, project.id);
+      }
+      if (project.connections?.length) {
+        this.connectionStore.setConnections(project.connections, project.id);
+      }
+    }
   }
 
   /**
    * 更新项目列表
+   * 兼容旧的 updater 模式
    */
   updateProjects(updater: (projects: Project[]) => Project[]): void {
-    this.projects.update(updater);
+    const currentProjects = this.projectStore.projects();
+    const updatedProjects = updater(currentProjects);
+    this.setProjects(updatedProjects);
   }
 
   /**
    * 设置活动项目 ID
    */
   setActiveProjectId(projectId: string | null): void {
-    this.activeProjectId.set(projectId);
+    this.projectStore.activeProjectId.set(projectId);
   }
 
   /**
    * 清空数据
    */
   clearData(): void {
-    this.projects.set([]);
-    this.activeProjectId.set(null);
+    this.projectStore.clear();
+    this.taskStore.clear();
+    this.connectionStore.clear();
+  }
+  
+  // ========== 新增：O(1) 查找方法 ==========
+  
+  /**
+   * 获取单个任务 - O(1)
+   */
+  getTask(taskId: string): Task | undefined {
+    return this.taskStore.getTask(taskId);
+  }
+  
+  /**
+   * 获取单个连接 - O(1)
+   */
+  getConnection(connectionId: string): Connection | undefined {
+    return this.connectionStore.getConnection(connectionId);
+  }
+  
+  /**
+   * 更新单个任务
+   */
+  updateTask(task: Task, projectId?: string): void {
+    const pid = projectId || this.activeProjectId();
+    if (pid) {
+      this.taskStore.setTask(task, pid);
+    }
+  }
+  
+  /**
+   * 更新单个连接
+   */
+  updateConnection(connection: Connection, projectId?: string): void {
+    const pid = projectId || this.activeProjectId();
+    if (pid) {
+      this.connectionStore.setConnection(connection, pid);
+    }
   }
 }

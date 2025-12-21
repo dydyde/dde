@@ -5,15 +5,13 @@ import {
   inject,
   OnInit,
   OnDestroy,
-  ErrorHandler,
   ChangeDetectorRef,
   HostBinding,
   NgZone
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GlobalErrorHandler, ErrorSeverity } from '../services/global-error-handler.service';
+import { GlobalErrorHandler } from '../services/global-error-handler.service';
 import { LoggerService } from '../services/logger.service';
-import { Subscription } from 'rxjs';
 
 /**
  * 错误边界组件

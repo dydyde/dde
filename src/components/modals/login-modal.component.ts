@@ -278,7 +278,7 @@ export class LoginModalComponent implements OnDestroy {
   }
   
   // 设置重置密码已发送状态（保留接口兼容性，现在由父组件控制）
-  setResetPasswordSent(sent: boolean) {
+  setResetPasswordSent(_sent: boolean) {
     // 状态现在由父组件通过 input 控制
     // 此方法保留用于向后兼容
   }

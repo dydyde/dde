@@ -34,8 +34,8 @@ import { FormsModule } from '@angular/forms';
 import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
 import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
-import { getErrorMessage, isFailure, isSuccess, humanizeErrorMessage } from './utils/result';
-import { ThemeType, Project } from './models';
+import { getErrorMessage, isFailure, humanizeErrorMessage } from './utils/result';
+import { ThemeType } from './models';
 import { UI_CONFIG, AUTH_CONFIG } from './config/constants';
 
 /**
@@ -292,7 +292,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.setupBeforeUnloadHandler();
     
     // 异步恢复会话 - 失败会设置 bootstrapFailed 状态，模板层负责显示错误 UI
-    this.bootstrapSession().catch(e => {
+    this.bootstrapSession().catch(_e => {
       // 错误已在 bootstrapSession 内部处理并设置 bootstrapFailed 状态
       // 不再静默处理，确保用户感知启动失败
     });
@@ -692,7 +692,7 @@ export class AppComponent implements OnInit, OnDestroy {
   
   /** 重试启动会话 - 用于启动失败后的重试按钮 */
   retryBootstrap() {
-    this.bootstrapSession().catch(e => {
+    this.bootstrapSession().catch(_e => {
       // 重试失败已在 bootstrapSession 内部处理
     });
   }

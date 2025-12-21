@@ -1,5 +1,5 @@
-import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
-import { Task, Project, Connection, Attachment } from '../models';
+import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Task, Project, Attachment } from '../models';
 import { LayoutService } from './layout.service';
 import { LAYOUT_CONFIG, TRASH_CONFIG } from '../config/constants';
 import {
@@ -148,7 +148,7 @@ export class TaskOperationService {
    * @returns Result 包含新任务 ID 或错误信息
    */
   addTask(params: CreateTaskParams): Result<string, OperationError> {
-    const { title, content, targetStage, parentId, isSibling } = params;
+    const { title, content, targetStage, parentId, isSibling: _isSibling } = params;
     
     const activeP = this.getActiveProject();
     if (!activeP) {
@@ -618,7 +618,7 @@ export class TaskOperationService {
       const restoredTasks = p.tasks.map(t => {
         if (idsToRestore.has(t.id)) {
           const meta = t.deletedMeta;
-          const { deletedConnections, deletedMeta, ...rest } = t;
+          const { deletedConnections: _deletedConnections, deletedMeta: _deletedMeta, ...rest } = t;
           if (meta) {
             return {
               ...rest,
@@ -1343,7 +1343,7 @@ export class TaskOperationService {
     candidateRank: number, 
     parentRank: number | null, 
     minChildRank: number,
-    allTasks: Task[]
+    _allTasks: Task[]
   ): { ok: boolean; rank: number } {
     return this.layoutService.applyRefusalStrategy(target, candidateRank, parentRank, minChildRank);
   }

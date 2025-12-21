@@ -4,7 +4,7 @@
 
 ## 📊 重构状态：✅ 全部完成
 
-**最后更新**: 2025-01-22
+**最后更新**: 2024-12-21
 
 ### 已完成的重构
 
@@ -17,7 +17,8 @@
 | 状态管理优化 | ✅ 完成 | Map<id,T> 实现 O(1) 查找 |
 | SimpleSyncService | ✅ 完成 | LWW + RetryQueue 策略 |
 | 模块导出索引 | ✅ 完成 | 所有模块有 index.ts |
-| 测试验证 | ✅ 完成 | 340 个测试全部通过 |
+| FlowDiagramService 拆分 | ✅ 完成 | 从 3035 行拆分到 1016 行 + 6 个子服务 |
+| 测试验证 | ✅ 完成 | 357 个测试全部通过 |
 
 ### 新目录结构
 
@@ -167,10 +168,15 @@ await localDb.tasks.put(winner);
 │   ├── AttachmentService        # 附件管理
 │   └── SearchService            # 搜索
 │
-├── flow/
-│   ├── FlowDiagramService       # GoJS 图表
-│   ├── FlowDragDropService      # 拖放
-│   └── LayoutService            # 布局计算
+├── flow/                        # GoJS 流程图服务（已完全拆分 2024-12-21）
+│   ├── FlowDiagramService       # 主服务：初始化、生命周期、导出 (~1016 行)
+│   ├── FlowEventService         # 事件处理：回调注册、事件代理 (~638 行)
+│   ├── FlowTemplateService      # 模板配置：节点/连接线/Overview (~983 行)
+│   ├── FlowSelectionService     # 选择管理：选中/多选/高亮
+│   ├── FlowZoomService          # 缩放控制：放大/缩小/适应内容
+│   ├── FlowLayoutService        # 布局计算：自动布局/位置保存
+│   ├── FlowDragDropService      # 拖放逻辑
+│   └── flow-template-events.ts  # 事件总线（解耦桥梁）
 │
 └── shared/
     ├── ToastService             # Toast 提示
