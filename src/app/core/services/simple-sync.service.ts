@@ -974,7 +974,7 @@ export class SimpleSyncService {
   }
   
   /**
-   * 从云端加载项目列表
+   * 从云端加载项目列表（包含任务和连接）
    * @param userId 用户 ID
    * @param _silent 静默模式（兼容旧接口，忽略）
    */
@@ -994,7 +994,15 @@ export class SimpleSyncService {
       
       if (error) throw error;
       
-      const projects = (data || []).map((row: ProjectRow) => this.rowToProject(row));
+      // 为每个项目加载完整数据（任务和连接）
+      const projects: Project[] = [];
+      for (const row of (data || [])) {
+        const project = await this.loadFullProject(row.id, userId);
+        if (project) {
+          projects.push(project);
+        }
+      }
+      
       return projects;
     } catch (e) {
       this.logger.error('加载项目列表失败', e);
