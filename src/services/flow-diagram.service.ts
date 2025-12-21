@@ -72,6 +72,8 @@ export class FlowDiagramService {
   private isNodeDragging: boolean = false;
   private overviewUpdatePending: boolean = false;
   private overviewBoundsCache: string = '';
+  private isApplyingOverviewViewportUpdate: boolean = false;
+  private overviewUpdateQueuedWhileApplying: boolean = false;
   
   // ========== 定时器 ==========
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -439,94 +441,114 @@ export class FlowDiagramService {
     const runViewportUpdate = () => {
       if (!this.overview || !this.diagram) return;
 
-      const viewportBounds = this.diagram.viewportBounds;
-      if (!viewportBounds.isReal()) return;
+      // 防止 scale/centerRect 等操作引起 ViewportBoundsChanged 递归触发导致卡顿/卡死
+      if (this.isApplyingOverviewViewportUpdate) return;
+      this.isApplyingOverviewViewportUpdate = true;
+
+      try {
+
+        const viewportBounds = this.diagram.viewportBounds;
+        if (!viewportBounds.isReal()) return;
       
-      const nodeBounds = getNodesBounds();
-      const totalBounds = this.calculateTotalBounds();
+        const nodeBounds = getNodesBounds();
+        const totalBounds = this.calculateTotalBounds();
       
-      const isViewportOutside = 
-        viewportBounds.x < nodeBounds.x - 50 ||
-        viewportBounds.y < nodeBounds.y - 50 ||
-        viewportBounds.right > nodeBounds.right + 50 ||
-        viewportBounds.bottom > nodeBounds.bottom + 50;
+        const isViewportOutside = 
+          viewportBounds.x < nodeBounds.x - 50 ||
+          viewportBounds.y < nodeBounds.y - 50 ||
+          viewportBounds.right > nodeBounds.right + 50 ||
+          viewportBounds.bottom > nodeBounds.bottom + 50;
       
-      if (this.overviewContainer) {
-        const containerWidth = this.overviewContainer.clientWidth;
-        const containerHeight = this.overviewContainer.clientHeight;
+        if (this.overviewContainer) {
+          const containerWidth = this.overviewContainer.clientWidth;
+          const containerHeight = this.overviewContainer.clientHeight;
         
-        if (containerWidth > 0 && containerHeight > 0 && totalBounds.width > 0 && totalBounds.height > 0) {
-          const rawDisplayBounds = isViewportOutside
-            ? nodeBounds.copy().unionRect(viewportBounds)
-            : nodeBounds;
-          const displayBounds = isViewportOutside
-            ? limitDisplayBounds(rawDisplayBounds, viewportBounds)
-            : rawDisplayBounds;
+          if (containerWidth > 0 && containerHeight > 0 && totalBounds.width > 0 && totalBounds.height > 0) {
+            const rawDisplayBounds = isViewportOutside
+              ? nodeBounds.copy().unionRect(viewportBounds)
+              : nodeBounds;
+            const displayBounds = isViewportOutside
+              ? limitDisplayBounds(rawDisplayBounds, viewportBounds)
+              : rawDisplayBounds;
 
-          const boundsKey = `${displayBounds.x}|${displayBounds.y}|${displayBounds.width}|${displayBounds.height}`;
-          if (boundsKey !== this.overviewBoundsCache) {
-            this.overviewBoundsCache = boundsKey;
-            this.setOverviewFixedBounds(displayBounds);
-            this.overview.centerRect(displayBounds);
-          }
+            // 取整避免浮点抖动导致 boundsKey 高频变化（尤其在边界拖拽/缩放时）
+            const q = (v: number) => Math.round(v);
+            const boundsKey = `${q(displayBounds.x)}|${q(displayBounds.y)}|${q(displayBounds.width)}|${q(displayBounds.height)}`;
+            if (boundsKey !== this.overviewBoundsCache) {
+              this.overviewBoundsCache = boundsKey;
+              this.setOverviewFixedBounds(displayBounds);
+              this.overview.centerRect(displayBounds);
+            }
 
-          const currentScale = this.overview.scale;
-          const viewportBoxWidth = viewportBounds.width * currentScale;
-          const viewportBoxHeight = viewportBounds.height * currentScale;
+            const currentScale = this.overview.scale;
+            const viewportBoxWidth = viewportBounds.width * currentScale;
+            const viewportBoxHeight = viewportBounds.height * currentScale;
           
-          const boxPadding = 20;
-          const needsShrinkForBox = 
-            viewportBoxWidth > containerWidth - boxPadding ||
-            viewportBoxHeight > containerHeight - boxPadding;
+            const boxPadding = 20;
+            const needsShrinkForBox = 
+              viewportBoxWidth > containerWidth - boxPadding ||
+              viewportBoxHeight > containerHeight - boxPadding;
           
-          if (isViewportOutside || needsShrinkForBox) {
-            const padding = 0.15;
-            const scaleX = (containerWidth * (1 - padding * 2)) / displayBounds.width;
-            const scaleY = (containerHeight * (1 - padding * 2)) / displayBounds.height;
-            let targetScale = clampScale(Math.min(scaleX, scaleY, 0.5));
+            if (isViewportOutside || needsShrinkForBox) {
+              const padding = 0.15;
+              const scaleX = (containerWidth * (1 - padding * 2)) / displayBounds.width;
+              const scaleY = (containerHeight * (1 - padding * 2)) / displayBounds.height;
+              let targetScale = clampScale(Math.min(scaleX, scaleY, 0.5));
             
-            const newViewportBoxWidth = viewportBounds.width * targetScale;
-            const newViewportBoxHeight = viewportBounds.height * targetScale;
+              const newViewportBoxWidth = viewportBounds.width * targetScale;
+              const newViewportBoxHeight = viewportBounds.height * targetScale;
             
-            if (newViewportBoxWidth > containerWidth - boxPadding) {
-              targetScale = Math.min(targetScale, (containerWidth - boxPadding) / viewportBounds.width);
-            }
-            if (newViewportBoxHeight > containerHeight - boxPadding) {
-              targetScale = Math.min(targetScale, (containerHeight - boxPadding) / viewportBounds.height);
-            }
+              if (newViewportBoxWidth > containerWidth - boxPadding) {
+                targetScale = Math.min(targetScale, (containerWidth - boxPadding) / viewportBounds.width);
+              }
+              if (newViewportBoxHeight > containerHeight - boxPadding) {
+                targetScale = Math.min(targetScale, (containerHeight - boxPadding) / viewportBounds.height);
+              }
             
-            targetScale = clampScale(targetScale);
+              targetScale = clampScale(targetScale);
             
-            if (Math.abs(targetScale - this.overview.scale) > 0.005) {
-              this.overview.scale = targetScale;
-              this.lastOverviewScale = targetScale;
-            }
-          } else {
-            const targetScale = clampScale(baseScale);
+              if (Math.abs(targetScale - this.overview.scale) > 0.005) {
+                this.overview.scale = targetScale;
+                this.lastOverviewScale = targetScale;
+              }
+            } else {
+              const targetScale = clampScale(baseScale);
             
-            const testBoxWidth = viewportBounds.width * targetScale;
-            const testBoxHeight = viewportBounds.height * targetScale;
+              const testBoxWidth = viewportBounds.width * targetScale;
+              const testBoxHeight = viewportBounds.height * targetScale;
             
-            let finalScale = targetScale;
-            if (testBoxWidth > containerWidth - boxPadding) {
-              finalScale = Math.min(finalScale, (containerWidth - boxPadding) / viewportBounds.width);
-            }
-            if (testBoxHeight > containerHeight - boxPadding) {
-              finalScale = Math.min(finalScale, (containerHeight - boxPadding) / viewportBounds.height);
-            }
+              let finalScale = targetScale;
+              if (testBoxWidth > containerWidth - boxPadding) {
+                finalScale = Math.min(finalScale, (containerWidth - boxPadding) / viewportBounds.width);
+              }
+              if (testBoxHeight > containerHeight - boxPadding) {
+                finalScale = Math.min(finalScale, (containerHeight - boxPadding) / viewportBounds.height);
+              }
             
-            finalScale = clampScale(finalScale);
+              finalScale = clampScale(finalScale);
             
-            if (currentScale < finalScale - 0.01) {
-              this.overview.scale = finalScale;
-              this.lastOverviewScale = finalScale;
+              if (currentScale < finalScale - 0.01) {
+                this.overview.scale = finalScale;
+                this.lastOverviewScale = finalScale;
+              }
             }
           }
+        }
+      } finally {
+        this.isApplyingOverviewViewportUpdate = false;
+        if (this.overviewUpdateQueuedWhileApplying) {
+          this.overviewUpdateQueuedWhileApplying = false;
+          // 重入期间可能丢掉最后一次状态，这里补一帧
+          scheduleViewportUpdate();
         }
       }
     };
 
     const scheduleViewportUpdate = () => {
+      if (this.isApplyingOverviewViewportUpdate) {
+        this.overviewUpdateQueuedWhileApplying = true;
+        return;
+      }
       if (this.overviewUpdatePending) return;
       this.overviewUpdatePending = true;
       requestAnimationFrame(() => {
