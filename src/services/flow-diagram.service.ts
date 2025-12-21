@@ -464,20 +464,22 @@ export class FlowDiagramService {
           const containerHeight = this.overviewContainer.clientHeight;
         
           if (containerWidth > 0 && containerHeight > 0 && totalBounds.width > 0 && totalBounds.height > 0) {
-            const rawDisplayBounds = isViewportOutside
+            // rawBounds：真实内容 + 真实视口（保证视口框始终在导航图“世界范围”内）
+            const rawBounds = isViewportOutside
               ? nodeBounds.copy().unionRect(viewportBounds)
               : nodeBounds;
-            const displayBounds = isViewportOutside
-              ? limitDisplayBounds(rawDisplayBounds, viewportBounds)
-              : rawDisplayBounds;
+            // scaleBounds：用于缩放计算的“展示边界”（限幅以避免过度缩小）
+            const scaleBounds = isViewportOutside
+              ? limitDisplayBounds(rawBounds, viewportBounds)
+              : rawBounds;
 
             // 取整避免浮点抖动导致 boundsKey 高频变化（尤其在边界拖拽/缩放时）
             const q = (v: number) => Math.round(v);
-            const boundsKey = `${q(displayBounds.x)}|${q(displayBounds.y)}|${q(displayBounds.width)}|${q(displayBounds.height)}`;
+            const boundsKey = `${q(rawBounds.x)}|${q(rawBounds.y)}|${q(rawBounds.width)}|${q(rawBounds.height)}`;
             if (boundsKey !== this.overviewBoundsCache) {
               this.overviewBoundsCache = boundsKey;
-              this.setOverviewFixedBounds(displayBounds);
-              this.overview.centerRect(displayBounds);
+              this.setOverviewFixedBounds(rawBounds);
+              this.overview.centerRect(rawBounds);
             }
 
             const currentScale = this.overview.scale;
@@ -491,8 +493,8 @@ export class FlowDiagramService {
           
             if (isViewportOutside || needsShrinkForBox) {
               const padding = 0.15;
-              const scaleX = (containerWidth * (1 - padding * 2)) / displayBounds.width;
-              const scaleY = (containerHeight * (1 - padding * 2)) / displayBounds.height;
+              const scaleX = (containerWidth * (1 - padding * 2)) / scaleBounds.width;
+              const scaleY = (containerHeight * (1 - padding * 2)) / scaleBounds.height;
               let targetScale = clampScale(Math.min(scaleX, scaleY, 0.5));
             
               const newViewportBoxWidth = viewportBounds.width * targetScale;
