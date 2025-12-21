@@ -233,58 +233,14 @@ export class FlowEventService {
   
   /**
    * 设置所有 Diagram 级别的事件监听器
+   * 
+   * 注意：自定义事件（NodeClicked 等）通过 flowTemplateEventHandlers 处理，
+   * 不需要在这里注册，因为 GoJS 的 addDiagramListener 只接受内置事件名称。
    */
   private setupEventListeners(): void {
     if (!this.diagram) return;
     
     const isMobile = this.store.isMobile();
-    
-    // ========== 自定义事件监听（由模板 raiseDiagramEvent 触发）==========
-    
-    // 节点单击
-    this.addTrackedListener(FLOW_EVENTS.NODE_CLICKED, (e: go.DiagramEvent) => {
-      const node = e.subject;
-      if (!node?.data?.key) return;
-      this.emitNodeClick(node.data.key, false);
-    });
-    
-    // 节点双击
-    this.addTrackedListener(FLOW_EVENTS.NODE_DOUBLE_CLICKED, (e: go.DiagramEvent) => {
-      const node = e.subject;
-      if (!node?.data?.key) return;
-      this.emitNodeClick(node.data.key, true);
-    });
-    
-    // 连接线单击
-    this.addTrackedListener(FLOW_EVENTS.LINK_CLICKED, (e: go.DiagramEvent) => {
-      const link = e.subject;
-      if (!link?.data) return;
-      const { x, y } = this.getLinkClickPosition(link);
-      this.emitLinkClick(link.data, x, y, false);
-    });
-    
-    // 连接线双击
-    this.addTrackedListener(FLOW_EVENTS.LINK_DOUBLE_CLICKED, (e: go.DiagramEvent) => {
-      const link = e.subject;
-      if (!link?.data) return;
-      const { x, y } = this.getLinkClickPosition(link);
-      this.emitLinkClick(link.data, x, y, true);
-    });
-    
-    // 连接线删除请求（右键菜单）
-    this.addTrackedListener(FLOW_EVENTS.LINK_DELETE_REQUESTED, (e: go.DiagramEvent) => {
-      const link = e.subject;
-      if (!link?.data) return;
-      this.emitLinkDelete(link.data);
-    });
-    
-    // 跨树标签点击
-    this.addTrackedListener(FLOW_EVENTS.CROSS_TREE_LABEL_CLICKED, (e: go.DiagramEvent) => {
-      const link = e.subject;
-      if (!link?.data?.isCrossTree) return;
-      const { x, y } = this.getLinkClickPosition(link);
-      this.emitLinkClick(link.data, x, y, false);
-    });
     
     // ========== GoJS 原生事件监听 ==========
     
