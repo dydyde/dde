@@ -1,4 +1,4 @@
-import { Component, inject, signal, Output, EventEmitter, OnInit, OnDestroy, ElementRef, ViewChild, NgZone, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, signal, computed, Output, EventEmitter, OnInit, OnDestroy, ElementRef, ViewChild, NgZone, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StoreService } from '../../services/store.service';
 import { ToastService } from '../../services/toast.service';
@@ -36,7 +36,8 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
          (touchend)="onGlobalTouchEnd($event)"
          (touchcancel)="onGlobalTouchCancel($event)">
       
-      @if (store.isLoadingRemote()) {
+      <!-- 只在首次加载（无本地数据）时显示骨架屏，增量同步时保留现有内容 -->
+      @if (showLoadingSkeleton()) {
         <app-text-view-loading [isMobile]="isMobile()" />
       } @else {
         
@@ -138,6 +139,17 @@ export class TextViewComponent implements OnInit, OnDestroy {
   
   // 计算属性
   readonly isMobile = this.store.isMobile;
+  
+  /**
+   * 是否显示加载骨架屏
+   * 只在首次加载（无本地数据）时显示，增量同步时保留现有内容
+   */
+  readonly showLoadingSkeleton = computed(() => {
+    const isLoading = this.store.isLoadingRemote();
+    const hasLocalData = this.store.tasks().length > 0 || this.store.stages().length > 0;
+    // 只有在加载中 且 没有本地数据时，才显示骨架屏
+    return isLoading && !hasLocalData;
+  });
   
   ngOnInit() {
     // 在 document 上注册全局触摸事件监听器
