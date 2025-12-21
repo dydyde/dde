@@ -70,7 +70,6 @@ export class FlowDiagramService {
   private overviewContainer: HTMLDivElement | null = null;
   private lastOverviewScale: number = 0.1;
   private isNodeDragging: boolean = false;
-  private isOverviewBoxDragging: boolean = false; // 用户在 Overview 中拖动视口框
   
   // ========== 定时器 ==========
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -338,29 +337,26 @@ export class FlowDiagramService {
   private setupOverviewAutoScale(): void {
     if (!this.diagram || !this.overview) return;
     
+    // ✅ 性能优化：使用 documentBounds（O(1)）替代遍历所有节点（O(n)）
+    // GoJS 内部已维护 documentBounds，无需手动计算
     const getNodesBounds = (): go.Rect => {
       if (!this.diagram) return new go.Rect(0, 0, 500, 500);
       
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      let hasNodes = false;
+      const docBounds = this.diagram.documentBounds;
       
-      this.diagram.nodes.each((node: go.Node) => {
-        if (node.actualBounds.isReal()) {
-          hasNodes = true;
-          minX = Math.min(minX, node.actualBounds.x);
-          minY = Math.min(minY, node.actualBounds.y);
-          maxX = Math.max(maxX, node.actualBounds.right);
-          maxY = Math.max(maxY, node.actualBounds.bottom);
-        }
-      });
-      
-      if (!hasNodes) {
+      // 如果没有节点或边界无效，返回默认值
+      if (!docBounds.isReal() || (docBounds.width === 0 && docBounds.height === 0)) {
         return new go.Rect(-250, -250, 500, 500);
       }
       
+      // 添加 padding 与原逻辑一致
       const padding = 80;
-      return new go.Rect(minX - padding, minY - padding, 
-                         maxX - minX + padding * 2, maxY - minY + padding * 2);
+      return new go.Rect(
+        docBounds.x - padding,
+        docBounds.y - padding,
+        docBounds.width + padding * 2,
+        docBounds.height + padding * 2
+      );
     };
     
     const calculateBaseScale = (): number => {
@@ -390,29 +386,6 @@ export class FlowDiagramService {
     
     const nodeBounds = getNodesBounds();
     this.overview.centerRect(nodeBounds);
-    
-    // 监听 Overview 的鼠标/触摸事件来检测视口框拖拽
-    // 当用户在小地图中拖动视口框时，暂停自动缩放以避免循环更新
-    const overviewDiv = this.overview.div;
-    if (overviewDiv) {
-      const handleOverviewDragStart = () => {
-        this.isOverviewBoxDragging = true;
-      };
-      
-      const handleOverviewDragEnd = () => {
-        // 延迟重置状态，让最后一次 ViewportBoundsChanged 事件跳过
-        setTimeout(() => {
-          this.isOverviewBoxDragging = false;
-        }, 50);
-      };
-      
-      overviewDiv.addEventListener('mousedown', handleOverviewDragStart);
-      overviewDiv.addEventListener('mouseup', handleOverviewDragEnd);
-      overviewDiv.addEventListener('mouseleave', handleOverviewDragEnd);
-      overviewDiv.addEventListener('touchstart', handleOverviewDragStart, { passive: true });
-      overviewDiv.addEventListener('touchend', handleOverviewDragEnd);
-      overviewDiv.addEventListener('touchcancel', handleOverviewDragEnd);
-    }
     
     // 监听文档变化
     this.diagram.addDiagramListener('DocumentBoundsChanged', () => {
@@ -445,57 +418,6 @@ export class FlowDiagramService {
       if (!viewportBounds.isReal()) return;
       
       const nodeBounds = getNodesBounds();
-      
-      // 当用户在 Overview 中拖动视口框时，使用简化但响应更快的逻辑
-      if (this.isOverviewBoxDragging) {
-        if (!this.overviewContainer) return;
-        
-        const containerWidth = this.overviewContainer.clientWidth;
-        const containerHeight = this.overviewContainer.clientHeight;
-        if (containerWidth <= 0 || containerHeight <= 0) return;
-        
-        const currentScale = this.overview.scale;
-        
-        // 计算需要显示的总边界（节点 + 当前视口）
-        const totalBounds = new go.Rect(
-          Math.min(nodeBounds.x, viewportBounds.x),
-          Math.min(nodeBounds.y, viewportBounds.y),
-          0, 0
-        );
-        totalBounds.width = Math.max(nodeBounds.right, viewportBounds.right) - totalBounds.x;
-        totalBounds.height = Math.max(nodeBounds.bottom, viewportBounds.bottom) - totalBounds.y;
-        
-        // 计算要让所有内容+视口都显示在小地图中所需的缩放
-        const padding = 0.05;
-        const scaleForContent = Math.min(
-          (containerWidth * (1 - padding * 2)) / totalBounds.width,
-          (containerHeight * (1 - padding * 2)) / totalBounds.height
-        );
-        
-        // 计算要让视口框本身不超出容器所需的缩放
-        const boxMargin = 4;
-        const scaleForBox = Math.min(
-          (containerWidth - boxMargin) / viewportBounds.width,
-          (containerHeight - boxMargin) / viewportBounds.height
-        );
-        
-        // 取两者中更小的值，确保都能满足
-        let targetScale = clampScale(Math.min(scaleForContent, scaleForBox, 0.5));
-        
-        // 更新缩放并居中显示总边界
-        if (Math.abs(targetScale - currentScale) > 0.0005) {
-          this.overview.scale = targetScale;
-          this.lastOverviewScale = targetScale;
-        }
-        
-        // 关键：始终更新 Overview 的视图位置，确保总边界居中显示
-        // 这样视口框就不会超出小地图边界
-        this.overview.centerRect(totalBounds);
-        
-        return; // 拖动时跳过后续的完整逻辑
-      }
-      
-      // 正常模式：完整的自动缩放逻辑
       const totalBounds = this.calculateTotalBounds();
       
       const isViewportOutside = 
@@ -588,8 +510,6 @@ export class FlowDiagramService {
   }
   
   disposeOverview(): void {
-    this.isOverviewBoxDragging = false;
-    
     if (this.overview) {
       this.overview.div = null;
       this.overview = null;
