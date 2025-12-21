@@ -985,11 +985,11 @@ export class SimpleSyncService {
     this.isLoadingRemote.set(true);
     
     try {
+      // 注意：projects 表没有 deleted_at 列，项目删除是硬删除
       const { data, error } = await client
         .from('projects')
         .select('*')
         .eq('owner_id', userId)  // 数据库列名为 owner_id
-        .is('deleted_at', null)
         .order('updated_at', { ascending: false });
       
       if (error) throw error;
