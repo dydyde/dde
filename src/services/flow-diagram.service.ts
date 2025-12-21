@@ -449,9 +449,9 @@ export class FlowDiagramService {
       this.overviewDebugUpdateCalls++;
 
       const logOverview = (reason: string, details?: Record<string, unknown>) => {
-        // debug 日志限频：默认 500ms 一次
+        // 日志限频：默认 1000ms 一次（避免生产环境刷屏）
         const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        const minIntervalMs = 500;
+        const minIntervalMs = 1000;
         if (now - this.overviewDebugLastLogAt < minIntervalMs) {
           this.overviewDebugSuppressedCount++;
           return;
@@ -460,7 +460,8 @@ export class FlowDiagramService {
         this.overviewDebugSuppressedCount = 0;
         this.overviewDebugLastLogAt = now;
 
-        this.logger.debug('[OverviewPerf]', {
+        // 使用 warn：即使在生产环境（默认只显示 WARN/ERROR）也能看到
+        this.logger.warn('[OverviewPerf]', {
           reason,
           calls: this.overviewDebugUpdateCalls,
           suppressed,
@@ -621,7 +622,7 @@ export class FlowDiagramService {
           this.overviewUpdateQueuedWhileApplying = false;
           // 重入期间可能丢掉最后一次状态，这里补一帧
           // 同时记录一次：出现过重入排队
-          this.logger.debug('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
+          this.logger.warn('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
           scheduleViewportUpdate();
         }
       }
@@ -632,7 +633,7 @@ export class FlowDiagramService {
         this.overviewUpdateQueuedWhileApplying = true;
         // 这里不直接 logOverview（避免闭包捕获/频繁创建），用轻量日志点位
         if (!this.overviewUpdatePending) {
-          this.logger.debug('[OverviewPerf]', { reason: 'schedule:queued-while-applying' });
+          this.logger.warn('[OverviewPerf]', { reason: 'schedule:queued-while-applying' });
         }
         return;
       }
