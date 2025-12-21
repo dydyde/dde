@@ -74,6 +74,11 @@ export class FlowDiagramService {
   private overviewBoundsCache: string = '';
   private isApplyingOverviewViewportUpdate: boolean = false;
   private overviewUpdateQueuedWhileApplying: boolean = false;
+
+  // ========== Overview 调试日志（限频，避免刷屏） ==========
+  private overviewDebugLastLogAt = 0;
+  private overviewDebugSuppressedCount = 0;
+  private overviewDebugUpdateCalls = 0;
   
   // ========== 定时器 ==========
   private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -441,14 +446,45 @@ export class FlowDiagramService {
     const runViewportUpdate = () => {
       if (!this.overview || !this.diagram) return;
 
+      this.overviewDebugUpdateCalls++;
+
+      const logOverview = (reason: string, details?: Record<string, unknown>) => {
+        // debug 日志限频：默认 500ms 一次
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const minIntervalMs = 500;
+        if (now - this.overviewDebugLastLogAt < minIntervalMs) {
+          this.overviewDebugSuppressedCount++;
+          return;
+        }
+        const suppressed = this.overviewDebugSuppressedCount;
+        this.overviewDebugSuppressedCount = 0;
+        this.overviewDebugLastLogAt = now;
+
+        this.logger.debug('[OverviewPerf]', {
+          reason,
+          calls: this.overviewDebugUpdateCalls,
+          suppressed,
+          pending: this.overviewUpdatePending,
+          applying: this.isApplyingOverviewViewportUpdate,
+          queuedWhileApplying: this.overviewUpdateQueuedWhileApplying,
+          ...(details ?? {})
+        });
+      };
+
       // 防止 scale/centerRect 等操作引起 ViewportBoundsChanged 递归触发导致卡顿/卡死
-      if (this.isApplyingOverviewViewportUpdate) return;
+      if (this.isApplyingOverviewViewportUpdate) {
+        logOverview('skip:reentrant');
+        return;
+      }
       this.isApplyingOverviewViewportUpdate = true;
 
       try {
 
         const viewportBounds = this.diagram.viewportBounds;
-        if (!viewportBounds.isReal()) return;
+        if (!viewportBounds.isReal()) {
+          logOverview('skip:viewport-not-real');
+          return;
+        }
       
         const nodeBounds = getNodesBounds();
         const totalBounds = this.calculateTotalBounds();
@@ -458,6 +494,24 @@ export class FlowDiagramService {
           viewportBounds.y < nodeBounds.y - 50 ||
           viewportBounds.right > nodeBounds.right + 50 ||
           viewportBounds.bottom > nodeBounds.bottom + 50;
+
+        // 关键场景打点：你描述的“向下拖到很远”通常是 Y 方向超界
+        if (isViewportOutside) {
+          logOverview('state:viewport-outside', {
+            viewport: {
+              x: Math.round(viewportBounds.x),
+              y: Math.round(viewportBounds.y),
+              w: Math.round(viewportBounds.width),
+              h: Math.round(viewportBounds.height)
+            },
+            nodeBounds: {
+              x: Math.round(nodeBounds.x),
+              y: Math.round(nodeBounds.y),
+              w: Math.round(nodeBounds.width),
+              h: Math.round(nodeBounds.height)
+            }
+          });
+        }
       
         if (this.overviewContainer) {
           const containerWidth = this.overviewContainer.clientWidth;
@@ -480,6 +534,21 @@ export class FlowDiagramService {
               this.overviewBoundsCache = boundsKey;
               this.setOverviewFixedBounds(rawBounds);
               this.overview.centerRect(rawBounds);
+
+              logOverview('apply:bounds', {
+                rawBounds: {
+                  x: q(rawBounds.x),
+                  y: q(rawBounds.y),
+                  w: q(rawBounds.width),
+                  h: q(rawBounds.height)
+                },
+                scaleBounds: {
+                  x: q(scaleBounds.x),
+                  y: q(scaleBounds.y),
+                  w: q(scaleBounds.width),
+                  h: q(scaleBounds.height)
+                }
+              });
             }
 
             const currentScale = this.overview.scale;
@@ -512,6 +581,11 @@ export class FlowDiagramService {
               if (Math.abs(targetScale - this.overview.scale) > 0.005) {
                 this.overview.scale = targetScale;
                 this.lastOverviewScale = targetScale;
+
+                logOverview('apply:scale', {
+                  targetScale: Number(targetScale.toFixed(4)),
+                  mode: isViewportOutside ? 'outside' : 'shrink-for-box'
+                });
               }
             } else {
               const targetScale = clampScale(baseScale);
@@ -532,6 +606,11 @@ export class FlowDiagramService {
               if (currentScale < finalScale - 0.01) {
                 this.overview.scale = finalScale;
                 this.lastOverviewScale = finalScale;
+
+                logOverview('apply:scale', {
+                  targetScale: Number(finalScale.toFixed(4)),
+                  mode: 'back-to-base'
+                });
               }
             }
           }
@@ -541,6 +620,8 @@ export class FlowDiagramService {
         if (this.overviewUpdateQueuedWhileApplying) {
           this.overviewUpdateQueuedWhileApplying = false;
           // 重入期间可能丢掉最后一次状态，这里补一帧
+          // 同时记录一次：出现过重入排队
+          this.logger.debug('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
           scheduleViewportUpdate();
         }
       }
@@ -549,6 +630,10 @@ export class FlowDiagramService {
     const scheduleViewportUpdate = () => {
       if (this.isApplyingOverviewViewportUpdate) {
         this.overviewUpdateQueuedWhileApplying = true;
+        // 这里不直接 logOverview（避免闭包捕获/频繁创建），用轻量日志点位
+        if (!this.overviewUpdatePending) {
+          this.logger.debug('[OverviewPerf]', { reason: 'schedule:queued-while-applying' });
+        }
         return;
       }
       if (this.overviewUpdatePending) return;
