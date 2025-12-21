@@ -376,7 +376,7 @@ export class FlowDiagramService {
     };
 
     const clampScale = (scale: number): number => {
-      return Math.max(0.05, Math.min(0.5, scale));  // 最小 0.05，避免极小缩放导致性能问题
+      return Math.max(0.02, Math.min(0.5, scale));
     };
     
     let baseScale = calculateBaseScale();
@@ -501,15 +501,10 @@ export class FlowDiagramService {
       return viewBounds.copy();
     }
     
-    // ✅ 性能优化：限制 totalBounds 的扩展范围
-    // 当视口超出文档边界太远时（超过 maxExpansion），不再无限扩展
-    // 这避免了 Overview 需要处理极端大的边界范围，从而避免卡顿
-    const maxExpansion = 2000;
-    
-    const minX = Math.max(docBounds.x - maxExpansion, Math.min(docBounds.x, viewBounds.x));
-    const minY = Math.max(docBounds.y - maxExpansion, Math.min(docBounds.y, viewBounds.y));
-    const maxX = Math.min(docBounds.right + maxExpansion, Math.max(docBounds.right, viewBounds.right));
-    const maxY = Math.min(docBounds.bottom + maxExpansion, Math.max(docBounds.bottom, viewBounds.bottom));
+    const minX = Math.min(docBounds.x, viewBounds.x);
+    const minY = Math.min(docBounds.y, viewBounds.y);
+    const maxX = Math.max(docBounds.x + docBounds.width, viewBounds.x + viewBounds.width);
+    const maxY = Math.max(docBounds.y + docBounds.height, viewBounds.y + viewBounds.height);
     
     return new go.Rect(minX, minY, maxX - minX, maxY - minY);
   }

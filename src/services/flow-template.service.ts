@@ -950,7 +950,7 @@ export class FlowTemplateService {
       },
       $(go.Shape,
         {
-          strokeWidth: 2,  // 从 12 改为 2，减少渲染开销
+          strokeWidth: 12,
           opacity: 0.8
         },
         new go.Binding("stroke", "isCrossTree", (isCrossTree: boolean) =>
