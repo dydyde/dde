@@ -408,7 +408,21 @@ export class FlowDiagramService {
         baseBounds.height + expandTop + expandBottom
       );
 
-      // 将视口位置限制在内容周围的最大溢出范围内，再合并，确保视口框不会被拉到无限远
+      // 确保限制后的边界至少能容纳视口（含缓冲），避免视口高度大于限制框时上下越界
+      const minWidth = viewportBounds.width + 200;
+      if (limited.width < minWidth) {
+        const pad = (minWidth - limited.width) / 2;
+        limited.x -= pad;
+        limited.width = minWidth;
+      }
+      const minHeight = viewportBounds.height + 200;
+      if (limited.height < minHeight) {
+        const pad = (minHeight - limited.height) / 2;
+        limited.y -= pad;
+        limited.height = minHeight;
+      }
+
+      // 将视口位置限制在限制框内，再合并，确保视口框不会被拉到无限远
       const clampedViewportX = Math.max(limited.x, Math.min(viewportBounds.x, limited.right - viewportBounds.width));
       const clampedViewportY = Math.max(limited.y, Math.min(viewportBounds.y, limited.bottom - viewportBounds.height));
       const clampedViewport = new go.Rect(
