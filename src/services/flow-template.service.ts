@@ -964,13 +964,23 @@ export class FlowTemplateService {
   
   /**
    * 设置 Overview 视口框样式
+   * @param overview Overview 实例
+   * @param isMobile 是否为移动端
    */
-  setupOverviewBoxStyle(overview: go.Overview): void {
+  setupOverviewBoxStyle(overview: go.Overview, isMobile: boolean = false): void {
     const box = overview.box;
     if (box && box.elt(0)) {
-      (box.elt(0) as go.Shape).stroke = "#ffffff";
-      (box.elt(0) as go.Shape).strokeWidth = 2;
-      (box.elt(0) as go.Shape).fill = "rgba(255, 255, 255, 0.15)";
+      const shape = box.elt(0) as go.Shape;
+      
+      // 移动端使用更粗的边框（因为 pixelRatio=1）
+      // 桌面端使用标准边框（因为 pixelRatio=devicePixelRatio）
+      shape.strokeWidth = isMobile ? 3 : 2;
+      
+      // 使用更明显的白色边框
+      shape.stroke = "#ffffff";
+      
+      // 半透明白色填充
+      shape.fill = "rgba(255, 255, 255, 0.15)";
     }
   }
   

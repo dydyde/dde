@@ -336,8 +336,8 @@ export class FlowDiagramService {
         
         this.overview.observed = this.diagram;
         
-        // 设置视口框样式
-        this.templateService.setupOverviewBoxStyle(this.overview);
+        // 设置视口框样式（传递移动端标识）
+        this.templateService.setupOverviewBoxStyle(this.overview, isMobile);
         
         this.overview.scale = 0.15;
         this.lastOverviewScale = 0.15;
@@ -830,10 +830,28 @@ export class FlowDiagramService {
       this.overviewPointerCleanup = null;
     }
 
+    let interactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
     const onPointerDown = () => {
       this.isOverviewInteracting = true;
+      
+      // 设置超时保护：500ms 后自动重置，防止事件丢失导致状态卡住
+      if (interactionTimeoutId) {
+        clearTimeout(interactionTimeoutId);
+      }
+      interactionTimeoutId = setTimeout(() => {
+        if (this.isOverviewInteracting) {
+          this.isOverviewInteracting = false;
+          this.overviewInteractionLastApplyAt = 0;
+        }
+      }, 500);
     };
     const onPointerUpLike = () => {
+      if (interactionTimeoutId) {
+        clearTimeout(interactionTimeoutId);
+        interactionTimeoutId = null;
+      }
+      
       if (!this.isOverviewInteracting) return;
       this.isOverviewInteracting = false;
       this.overviewInteractionLastApplyAt = 0;
@@ -856,6 +874,10 @@ export class FlowDiagramService {
     container.addEventListener('pointerleave', onPointerUpLike, { passive: true });
 
     this.overviewPointerCleanup = () => {
+      if (interactionTimeoutId) {
+        clearTimeout(interactionTimeoutId);
+        interactionTimeoutId = null;
+      }
       container.removeEventListener('pointerdown', onPointerDown);
       container.removeEventListener('pointerup', onPointerUpLike);
       container.removeEventListener('pointercancel', onPointerUpLike);
