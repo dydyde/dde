@@ -74,6 +74,13 @@ export class FlowDiagramService {
   private overviewBoundsCache: string = '';
   private isApplyingOverviewViewportUpdate: boolean = false;
   private overviewUpdateQueuedWhileApplying: boolean = false;
+  private overviewScheduleUpdate: ((source: 'viewport' | 'document') => void) | null = null;
+
+  // Overview 交互状态：用户拖拽导航图视口框时会导致主视口高频变化
+  // 用于在交互期间进行更强的节流，避免大图时卡顿/卡死
+  private isOverviewInteracting: boolean = false;
+  private overviewInteractionLastApplyAt = 0;
+  private overviewPointerCleanup: (() => void) | null = null;
 
   // ========== Overview 调试日志（限频，避免刷屏） ==========
   private overviewDebugLastLogAt = 0;
@@ -285,6 +292,9 @@ export class FlowDiagramService {
     
     this.overviewContainer = container;
     this.overviewBoundsCache = '';
+    this.isOverviewInteracting = false;
+    this.overviewInteractionLastApplyAt = 0;
+    this.overviewScheduleUpdate = null;
     
     try {
       const $ = go.GraphObject.make;
@@ -315,6 +325,8 @@ export class FlowDiagramService {
       
       this.overview.scale = 0.15;
       this.lastOverviewScale = 0.15;
+
+      this.attachOverviewPointerListeners(container);
       
       this.setupOverviewAutoScale();
       
@@ -443,12 +455,18 @@ export class FlowDiagramService {
       return limited.unionRect(clampedViewport);
     };
 
-    const runViewportUpdate = () => {
+    let pendingUpdateSource: 'viewport' | 'document' = 'viewport';
+
+    const runViewportUpdate = (source: 'viewport' | 'document') => {
       if (!this.overview || !this.diagram) return;
 
       this.overviewDebugUpdateCalls++;
 
       const logOverview = (reason: string, details?: Record<string, unknown>) => {
+        // 默认关闭：避免日志本身造成卡顿。需要时可在控制台执行：window.__NF_OVERVIEW_DEBUG = true
+        const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+        if (!debugEnabled) return;
+
         // 日志限频：默认 1000ms 一次（避免生产环境刷屏）
         const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         const minIntervalMs = 1000;
@@ -460,7 +478,7 @@ export class FlowDiagramService {
         this.overviewDebugSuppressedCount = 0;
         this.overviewDebugLastLogAt = now;
 
-        // 使用 warn：即使在生产环境（默认只显示 WARN/ERROR）也能看到
+        // debugEnabled=true 时才输出，用 warn 方便用户直接看到
         this.logger.warn('[OverviewPerf]', {
           reason,
           calls: this.overviewDebugUpdateCalls,
@@ -468,6 +486,7 @@ export class FlowDiagramService {
           pending: this.overviewUpdatePending,
           applying: this.isApplyingOverviewViewportUpdate,
           queuedWhileApplying: this.overviewUpdateQueuedWhileApplying,
+          source,
           ...(details ?? {})
         });
       };
@@ -480,6 +499,12 @@ export class FlowDiagramService {
       this.isApplyingOverviewViewportUpdate = true;
 
       try {
+
+        // 用户正在拖拽导航图（视口框）时：完全不做 viewport 驱动的自动缩放/边界更新
+        // 否则会与用户拖拽产生“拉扯”，并在节点多时触发卡死。
+        if (this.isOverviewInteracting && source === 'viewport') {
+          return;
+        }
 
         const viewportBounds = this.diagram.viewportBounds;
         if (!viewportBounds.isReal()) {
@@ -534,7 +559,8 @@ export class FlowDiagramService {
             if (boundsKey !== this.overviewBoundsCache) {
               this.overviewBoundsCache = boundsKey;
               this.setOverviewFixedBounds(rawBounds);
-              this.overview.centerRect(rawBounds);
+              // 重要：不要在 viewport 变化时频繁 centerRect，否则会抵消用户拖动造成“看起来不动/卡住”
+              // Overview 自身会根据 observed 内容 + contentAlignment 进行呈现。
 
               logOverview('apply:bounds', {
                 rawBounds: {
@@ -622,17 +648,22 @@ export class FlowDiagramService {
           this.overviewUpdateQueuedWhileApplying = false;
           // 重入期间可能丢掉最后一次状态，这里补一帧
           // 同时记录一次：出现过重入排队
-          this.logger.warn('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
-          scheduleViewportUpdate();
+          const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+          if (debugEnabled) {
+            this.logger.warn('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
+          }
+          scheduleViewportUpdate(pendingUpdateSource);
         }
       }
     };
 
-    const scheduleViewportUpdate = () => {
+    const scheduleViewportUpdate = (source: 'viewport' | 'document') => {
+      // 同一帧内若既有 document 又有 viewport 更新，以 document 为准
+      pendingUpdateSource = pendingUpdateSource === 'document' ? 'document' : source;
       if (this.isApplyingOverviewViewportUpdate) {
         this.overviewUpdateQueuedWhileApplying = true;
-        // 这里不直接 logOverview（避免闭包捕获/频繁创建），用轻量日志点位
-        if (!this.overviewUpdatePending) {
+        const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+        if (debugEnabled && !this.overviewUpdatePending) {
           this.logger.warn('[OverviewPerf]', { reason: 'schedule:queued-while-applying' });
         }
         return;
@@ -641,9 +672,14 @@ export class FlowDiagramService {
       this.overviewUpdatePending = true;
       requestAnimationFrame(() => {
         this.overviewUpdatePending = false;
-        runViewportUpdate();
+        const src = pendingUpdateSource;
+        pendingUpdateSource = 'viewport';
+        runViewportUpdate(src);
       });
     };
+
+    // 允许外部（例如导航图 pointerup）触发一次同步
+    this.overviewScheduleUpdate = scheduleViewportUpdate;
     
     // 监听文档变化
     this.diagram.addDiagramListener('DocumentBoundsChanged', () => {
@@ -665,7 +701,7 @@ export class FlowDiagramService {
         }
       }
 
-      scheduleViewportUpdate();
+      scheduleViewportUpdate('document');
     });
     
     // 监听视口变化
@@ -673,7 +709,7 @@ export class FlowDiagramService {
       if (!this.overview || !this.diagram || this.isNodeDragging) {
         return;
       }
-      scheduleViewportUpdate();
+      scheduleViewportUpdate('viewport');
     });
     
     // 监听滚动结束，确保 fixedBounds 清理（避免缩放被锁在极值）
@@ -717,11 +753,55 @@ export class FlowDiagramService {
   }
   
   disposeOverview(): void {
+    if (this.overviewPointerCleanup) {
+      this.overviewPointerCleanup();
+      this.overviewPointerCleanup = null;
+    }
+    this.overviewScheduleUpdate = null;
     if (this.overview) {
       this.overview.div = null;
       this.overview = null;
     }
     this.overviewContainer = null;
+  }
+
+  private attachOverviewPointerListeners(container: HTMLDivElement): void {
+    if (this.overviewPointerCleanup) {
+      this.overviewPointerCleanup();
+      this.overviewPointerCleanup = null;
+    }
+
+    const onPointerDown = () => {
+      this.isOverviewInteracting = true;
+    };
+    const onPointerUpLike = () => {
+      if (!this.isOverviewInteracting) return;
+      this.isOverviewInteracting = false;
+      this.overviewInteractionLastApplyAt = 0;
+
+      // 交互结束后强制补一次同步：让 Overview 的缩放/边界跟上最新主视口
+      this.overviewBoundsCache = '';
+      this.overviewScheduleUpdate?.('viewport');
+
+      // 交互结束后补一帧更新：避免出现“视口框能动但缩略块不跟随/像卡住”的最终状态
+      requestAnimationFrame(() => {
+        if (this.isDestroyed || !this.diagram || !this.overview) return;
+        this.overview.requestUpdate();
+        this.diagram.requestUpdate();
+      });
+    };
+
+    container.addEventListener('pointerdown', onPointerDown, { passive: true });
+    container.addEventListener('pointerup', onPointerUpLike, { passive: true });
+    container.addEventListener('pointercancel', onPointerUpLike, { passive: true });
+    container.addEventListener('pointerleave', onPointerUpLike, { passive: true });
+
+    this.overviewPointerCleanup = () => {
+      container.removeEventListener('pointerdown', onPointerDown);
+      container.removeEventListener('pointerup', onPointerUpLike);
+      container.removeEventListener('pointercancel', onPointerUpLike);
+      container.removeEventListener('pointerleave', onPointerUpLike);
+    };
   }
   
   /**
@@ -1225,6 +1305,7 @@ export class FlowDiagramService {
   // TS 类型定义不允许 null，这里集中处理为 any 写入
   private setOverviewFixedBounds(bounds: go.Rect | null): void {
     if (!this.overview) return;
-    (this.overview as any).fixedBounds = bounds;
+    // GoJS 要求 fixedBounds 必须是 Rect 实例或 undefined，不能是 null
+    (this.overview as any).fixedBounds = bounds || undefined;
   }
 }
