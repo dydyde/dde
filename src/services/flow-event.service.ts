@@ -181,7 +181,9 @@ export class FlowEventService {
     // 跨树连接标签点击
     flowTemplateEventHandlers.onCrossTreeLabelClick = (link: go.Link, viewX: number, viewY: number) => {
       this.zone.run(() => {
-        this.emitLinkClick(link.data, viewX, viewY, false);
+        // 将 GoJS 视图坐标转换为浏览器窗口坐标
+        const { windowX, windowY } = this.convertViewToWindowCoords(viewX, viewY);
+        this.emitLinkClick(link.data, windowX, windowY, false);
       });
     };
     
@@ -197,6 +199,29 @@ export class FlowEventService {
     flowTemplateEventHandlers.onLinkClick = undefined;
     flowTemplateEventHandlers.onLinkDeleteRequest = undefined;
     flowTemplateEventHandlers.onCrossTreeLabelClick = undefined;
+  }
+
+  /**
+   * 将 GoJS 视图坐标转换为浏览器窗口坐标
+   * @param viewX GoJS 视图坐标 X
+   * @param viewY GoJS 视图坐标 Y
+   * @returns 浏览器窗口坐标
+   */
+  private convertViewToWindowCoords(viewX: number, viewY: number): { windowX: number; windowY: number } {
+    if (!this.diagram || !this.diagramDiv) {
+      // 降级：无法转换时直接返回原坐标
+      return { windowX: viewX, windowY: viewY };
+    }
+
+    // 获取 diagram div 相对于视口的位置
+    const rect = this.diagramDiv.getBoundingClientRect();
+    
+    // GoJS viewPoint 已经是相对于 canvas 左上角的像素坐标
+    // 加上 canvas 相对于视口的偏移即可得到窗口坐标
+    const windowX = rect.left + viewX;
+    const windowY = rect.top + viewY;
+
+    return { windowX, windowY };
   }
   
   // ========== 回调注册方法 ==========

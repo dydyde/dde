@@ -121,3 +121,89 @@ describe('LayoutService.rebalance displayId visibility rules', () => {
     expect(rebalancedGrandchild.displayId).toBe('1,a,a');
   });
 });
+
+describe('LayoutService.getSmartPosition', () => {
+  let service: LayoutService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        LayoutService,
+        { provide: ToastService, useValue: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }
+      ]
+    });
+    service = TestBed.inject(LayoutService);
+  });
+
+  it('应该为未分配任务返回网格位置', () => {
+    const tasks: Task[] = [];
+    const pos = service.getSmartPosition(null, 0, tasks);
+    
+    // 第一个未分配任务应该在 (80, 80)
+    expect(pos.x).toBe(80);
+    expect(pos.y).toBe(80);
+  });
+
+  it('应该在父节点右侧创建子节点', () => {
+    const parent = createTask({ id: 'parent', stage: 1, x: 300, y: 200 });
+    const tasks: Task[] = [parent];
+    
+    const pos = service.getSmartPosition(2, 0, tasks, 'parent');
+    
+    // 子节点应该在父节点右侧（stage spacing = 260）
+    expect(pos.x).toBe(300 + 260);
+    expect(pos.y).toBe(200); // 第一个子节点 y 偏移 0
+  });
+
+  it('应该在同一阶段最后一个节点下方创建新节点', () => {
+    const task1 = createTask({ id: 't1', stage: 1, x: 120, y: 100 });
+    const task2 = createTask({ id: 't2', stage: 1, x: 120, y: 240 });
+    const task3 = createTask({ id: 't3', stage: 1, x: 120, y: 380 });
+    const tasks: Task[] = [task1, task2, task3];
+    
+    // 创建第4个节点
+    const pos = service.getSmartPosition(1, 3, tasks);
+    
+    // 应该在最后一个节点下方（row spacing = 140）
+    expect(pos.x).toBe(120);
+    expect(pos.y).toBe(380 + 140);
+  });
+
+  it('应该基于前一阶段的平均高度创建新阶段的第一个节点', () => {
+    const stage1task1 = createTask({ id: 't1', stage: 1, x: 120, y: 100 });
+    const stage1task2 = createTask({ id: 't2', stage: 1, x: 120, y: 300 });
+    const tasks: Task[] = [stage1task1, stage1task2];
+    
+    // 创建 stage 2 的第一个节点
+    const pos = service.getSmartPosition(2, 0, tasks);
+    
+    // 平均 y 坐标 = (100 + 300) / 2 = 200
+    expect(pos.x).toBe(380); // (2-1) * 260 + 120
+    expect(pos.y).toBe(200); // 平均高度
+  });
+
+  it('应该忽略已删除和已归档的任务', () => {
+    const activeTask = createTask({ id: 't1', stage: 1, x: 120, y: 100 });
+    const deletedTask = createTask({ id: 't2', stage: 1, x: 120, y: 240, deletedAt: '2024-01-01' });
+    const archivedTask = createTask({ id: 't3', stage: 1, x: 120, y: 380, status: 'archived' });
+    const tasks: Task[] = [activeTask, deletedTask, archivedTask];
+    
+    // 创建新节点应该基于 activeTask 的位置
+    const pos = service.getSmartPosition(1, 1, tasks);
+    
+    // 应该在 activeTask 下方，忽略 deleted 和 archived
+    expect(pos.x).toBe(120);
+    expect(pos.y).toBe(100 + 140); // activeTask.y + ROW_SPACING
+  });
+
+  it('当阶段没有任何节点时应该使用固定网格位置', () => {
+    const tasks: Task[] = [];
+    
+    // 创建 stage 1 的第一个节点
+    const pos = service.getSmartPosition(1, 0, tasks);
+    
+    // 应该使用固定的网格位置
+    expect(pos.x).toBe(120); // (1-1) * 260 + 120
+    expect(pos.y).toBe(100); // 100 + 0 * 140
+  });
+});

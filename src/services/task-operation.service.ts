@@ -162,9 +162,13 @@ export class TaskOperationService {
 
     const stageTasks = activeP.tasks.filter(t => t.stage === targetStage);
     const newOrder = stageTasks.length + 1;
-    const pos = targetStage !== null 
-      ? this.layoutService.gridPosition(targetStage, newOrder - 1)
-      : this.layoutService.getUnassignedPosition(activeP.tasks.filter(t => t.stage === null).length);
+    // 使用智能位置计算，使新节点出现在现有节点附近
+    const pos = this.layoutService.getSmartPosition(
+      targetStage,
+      newOrder - 1,
+      activeP.tasks,
+      parentId
+    );
     const parent = parentId ? activeP.tasks.find(t => t.id === parentId) : null;
     const candidateRank = targetStage === null
       ? LAYOUT_CONFIG.RANK_ROOT_BASE + activeP.tasks.filter(t => t.stage === null).length * LAYOUT_CONFIG.RANK_STEP

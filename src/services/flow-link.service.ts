@@ -499,9 +499,13 @@ export class FlowLinkService {
   ): void {
     console.log('[FlowLink] openConnectionEditor 被调用', { sourceId, targetId, description, x, y });
     
-    // 调整位置
-    const adjustedX = Math.max(10, x - 100);
-    const adjustedY = Math.max(10, y - 20);
+    // 编辑器宽度约 176px (w-44 = 11rem)，高度约 120px
+    const editorWidth = 176;
+    const editorHeight = 120;
+    
+    // 将编辑器居中对齐到点击位置，并向上偏移使其显示在关联块正上方
+    const adjustedX = Math.max(10, x - editorWidth / 2);
+    const adjustedY = Math.max(10, y - editorHeight - 10); // 向上偏移，留 10px 间距
     
     const editorData = {
       sourceId,

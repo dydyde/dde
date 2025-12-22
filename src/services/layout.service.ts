@@ -288,6 +288,80 @@ export class LayoutService {
   }
 
   /**
+   * 智能计算新节点位置
+   * 考虑同一阶段现有节点的实际位置，使新节点出现在附近
+   * 
+   * @param stage 目标阶段
+   * @param index 节点在该阶段的索引
+   * @param existingTasks 所有已存在的任务
+   * @param parentId 父节点ID（如果有）
+   * @returns 新节点的坐标
+   */
+  getSmartPosition(
+    stage: number | null,
+    index: number,
+    existingTasks: Task[],
+    parentId?: string | null
+  ): { x: number; y: number } {
+    // 未分配任务，使用原有逻辑
+    if (stage === null) {
+      return this.getUnassignedPosition(existingTasks.filter(t => t.stage === null).length);
+    }
+
+    // 获取同一阶段的所有可见任务（排除已删除和归档的）
+    const sameStageTasks = existingTasks.filter(
+      t => t.stage === stage && !t.deletedAt && t.status !== 'archived'
+    );
+
+    // 如果有父节点，优先考虑父节点的位置
+    if (parentId) {
+      const parent = existingTasks.find(t => t.id === parentId);
+      if (parent && parent.x !== undefined && parent.y !== undefined) {
+        // 在父节点右侧偏下方创建
+        return {
+          x: parent.x + LAYOUT_CONFIG.STAGE_SPACING,
+          y: parent.y + (index * 60) // 每个子节点垂直间隔60
+        };
+      }
+    }
+
+    // 如果该阶段已有节点，找到最后一个节点的位置
+    if (sameStageTasks.length > 0) {
+      // 按 y 坐标排序，找到最下方的节点
+      const sortedTasks = sameStageTasks
+        .filter(t => t.x !== undefined && t.y !== undefined)
+        .sort((a, b) => (a.y || 0) - (b.y || 0));
+      
+      if (sortedTasks.length > 0) {
+        const lastTask = sortedTasks[sortedTasks.length - 1];
+        // 在最后一个节点下方创建
+        return {
+          x: lastTask.x || this.gridPosition(stage, index).x,
+          y: (lastTask.y || 0) + LAYOUT_CONFIG.ROW_SPACING
+        };
+      }
+    }
+
+    // 如果该阶段没有节点，查找相邻阶段的节点位置作为参考
+    const prevStageTasks = existingTasks.filter(
+      t => t.stage === stage - 1 && !t.deletedAt && t.status !== 'archived' &&
+           t.x !== undefined && t.y !== undefined
+    );
+    
+    if (prevStageTasks.length > 0) {
+      // 计算前一阶段节点的平均 Y 坐标
+      const avgY = prevStageTasks.reduce((sum, t) => sum + (t.y || 0), 0) / prevStageTasks.length;
+      return {
+        x: (stage - 1) * LAYOUT_CONFIG.STAGE_SPACING + 120,
+        y: avgY + (index * 60) // 使用前一阶段的平均高度，每个新节点偏移60
+      };
+    }
+
+    // 兜底：使用固定网格位置
+    return this.gridPosition(stage, index);
+  }
+
+  /**
    * 计算阶段的基础 rank 值
    */
   stageBase(stage: number) {
