@@ -231,14 +231,16 @@ export class TextTaskCardComponent implements OnChanges {
   
   onTouchMove(event: TouchEvent) {
     if (!this.isSelected) {
-      // 只有在拖动状态时才阻止默认行为
-      // 让 service 判断是否应该阻止，如果返回 true 表示已进入拖动状态
+      // 发射事件让父组件处理
       this.touchMove.emit(event);
-      // 注意：不在这里 preventDefault，让 service 通过返回值决定
-      // 组件需要根据 isDragging 状态来判断是否阻止默认行为
+      // 🔧 修复：在拖拽状态下或有待处理的触摸拖拽时都要阻止默认行为
+      // 这样可以防止浏览器触发页面滚动，确保拖拽体验流畅
+      // 注意：isDragging 属性由父组件传入，在拖拽激活后会变为 true
       if (this.isDragging) {
         event.preventDefault();
       }
+      // 注意：在拖拽激活前的 touchmove 不阻止默认行为，
+      // 这是为了让用户可以正常滚动页面（垂直方向的移动）
     }
   }
   

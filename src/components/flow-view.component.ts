@@ -432,6 +432,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   // ========== 私有状态 ==========
   private isDestroyed = false;
+
+  /** GoJS 拖拽过程中用于移动端幽灵反馈的监听器引用（便于销毁/重建时移除） */
+  private diagramSelectionMovingListener: ((e: go.DiagramEvent) => void) | null = null;
+  private diagramSelectionMovedListener: ((e: go.DiagramEvent) => void) | null = null;
   
   /** 待清理的定时器（防止内存泄漏） */
   private pendingTimers: ReturnType<typeof setTimeout>[] = [];
@@ -578,6 +582,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy() {
     console.log('[FlowView] ngOnDestroy 被调用', new Error().stack);
     this.isDestroyed = true;
+
+    // 优先卸载 GoJS 监听 + 清理幽灵，避免残留 DOM/引用
+    this.uninstallMobileDiagramDragGhostListeners();
+    this.touch.endDiagramNodeDragGhost();
     
     // 清理所有待处理的定时器
     this.pendingTimers.forEach(clearTimeout);
@@ -606,6 +614,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // ========== 图表初始化 ==========
   
   private initDiagram(): void {
+    // 若重复初始化（重试/重置），先移除旧监听并清理幽灵
+    this.uninstallMobileDiagramDragGhostListeners();
+    this.touch.endDiagramNodeDragGhost();
+
     const success = this.diagram.initialize(this.diagramDiv.nativeElement);
     if (!success) return;
     
@@ -735,6 +747,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         this.link.cancelLinkDelete();
       }
     });
+
+    // 移动端：节点拖拽幽灵反馈（避免触摸时节点被手指遮挡导致“像没拖动”）
+    this.installMobileDiagramDragGhostListeners();
     
     // 设置拖放处理
     this.diagram.setupDropHandler((taskData, docPoint) => {
@@ -743,6 +758,78 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // 初始化小地图
     this.initOverview();
+  }
+
+  private installMobileDiagramDragGhostListeners(): void {
+    if (!this.store.isMobile()) return;
+    if (this.diagramSelectionMovingListener || this.diagramSelectionMovedListener) return;
+
+    const diagramInstance = this.diagram.diagramInstance;
+    const diagramEl = this.diagramDiv?.nativeElement as HTMLElement | undefined;
+    if (!diagramInstance || !diagramEl) return;
+
+    this.diagramSelectionMovingListener = (e: go.DiagramEvent) => {
+      if (this.isDestroyed) return;
+      if (!this.store.isMobile()) return;
+
+      // GoJS typings 中 InputEvent 未暴露 dragging 字段；用 DraggingTool 的 isActive 更可靠
+      const isDragging = diagramInstance.toolManager?.draggingTool?.isActive === true;
+      const input = diagramInstance.lastInput;
+      if (!input || !isDragging) {
+        this.touch.endDiagramNodeDragGhost();
+        return;
+      }
+
+      // 取第一个被拖拽的节点 key
+      let firstNodeKey: string | null = null;
+      const subject: any = (e as any).subject;
+      if (subject && typeof subject.each === 'function') {
+        subject.each((part: go.Part) => {
+          if (firstNodeKey) return;
+          if (part instanceof go.Node) {
+            const key = (part.data as any)?.key;
+            if (typeof key === 'string' && key.length > 0) {
+              firstNodeKey = key;
+            }
+          }
+        });
+      }
+
+      if (!firstNodeKey) return;
+      const task = this.store.tasks().find(t => t.id === firstNodeKey);
+      if (!task) return;
+
+      // GoJS viewPoint -> client 坐标
+      const viewPt = input.viewPoint;
+      const rect = diagramEl.getBoundingClientRect();
+      const clientX = rect.left + viewPt.x;
+      const clientY = rect.top + viewPt.y;
+
+      this.touch.startDiagramNodeDragGhost(task, clientX, clientY);
+    };
+
+    this.diagramSelectionMovedListener = () => {
+      if (!this.store.isMobile()) return;
+      this.touch.endDiagramNodeDragGhost();
+    };
+
+    // GoJS 的事件名在不同 typings 版本可能不完整；这里按项目现有做法用 string 兼容
+    diagramInstance.addDiagramListener('SelectionMoving' as unknown as go.DiagramEventName, this.diagramSelectionMovingListener);
+    diagramInstance.addDiagramListener('SelectionMoved' as unknown as go.DiagramEventName, this.diagramSelectionMovedListener);
+  }
+
+  private uninstallMobileDiagramDragGhostListeners(): void {
+    const diagramInstance = this.diagram.diagramInstance;
+    if (!diagramInstance) return;
+
+    if (this.diagramSelectionMovingListener) {
+      diagramInstance.removeDiagramListener('SelectionMoving' as unknown as go.DiagramEventName, this.diagramSelectionMovingListener);
+      this.diagramSelectionMovingListener = null;
+    }
+    if (this.diagramSelectionMovedListener) {
+      diagramInstance.removeDiagramListener('SelectionMoved' as unknown as go.DiagramEventName, this.diagramSelectionMovedListener);
+      this.diagramSelectionMovedListener = null;
+    }
   }
   
   // ========== 小地图 ==========

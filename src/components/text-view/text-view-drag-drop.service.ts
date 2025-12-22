@@ -52,6 +52,9 @@ export class TextViewDragDropService {
   /** dragover 事件处理器绑定 */
   private boundHandleDragAutoScroll = this.handleDragAutoScroll.bind(this);
   
+  /** 拖拽激活时间戳 - 用于防止 pointerup 过早触发 */
+  private dragActivationTime: number | null = null;
+  
   // ========== 初始化方法 ==========
   
   private createInitialTouchState(): TouchDragState {
@@ -153,18 +156,19 @@ export class TextViewDragDropService {
   // ========== 触摸拖拽方法 ==========
   
   /** 长按延迟时间（毫秒）- 用于区分点击和拖拽 */
-  private readonly LONG_PRESS_DELAY = 500;
+  // 🔧 修复：缩短长按时间到 300ms，让用户更快进入拖拽状态
+  private readonly LONG_PRESS_DELAY = 300;
   
   /** 长按回调 - 用于通知组件拖拽已开始 */
   private onDragStartCallback: (() => void) | null = null;
   
   /** 开始触摸拖拽准备（长按检测） */
   startTouchDrag(task: Task, touch: Touch, onDragStart: () => void): void {
-    // console.log('[TouchDrag] startTouchDrag called', {
-    //   taskId: task.id.slice(-4),
-    //   position: { x: touch.clientX, y: touch.clientY },
-    //   originalStage: task.stage
-    // });
+    console.log('[TouchDrag] 🟢 startTouchDrag called', {
+      taskId: task.id.slice(-4),
+      position: { x: touch.clientX, y: touch.clientY },
+      originalStage: task.stage
+    });
     
     this.resetTouchState();
     
@@ -178,6 +182,7 @@ export class TextViewDragDropService {
     
     // 使用长按延迟来区分点击和拖拽
     this.touchState.longPressTimer = setTimeout(() => {
+      console.log('[TouchDrag] ⏰ Long press timer fired, task exists:', !!this.touchState.task);
       if (this.touchState.task) {
         this.activateDrag();
       }
@@ -186,9 +191,20 @@ export class TextViewDragDropService {
   
   /** 激活拖拽状态（长按后或移动距离足够后） */
   private activateDrag(): void {
-    if (this.touchState.isDragging || !this.touchState.task) return;
+    console.log('[TouchDrag] 🔵 activateDrag called', {
+      isDragging: this.touchState.isDragging,
+      hasTask: !!this.touchState.task,
+      currentPos: { x: this.touchState.currentX, y: this.touchState.currentY }
+    });
+    
+    if (this.touchState.isDragging || !this.touchState.task) {
+      console.log('[TouchDrag] ❌ activateDrag early return');
+      return;
+    }
     
     this.touchState.isDragging = true;
+    // 🔧 记录拖拽激活时间，防止 pointerup 过早触发
+    this.dragActivationTime = Date.now();
     this.setDragSourceStage(this.touchState.originalStage);
     this.draggingTaskId.set(this.touchState.task.id);
     
@@ -201,14 +217,20 @@ export class TextViewDragDropService {
       this.touchState.expandedDuringDrag.add(this.touchState.originalStage);
     }
     
-    // console.log('[TouchDrag] isDragging activated', {
-    //   taskId: this.touchState.task.id.slice(-4),
-    //   originalStage: this.touchState.originalStage,
-    //   previousHoverStage: this.touchState.previousHoverStage
-    // });
+    console.log('[TouchDrag] ✅ Creating ghost at', {
+      x: this.touchState.currentX,
+      y: this.touchState.currentY,
+      task: this.touchState.task.title
+    });
+    
     this.createDragGhost(this.touchState.task, this.touchState.currentX, this.touchState.currentY);
     this.onDragStartCallback?.();
     navigator.vibrate?.(50);
+  }
+  
+  /** 获取拖拽激活时间 */
+  getDragActivationTime(): number | null {
+    return this.dragActivationTime;
   }
   
   /** touchmove 超时检测器 */
@@ -245,9 +267,12 @@ export class TextViewDragDropService {
   
   /** 处理触摸移动 */
   handleTouchMove(touch: Touch): boolean {
-    if (!this.touchState.task) return false;
+    if (!this.touchState.task) {
+      console.log('[TouchDrag] handleTouchMove: no task');
+      return false;
+    }
     
-    // 更新当前触摸位置
+    // 更新当前触摸位置（即使拖拽未激活也要更新，以便激活时使用最新位置）
     this.touchState.currentX = touch.clientX;
     this.touchState.currentY = touch.clientY;
     
@@ -255,11 +280,20 @@ export class TextViewDragDropService {
     if (!this.touchState.isDragging) {
       const deltaX = Math.abs(touch.clientX - this.touchState.startX);
       const deltaY = Math.abs(touch.clientY - this.touchState.startY);
-      const moveThreshold = 15; // 移动超过15像素才考虑激活拖拽
+      const moveThreshold = 10; // 🔧 降低阈值：移动超过10像素就考虑激活拖拽
       
       // 判断移动方向：如果主要是垂直移动，认为是滚动意图
-      const isVerticalScroll = deltaY > deltaX * 1.5; // 垂直移动超过水平移动的1.5倍
+      // 🔧 修复：提高垂直滚动检测阈值，让用户更容易触发水平拖拽
+      const isVerticalScroll = deltaY > deltaX * 2.5; // 垂直移动超过水平移动的2.5倍才认为是滚动
       const totalDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      
+      console.log('[TouchDrag] Move check:', {
+        deltaX: deltaX.toFixed(1),
+        deltaY: deltaY.toFixed(1),
+        totalDistance: totalDistance.toFixed(1),
+        isVerticalScroll,
+        threshold: moveThreshold
+      });
       
       if (totalDistance > moveThreshold) {
         if (isVerticalScroll) {
@@ -271,6 +305,8 @@ export class TextViewDragDropService {
           // 水平移动或斜向移动，激活拖拽
           this.cancelLongPress();
           this.activateDrag();
+          // 🔧 关键修复：激活后立即返回 true，确保调用方处理 Ghost 更新
+          // 不要继续执行下面的逻辑，因为 activateDrag 已经创建了 Ghost
         }
       } else {
         // 移动距离不够，继续等待长按
@@ -284,11 +320,29 @@ export class TextViewDragDropService {
     if (this.touchState.isDragging) {
       // 更新幽灵元素位置
       if (this.touchState.dragGhost) {
-        this.touchState.dragGhost.style.left = `${touch.clientX - 60}px`;
-        this.touchState.dragGhost.style.top = `${touch.clientY - 24}px`;
+        // 🔧 简化位置计算：Ghost 在手指垂直下方
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const ghostWidth = 200;
+        const ghostHeight = 50;
+        
+        let newLeft = touch.clientX - ghostWidth / 2;
+        let newTop = touch.clientY; // 手指位置（垂直下方 0px）
+        
+        // 边界检查
+        if (newLeft < 5) newLeft = 5;
+        if (newLeft + ghostWidth > viewportWidth - 5) newLeft = viewportWidth - ghostWidth - 5;
+        if (newTop < 5) newTop = 5;
+        if (newTop + ghostHeight > viewportHeight - 5) newTop = viewportHeight - ghostHeight - 5;
+        
+        this.touchState.dragGhost.style.left = `${newLeft}px`;
+        this.touchState.dragGhost.style.top = `${newTop}px`;
       } else {
         // 如果幽灵元素不存在，重新创建它
-        console.warn('[TouchDrag] Ghost missing during move, recreating');
+        console.warn('[TouchDrag] Ghost missing during move, recreating at', {
+          x: touch.clientX,
+          y: touch.clientY
+        });
         this.createDragGhost(this.touchState.task, touch.clientX, touch.clientY);
       }
       
@@ -304,6 +358,7 @@ export class TextViewDragDropService {
   /** 切换到新阶段（处理阶段展开/折叠逻辑） */
   switchToStage(stageNumber: number): number | null {
     const prevStage = this.touchState.previousHoverStage;
+    const originalStage = this.touchState.originalStage;
     
     // 检查是否需要折叠之前的阶段
     let stageToCollapse: number | null = null;
@@ -312,14 +367,18 @@ export class TextViewDragDropService {
       prevStage !== stageNumber &&
       this.touchState.expandedDuringDrag.has(prevStage)
     ) {
+      // 🔧 修复：折叠时不要删除，保持追踪，这样下次拖入再拖出时仍能折叠
       stageToCollapse = prevStage;
-      this.touchState.expandedDuringDrag.delete(prevStage);
+      // 不删除：this.touchState.expandedDuringDrag.delete(prevStage);
     }
     
     // 更新当前阶段
     this.touchState.previousHoverStage = stageNumber;
-    this.touchState.expandedDuringDrag.add(stageNumber);
     this.dragOverStage.set(stageNumber);
+    
+    // 🔧 关键修复：无论进入哪个阶段，都将其加入追踪集合
+    // 这确保了每次拖出（包括从原始阶段第二次拖出）都能正确触发折叠
+    this.touchState.expandedDuringDrag.add(stageNumber);
     
     return stageToCollapse;
   }
@@ -337,8 +396,13 @@ export class TextViewDragDropService {
       let stageToCollapse: number | null = null;
       
       if (prevStage !== null && this.touchState.expandedDuringDrag.has(prevStage)) {
-        stageToCollapse = prevStage;
-        this.touchState.expandedDuringDrag.delete(prevStage);
+        // 移动端体验：当手指拖到“所有阶段之外”时，不折叠来源阶段。
+        // 否则原任务卡会被折叠隐藏，用户会误以为“拖出失败”。
+        if (prevStage !== this.dragSourceStage) {
+          stageToCollapse = prevStage;
+          // 🔧 修复：不删除记录，保持追踪，这样下次拖入再拖出时仍能折叠
+          // 不删除：this.touchState.expandedDuringDrag.delete(prevStage);
+        }
       }
       
       // ⚠️ 不要清除 targetStage 和 targetBeforeId！
@@ -356,10 +420,20 @@ export class TextViewDragDropService {
   
   /** 结束触摸拖拽，返回目标信息以及需要折叠的阶段 */
   endTouchDrag(): { task: Task | null; targetStage: number | null; targetBeforeId: string | null; wasDragging: boolean; autoExpandedStages: number[] } {
+    console.log('[TouchDrag] 🟣 endTouchDrag called', {
+      hadTask: !!this.touchState.task,
+      wasDragging: this.touchState.isDragging,
+      hadGhost: !!this.touchState.dragGhost,
+      activationTime: this.dragActivationTime,
+      elapsed: this.dragActivationTime ? Date.now() - this.dragActivationTime : null
+    });
     // 取消长按定时器
     // 清除超时检测器
     this.clearMoveTimeout();
     this.cancelLongPress();
+    
+    // 🔧 清除拖拽激活时间
+    this.dragActivationTime = null;
     
     // 停止自动滚动
     this.stopTouchAutoScroll();
@@ -430,64 +504,94 @@ export class TextViewDragDropService {
   private createDragGhost(task: Task, x: number, y: number) {
     this.removeDragGhost();
     
+    const ghostId = 'touch-drag-ghost-' + Date.now();
+    
+    // 计算位置：在手指正下方
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const ghostWidth = Math.min(200, viewportWidth - 20);
+    const ghostHeight = 48;
+    
+    let ghostX = Math.max(10, Math.min(x - ghostWidth / 2, viewportWidth - ghostWidth - 10));
+    let ghostY = Math.max(10, Math.min(y, viewportHeight - ghostHeight - 10)); // 手指位置（垂直下方 0px）
+    
+    // 创建 Ghost 元素
     const ghost = document.createElement('div');
-    // 添加 data 属性以便后续清理
+    ghost.id = ghostId;
     ghost.setAttribute('data-drag-ghost', 'true');
-    // 使用纯内联样式，避免 Tailwind 类不生效的问题
+    ghost.className = 'nf-drag-ghost';
+    ghost.innerText = task.title || '未命名任务';
+    
+    // 使用项目 Retro 风格设计
+    // 颜色参考：flow-styles.ts 中的 DEFAULT_FLOW_STYLES
     ghost.style.cssText = `
-      position: fixed;
-      z-index: 9999;
-      padding: 10px 16px;
-      background-color: #4A8C8C;
-      color: white;
-      border-radius: 8px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-      font-size: 14px;
-      font-weight: bold;
-      pointer-events: none;
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      transform: scale(1.1);
-      opacity: 1;
-      will-change: transform, opacity, left, top;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      left: ${x - 60}px;
-      top: ${y - 24}px;
+      position: fixed !important;
+      z-index: 2147483647 !important;
+      left: ${ghostX}px !important;
+      top: ${ghostY}px !important;
+      width: ${ghostWidth}px !important;
+      min-height: ${ghostHeight}px !important;
+      background-color: #FFFFFF !important;
+      color: #44403C !important;
+      border: 2px solid #4A8C8C !important;
+      border-radius: 10px !important;
+      font-family: "LXGW WenKai Screen", sans-serif !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      pointer-events: none !important;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(74, 140, 140, 0.2) !important;
+      text-align: center !important;
+      padding: 10px 16px !important;
+      box-sizing: border-box !important;
+      visibility: visible !important;
+      transform: none !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      opacity: 0.3 !important;
     `;
-    ghost.textContent = task.title || '未命名任务';
+    
+    // 添加到 body
     document.body.appendChild(ghost);
     this.touchState.dragGhost = ghost;
     
-    // console.log('[TouchDrag] Ghost created:', {
-    //   taskId: task.id.slice(-4),
-    //   title: task.title || 'untitled',
-    //   position: { x: x - 60, y: y - 24 }
-    // });
+    console.log('[TouchDrag] 🎯 Ghost created:', {
+      taskId: task.id.slice(-4),
+      ghostId,
+      position: { x: ghostX, y: ghostY }
+    });
   }
   
   /** 更新幽灵元素的视觉反馈（根据是否在有效目标上） */
   updateGhostVisualFeedback(isOverValidTarget: boolean) {
     if (this.touchState.dragGhost) {
       if (isOverValidTarget) {
-        this.touchState.dragGhost.style.opacity = '1';
-        this.touchState.dragGhost.style.transform = 'scale(1.1)';
-        this.touchState.dragGhost.style.backgroundColor = '#4A8C8C'; // retro-teal
+        // 在有效目标上：青绿色边框（retro.teal）
+        this.touchState.dragGhost.style.borderColor = '#4A8C8C';
+        this.touchState.dragGhost.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(74, 140, 140, 0.4)';
       } else {
-        // 不在有效区域时变成警告色
-        this.touchState.dragGhost.style.opacity = '0.9';
-        this.touchState.dragGhost.style.transform = 'scale(1)';
-        this.touchState.dragGhost.style.backgroundColor = '#C87941'; // retro-rust
+        // 不在有效区域时：橙色边框（retro.rust）
+        this.touchState.dragGhost.style.borderColor = '#C15B3E';
+        this.touchState.dragGhost.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(193, 91, 62, 0.3)';
       }
     }
   }
   
   private removeDragGhost() {
+    console.log('[TouchDrag] 🗑️ removeDragGhost called', {
+      hasGhost: !!this.touchState.dragGhost,
+      stack: new Error().stack?.split('\n').slice(1, 5).join(' <- ')
+    });
+    
+    // 保存当前 Ghost 的 ID，以便防御性清理时跳过它
+    const currentGhostId = this.touchState.dragGhost?.id;
+    
     // 清理当前引用的幽灵元素
     if (this.touchState.dragGhost) {
       try {
-        // 方法1: 立即设置为不可见并从DOM移除
         const ghost = this.touchState.dragGhost;
         ghost.style.display = 'none';
         ghost.style.opacity = '0';
@@ -498,12 +602,19 @@ export class TextViewDragDropService {
       this.touchState.dragGhost = null;
     }
     
-    // 防御性清理：查找并移除所有可能残留的幽灵元素
-    // 使用 data 属性来标识幽灵元素
-    requestAnimationFrame(() => {
+    // 🔧 修复：防御性清理时，跳过刚刚创建的 Ghost
+    // 使用 setTimeout 而不是 requestAnimationFrame，给新 Ghost 更多时间被设置
+    setTimeout(() => {
       const ghosts = document.querySelectorAll('[data-drag-ghost="true"]');
+      // 只清理不是当前活动 Ghost 的元素
+      const activeGhostId = this.touchState.dragGhost?.id;
       ghosts.forEach(ghost => {
+        // 跳过当前活动的 Ghost
+        if (ghost.id === activeGhostId) {
+          return;
+        }
         try {
+          console.log('[TouchDrag] 🧹 Cleaning orphaned ghost:', ghost.id);
           (ghost as HTMLElement).style.display = 'none';
           (ghost as HTMLElement).style.opacity = '0';
           ghost.remove();
@@ -611,13 +722,20 @@ export class TextViewDragDropService {
   
   /** 请求在离开来源阶段时折叠它 */
   requestSourceStageCollapse(currentStageNumber: number | null): number | null {
-    if (this.dragSourceStage === null || this.sourceStageCollapsed) {
+    if (this.dragSourceStage === null) {
+      return null;
+    }
+    // 移动端体验：当拖拽到"阶段外空白区域"时，不折叠来源阶段，保留原位置的半透明占位。
+    // 只有真正进入另一个阶段时才折叠来源阶段。
+    if (currentStageNumber === null) {
       return null;
     }
     if (currentStageNumber === this.dragSourceStage) {
       return null;
     }
-    this.sourceStageCollapsed = true;
+    // 🔧 修复：不再使用 sourceStageCollapsed 标志，每次都检查是否需要折叠
+    // 这样可以处理"在目标阶段内移动时，来源阶段还没折叠"的情况
+    // 组件层会检查实际展开状态，避免重复折叠
     return this.dragSourceStage;
   }
 
@@ -636,7 +754,18 @@ export class TextViewDragDropService {
   }
 
   private resetTouchState() {
+    console.log('[TouchDrag] 🔴 resetTouchState called', {
+      hadTask: !!this.touchState.task,
+      wasDragging: this.touchState.isDragging,
+      hadGhost: !!this.touchState.dragGhost,
+      stack: new Error().stack?.split('\n').slice(1, 4).join('\n')
+    });
     this.cancelLongPress();
+    // 在重置前先确保幽灵元素被清理
+    if (this.touchState.dragGhost) {
+      console.warn('[TouchDrag] Ghost still exists during resetTouchState, removing it');
+      this.removeDragGhost();
+    }
     this.onDragStartCallback = null;
     this.touchState = this.createInitialTouchState();
   }

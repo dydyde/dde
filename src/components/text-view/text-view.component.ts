@@ -178,7 +178,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
     
     // ⚠️ 如果正在 DOM 更新（折叠/展开阶段），忽略此事件
     if (this.dragDropService.isDOMUpdating) {
-      // console.log('[GlobalPointerUp] Ignoring - DOM update in progress');
+      console.log('[GlobalPointerUp] Ignoring - DOM update in progress');
       return;
     }
     
@@ -187,19 +187,28 @@ export class TextViewComponent implements OnInit, OnDestroy {
     
     if (!hasTask && !isDragging) return;
     
-    // console.log('[GlobalPointerUp] Captured', {
-    //   pointerType: event.pointerType,
-    //   hasTask,
-    //   isDragging,
-    //   targetStage: this.dragDropService['touchState']?.targetStage,
-    //   isPrimary: event.isPrimary
-    // });
+    // 🔧 修复：如果拖拽刚刚激活（500ms 内），忽略 pointerup 事件
+    // 这可以防止在 DOM 变化后 pointerup 被过早触发
+    const dragActivationTime = this.dragDropService.getDragActivationTime();
+    if (dragActivationTime && Date.now() - dragActivationTime < 500) {
+      console.log('[GlobalPointerUp] Ignoring - drag just activated', {
+        elapsed: Date.now() - dragActivationTime
+      });
+      return;
+    }
+    
+    console.log('[GlobalPointerUp] Processing pointerup', {
+      pointerType: event.pointerType,
+      hasTask,
+      isDragging,
+      isPrimary: event.isPrimary
+    });
     
     // ⚠️ 只有当触摸真正结束（没有其他手指在屏幕上）时才处理
     // pointerup 可能在 DOM 变化后被过早触发
     // 检查事件是否是主要触点
     if (!event.isPrimary) {
-      // console.log('[GlobalPointerUp] Not primary pointer, ignoring');
+      console.log('[GlobalPointerUp] Not primary pointer, ignoring');
       return;
     }
     
@@ -757,12 +766,18 @@ export class TextViewComponent implements OnInit, OnDestroy {
   
   onTaskTouchStart(data: { event: TouchEvent; task: Task }) {
     const { event, task } = data;
+    console.log('[TouchStart] 🟢 onTaskTouchStart called', { 
+      taskId: task.id.slice(-4),
+      touches: event.touches.length,
+      isSelected: this.selectedTaskId() === task.id
+    });
     if (event.touches.length !== 1) return;
     if (this.selectedTaskId() === task.id) return;
     
     const touch = event.touches[0];
     this.dragDropService.startTouchDrag(task, touch, () => {
       // 拖拽开始回调
+      console.log('[TouchStart] Drag start callback fired');
     });
   }
   
@@ -772,7 +787,12 @@ export class TextViewComponent implements OnInit, OnDestroy {
     const touch = event.touches[0];
     const isDragging = this.dragDropService.handleTouchMove(touch);
     
-    if (isDragging) {
+    // 🔧 修复：检查 isTouchDragging 而不仅仅是 handleTouchMove 的返回值
+    // 因为在长按激活后的第一次 touchmove 中，handleTouchMove 可能返回 true
+    // 但我们需要确保后续的所有 touchmove 都能正确更新 Ghost
+    const isActiveDragging = isDragging || this.dragDropService.isTouchDragging;
+    
+    if (isActiveDragging) {
       event.preventDefault();
       
       // 自动滚动
@@ -827,6 +847,8 @@ export class TextViewComponent implements OnInit, OnDestroy {
               }
             }
 
+            // 🔧 修复：无论是否切换阶段，都检查是否需要折叠来源阶段
+            // 这样可以处理"在目标阶段内部移动"的场景
             this.collapseSourceStageIfNeeded(stageNum);
             
             // 检查是否在某个任务上方
@@ -975,12 +997,19 @@ export class TextViewComponent implements OnInit, OnDestroy {
    * 这样即使被拖拽的任务有 pointer-events-none，我们仍然能接收到触摸事件
    */
   onGlobalTouchMove(event: TouchEvent) {
-    // 如果当前没有拖拽，让事件正常传播
-    if (!this.dragDropService.draggingTaskId()) {
+    const hasTask = !!this.dragDropService.touchDragTask;
+    const hasDraggingId = !!this.dragDropService.draggingTaskId();
+    
+    // 🔧 修复：检查是否有待处理的触摸任务（包括尚未激活拖拽的情况）
+    // touchDragTask 在 startTouchDrag 时就设置了，但 draggingTaskId 要等 activateDrag 后才设置
+    // 如果只检查 draggingTaskId，在长按激活前的移动会被忽略，导致 Ghost 无法创建
+    if (!hasDraggingId && !hasTask) {
       return;
     }
     
-    // 如果正在拖拽，处理触摸移动
+    console.log('[TouchMove] 🟡 onGlobalTouchMove processing', { hasTask, hasDraggingId });
+    
+    // 如果正在拖拽或有待处理的触摸任务，处理触摸移动
     this.onTouchMove(event);
   }
   
@@ -988,7 +1017,8 @@ export class TextViewComponent implements OnInit, OnDestroy {
    * 全局触摸结束处理器
    */
   onGlobalTouchEnd(event: TouchEvent) {
-    if (!this.dragDropService.draggingTaskId()) {
+    // 🔧 修复：检查是否有待处理的触摸任务（包括尚未激活拖拽的情况）
+    if (!this.dragDropService.draggingTaskId() && !this.dragDropService.touchDragTask) {
       return;
     }
     
@@ -999,7 +1029,8 @@ export class TextViewComponent implements OnInit, OnDestroy {
    * 全局触摸取消处理器
    */
   onGlobalTouchCancel(event: TouchEvent) {
-    if (!this.dragDropService.draggingTaskId()) {
+    // 🔧 修复：检查是否有待处理的触摸任务（包括尚未激活拖拽的情况）
+    if (!this.dragDropService.draggingTaskId() && !this.dragDropService.touchDragTask) {
       return;
     }
     

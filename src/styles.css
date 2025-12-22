@@ -200,8 +200,9 @@ body {
 }
 
 /* GoJS 试用版水印隐藏 */
-canvas + div[style*="pointer-events"],
-div[class*="diagram"] > div:last-child:not(:first-child) {
+/* 🔧 修复：更精确的选择器，避免意外隐藏其他 pointer-events: none 的元素 */
+.flow-canvas-container canvas + div[style*="pointer-events"],
+div[class*="diagram"] > div:last-child:not(:first-child):not([data-drag-ghost]) {
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -363,4 +364,15 @@ div[class*="diagram"] > div:last-child:not(:first-child) {
   /* 防止文本选择 */
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* ========== 拖拽幽灵元素样式 ========== */
+/* 强制使 data-drag-ghost 元素可见，覆盖任何可能的隐藏规则 */
+[data-drag-ghost="true"] {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: flex !important;
+  pointer-events: none !important;
 }

@@ -44,6 +44,14 @@ export class FlowTouchService {
   
   /** 触摸状态 */
   private touchState: UnassignedTouchState = createInitialUnassignedTouchState();
+
+  // ========== 流程图节点拖拽幽灵（移动端） ==========
+
+  /** 当前正在拖动的流程图节点任务ID（仅用于移动端视觉反馈） */
+  private diagramDraggingTaskId: string | null = null;
+
+  /** 流程图节点拖拽的幽灵元素（与待分配长按拖拽的 ghost 分离，互不干扰） */
+  private diagramDragGhost: HTMLElement | null = null;
   
   /** 销毁标志 */
   private isDestroyed = false;
@@ -184,6 +192,7 @@ export class FlowTouchService {
   dispose(): void {
     this.isDestroyed = true;
     this.cleanup();
+    this.endDiagramNodeDragGhost();
     this.removeAllGlobalListeners();
   }
   
@@ -192,6 +201,57 @@ export class FlowTouchService {
    */
   activate(): void {
     this.isDestroyed = false;
+  }
+
+  // ========== 流程图节点拖拽幽灵（移动端） ==========
+
+  /**
+   * 开始显示流程图节点拖拽幽灵
+   * 说明：GoJS 在移动端拖拽时，节点可能被手指遮挡；该幽灵用于提供明确的“拖拽中”反馈。
+   */
+  startDiagramNodeDragGhost(task: Task, clientX: number, clientY: number): void {
+    if (this.isDestroyed) return;
+
+    // 如果同一个任务已经在显示幽灵，只更新位置
+    if (this.diagramDraggingTaskId === task.id && this.diagramDragGhost) {
+      this.updateDiagramNodeDragGhostPosition(clientX, clientY);
+      return;
+    }
+
+    this.endDiagramNodeDragGhost();
+    this.diagramDraggingTaskId = task.id;
+
+    const ghost = document.createElement('div');
+    ghost.setAttribute('data-flow-diagram-drag-ghost', 'true');
+    ghost.className = 'fixed z-[9999] px-3 py-2 bg-teal-500/90 text-white rounded-lg shadow-xl text-xs font-medium pointer-events-none whitespace-nowrap';
+    ghost.textContent = task.title || '未命名任务';
+    document.body.appendChild(ghost);
+    this.diagramDragGhost = ghost;
+
+    this.updateDiagramNodeDragGhostPosition(clientX, clientY);
+  }
+
+  /** 更新流程图节点拖拽幽灵位置 */
+  updateDiagramNodeDragGhostPosition(clientX: number, clientY: number): void {
+    if (!this.diagramDragGhost) return;
+    // 与待分配幽灵一致：略微偏移，避免被手指遮挡
+    this.diagramDragGhost.style.left = `${clientX - 40}px`;
+    this.diagramDragGhost.style.top = `${clientY - 20}px`;
+  }
+
+  /** 结束流程图节点拖拽幽灵 */
+  endDiagramNodeDragGhost(): void {
+    this.diagramDraggingTaskId = null;
+    if (this.diagramDragGhost) {
+      this.diagramDragGhost.remove();
+      this.diagramDragGhost = null;
+    }
+
+    // 防御性清理（避免异常情况下残留）
+    const leftovers = document.querySelectorAll('[data-flow-diagram-drag-ghost="true"]');
+    leftovers.forEach(el => {
+      try { el.remove(); } catch { /* ignore */ }
+    });
   }
   
   // ========== 抽屉拖动相关 ==========
