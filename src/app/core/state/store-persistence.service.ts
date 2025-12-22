@@ -18,6 +18,7 @@ import { Injectable, inject, DestroyRef } from '@angular/core';
 import { TaskStore, ProjectStore, ConnectionStore } from './stores';
 import { LoggerService } from '../../../services/logger.service';
 import { Project, Task, Connection } from '../../../models';
+import * as Sentry from '@sentry/angular';
 
 /** 存储键前缀（保留用于未来扩展） */
 const _STORAGE_PREFIX = 'nanoflow.store';
@@ -216,6 +217,7 @@ export class StorePersistenceService {
       });
     } catch (err) {
       this.logger.error('保存项目数据失败', { projectId, error: err });
+      Sentry.captureException(err, { tags: { operation: 'saveProjectData', projectId } });
       // 静默失败，不影响运行时
     }
   }
@@ -254,6 +256,7 @@ export class StorePersistenceService {
       });
     } catch (err) {
       this.logger.error('保存元数据失败', err);
+      Sentry.captureException(err, { tags: { operation: 'saveMeta' } });
     }
   }
   
@@ -308,6 +311,7 @@ export class StorePersistenceService {
       return true;
     } catch (err) {
       this.logger.error('恢复项目数据失败', { projectId, error: err });
+      Sentry.captureException(err, { tags: { operation: 'loadProject', projectId } });
       return false;
     } finally {
       this.isRestoring = false;

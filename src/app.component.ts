@@ -85,6 +85,7 @@ import { UI_CONFIG, AUTH_CONFIG } from './config/constants';
   templateUrl: './app.component.html',
 })
 export class AppComponent implements OnInit, OnDestroy {
+
   store = inject(StoreService);
   auth = inject(AuthService);
   undoService = inject(UndoService);

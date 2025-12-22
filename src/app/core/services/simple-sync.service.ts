@@ -21,6 +21,7 @@ import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+import * as Sentry from '@sentry/angular';
 
 /**
  * 重试队列项
@@ -242,6 +243,7 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('推送任务失败', e);
+      Sentry.captureException(e, { tags: { operation: 'pushTask' } });
       this.addToRetryQueue('task', 'upsert', task, projectId);
       return false;
     }
@@ -297,6 +299,7 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('删除任务失败', e);
+      Sentry.captureException(e, { tags: { operation: 'deleteTask' } });
       this.addToRetryQueue('task', 'delete', { id: taskId }, projectId);
       return false;
     }
@@ -340,6 +343,7 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('推送项目失败', e);
+      Sentry.captureException(e, { tags: { operation: 'pushProject' } });
       this.addToRetryQueue('project', 'upsert', project);
       return false;
     }
@@ -400,6 +404,7 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('推送连接失败', e);
+      Sentry.captureException(e, { tags: { operation: 'pushConnection' } });
       this.addToRetryQueue('connection', 'upsert', connection, projectId);
       return false;
     }
@@ -520,6 +525,7 @@ export class SimpleSyncService {
         }
       } catch (e) {
         this.logger.error('重试失败', e);
+        Sentry.captureException(e, { tags: { operation: 'retryQueue', type: item.type } });
       }
       
       if (!success) {
@@ -806,6 +812,7 @@ export class SimpleSyncService {
       return { success: true, newVersion: project.version };
     } catch (e) {
       this.logger.error('保存项目失败', e);
+      Sentry.captureException(e, { tags: { operation: 'saveProject' } });
       this.syncState.update(s => ({
         ...s,
         isSyncing: false,
@@ -868,6 +875,7 @@ export class SimpleSyncService {
       return project;
     } catch (e) {
       this.logger.error('加载项目失败', e);
+      Sentry.captureException(e, { tags: { operation: 'loadFullProject' } });
       return null;
     }
   }
@@ -1006,6 +1014,7 @@ export class SimpleSyncService {
       return projects;
     } catch (e) {
       this.logger.error('加载项目列表失败', e);
+      Sentry.captureException(e, { tags: { operation: 'loadRemoteProjects' } });
       return [];
     } finally {
       this.isLoadingRemote.set(false);
@@ -1033,6 +1042,7 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('删除项目失败', e);
+      Sentry.captureException(e, { tags: { operation: 'deleteProject' } });
       return false;
     }
   }
