@@ -419,6 +419,69 @@ describe('SimpleSyncService', () => {
     });
   });
   
+  describe('Tombstone 防护（防止已删除任务复活）', () => {
+    beforeEach(() => {
+      mockSupabase.isConfigured = true;
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+    });
+    
+    it('pushTask 应该跳过已在 tombstones 中的任务', async () => {
+      const task = createMockTask({ id: 'deleted-task' });
+      
+      // 模拟 tombstones 中存在该任务
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'task_tombstones') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ 
+                  data: { task_id: 'deleted-task' }, 
+                  error: null 
+                })
+              })
+            })
+          };
+        }
+        return {
+          upsert: vi.fn().mockResolvedValue({ error: null })
+        };
+      });
+      
+      const result = await service.pushTask(task, 'project-1');
+      
+      // 应该成功返回（跳过推送不算失败）
+      expect(result).toBe(true);
+      // upsert 不应该被调用
+      expect(mockClient.from).toHaveBeenCalledWith('task_tombstones');
+    });
+    
+    it('pushTask 应该正常推送不在 tombstones 中的任务', async () => {
+      const task = createMockTask({ id: 'normal-task' });
+      
+      // 模拟 tombstones 中不存在该任务
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'task_tombstones') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        return {
+          upsert: vi.fn().mockResolvedValue({ error: null })
+        };
+      });
+      
+      const result = await service.pushTask(task, 'project-1');
+      
+      expect(result).toBe(true);
+      expect(mockClient.from).toHaveBeenCalledWith('task_tombstones');
+      expect(mockClient.from).toHaveBeenCalledWith('tasks');
+    });
+  });
+  
   describe('兼容性接口', () => {
     it('state 别名应该指向 syncState', () => {
       expect(service.state).toBe(service.syncState);

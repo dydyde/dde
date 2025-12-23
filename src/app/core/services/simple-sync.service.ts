@@ -273,6 +273,10 @@ export class SimpleSyncService {
    * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
    * - 重试失败后加入持久化重试队列，等待网络恢复后重试
    * - 使用限流服务控制并发请求数量，避免连接池耗尽
+   * 
+   * 【关键防护】防止已删除任务复活
+   * - 推送前检查 task_tombstones 表
+   * - 如果任务已在 tombstones 中，跳过推送避免复活
    */
   async pushTask(task: Task, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -285,6 +289,22 @@ export class SimpleSyncService {
       await this.throttle.execute(
         `push-task:${task.id}`,
         async () => {
+          // 【关键防护】检查任务是否已被永久删除（在 tombstones 中）
+          const { data: tombstone } = await client
+            .from('task_tombstones')
+            .select('task_id')
+            .eq('task_id', task.id)
+            .maybeSingle();
+          
+          if (tombstone) {
+            // 任务已被永久删除，跳过推送，防止复活
+            this.logger.info('跳过推送已删除任务（tombstone 保护）', { 
+              taskId: task.id, 
+              projectId 
+            });
+            return; // 直接返回，不执行 upsert
+          }
+          
           await this.retryWithBackoff(async () => {
             const { error } = await client
               .from('tasks')
@@ -1064,6 +1084,18 @@ export class SimpleSyncService {
   
   /**
    * 拉取任务（带限流）
+   * 
+   * 【关键修复】检查 task_tombstones 表，防止已删除任务复活
+   * 
+   * 问题场景：
+   * 1. 设备 A 删除任务（软删除 + purge 写入 tombstone）
+   * 2. 设备 B 本地缓存中仍有该任务
+   * 3. 设备 B 同步时如果不检查 tombstones，会把已删除任务推回云端
+   * 
+   * 解决方案：
+   * - 拉取任务时同时查询 task_tombstones
+   * - 过滤掉已在 tombstones 中的任务
+   * - 过滤掉已软删除（deleted_at 非空）的任务
    */
   private async pullTasksThrottled(projectId: string): Promise<Task[]> {
     const client = this.getSupabaseClient();
@@ -1072,13 +1104,56 @@ export class SimpleSyncService {
     return this.throttle.execute(
       `tasks:${projectId}`,
       async () => {
-        const { data, error } = await client
-          .from('tasks')
-          .select('*')
-          .eq('project_id', projectId);
+        // 1. 并行加载任务和 tombstones
+        const [tasksResult, tombstonesResult] = await Promise.all([
+          client
+            .from('tasks')
+            .select('*')
+            .eq('project_id', projectId),
+          client
+            .from('task_tombstones')
+            .select('task_id')
+            .eq('project_id', projectId)
+        ]);
         
-        if (error) throw supabaseErrorToError(error);
-        return (data as TaskRow[] || []).map(row => this.rowToTask(row));
+        if (tasksResult.error) throw supabaseErrorToError(tasksResult.error);
+        
+        // 2. 构建 tombstone ID 集合
+        // tombstones 查询失败时降级：只依赖 deleted_at 过滤
+        const tombstoneIds = new Set<string>();
+        if (tombstonesResult.error) {
+          this.logger.warn('加载 tombstones 失败，降级处理', tombstonesResult.error);
+        } else {
+          for (const t of (tombstonesResult.data || [])) {
+            tombstoneIds.add(t.task_id);
+          }
+        }
+        
+        // 3. 过滤：排除已在 tombstones 中的任务和已软删除的任务
+        const allTasks = (tasksResult.data as TaskRow[] || []).map(row => this.rowToTask(row));
+        const filteredTasks = allTasks.filter(task => {
+          // 排除已永久删除（在 tombstones 中）的任务
+          if (tombstoneIds.has(task.id)) {
+            this.logger.debug('跳过 tombstone 任务', { taskId: task.id });
+            return false;
+          }
+          // 排除已软删除的任务（deleted_at 非空）
+          if (task.deletedAt) {
+            this.logger.debug('跳过软删除任务', { taskId: task.id, deletedAt: task.deletedAt });
+            return false;
+          }
+          return true;
+        });
+        
+        if (tombstoneIds.size > 0 || allTasks.length !== filteredTasks.length) {
+          this.logger.info(`任务过滤: ${allTasks.length} -> ${filteredTasks.length}`, {
+            projectId,
+            tombstoneCount: tombstoneIds.size,
+            softDeletedCount: allTasks.filter(t => t.deletedAt && !tombstoneIds.has(t.id)).length
+          });
+        }
+        
+        return filteredTasks;
       },
       { deduplicate: true, priority: 'normal' }
     );
