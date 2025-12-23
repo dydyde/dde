@@ -132,6 +132,27 @@ describe('supabase-error', () => {
       expect(result.isRetryable).toBe(true);
     });
     
+    it('应该识别 Error 实例中的 "Unknown Supabase error"（504 回退场景）', () => {
+      // 【关键测试】Supabase 客户端在无法解析 504 Gateway Timeout 等非 JSON 响应时
+      // 会抛出 new Error('Unknown Supabase error')，而非普通对象
+      // 这是 Sentry 报告中 isRetryable: false 的根本原因
+      const error = new Error('Unknown Supabase error');
+      const result = supabaseErrorToError(error);
+      
+      expect(result.name).toBe('UnknownServerError');
+      expect(result.errorType).toBe('UnknownServerError');
+      expect(result.isRetryable).toBe(true);
+    });
+    
+    it('应该识别 Error 实例中的 "unknown error" 变体', () => {
+      const error = new Error('Some unknown error occurred');
+      const result = supabaseErrorToError(error);
+      
+      expect(result.name).toBe('UnknownServerError');
+      expect(result.errorType).toBe('UnknownServerError');
+      expect(result.isRetryable).toBe(true);
+    });
+    
     it('应该处理空对象错误（无 message）', () => {
       const error = {};
       const result = supabaseErrorToError(error);

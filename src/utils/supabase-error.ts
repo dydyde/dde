@@ -62,6 +62,12 @@ export function supabaseErrorToError(error: any): EnhancedError {
     } else if (lowerMsg.includes('offline') || lowerMsg.includes('no connection')) {
       enhanced.errorType = 'OfflineError';
       enhanced.isRetryable = true;
+    } else if (lowerMsg.includes('unknown supabase error') || lowerMsg.includes('unknown error')) {
+      // 【关键修复】Supabase 客户端无法解析 504/502/503 等非 JSON 响应时抛出此错误
+      // 这种情况通常是临时的网络/服务问题，应该标记为可重试
+      enhanced.errorType = 'UnknownServerError';
+      enhanced.isRetryable = true;
+      enhanced.name = 'UnknownServerError';
     } else {
       // 如果没有识别出具体类型，使用 name 属性
       if (!enhanced.isRetryable) {
