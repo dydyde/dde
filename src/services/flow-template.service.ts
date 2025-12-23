@@ -268,6 +268,7 @@ export class FlowTemplateService {
         locationSpot: go.Spot.Center,
         layerName: 'Nodes',
         selectionAdorned: true,
+        movable: true,
         fromLinkable: false,
         toLinkable: true,
         fromLinkableDuplicates: false,

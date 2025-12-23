@@ -677,6 +677,7 @@ export class GoJSDiagramService {
     return $(go.Node, "Spot", {
       locationSpot: go.Spot.Center,
       selectionAdorned: true,
+      movable: true,
       click: (e: any, node: any) => {
         if (e.diagram.lastInput.dragging) return;
         self.zone.run(() => {
