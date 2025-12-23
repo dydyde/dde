@@ -17,6 +17,7 @@ import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core'
 import { SupabaseClientService } from '../../../services/supabase-client.service';
 import { LoggerService } from '../../../services/logger.service';
 import { ToastService } from '../../../services/toast.service';
+import { RequestThrottleService } from '../../../services/request-throttle.service';
 import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../models';
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
@@ -80,6 +81,7 @@ export class SimpleSyncService {
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('SimpleSync');
   private readonly toast = inject(ToastService);
+  private readonly throttle = inject(RequestThrottleService);
   private readonly destroyRef = inject(DestroyRef);
   
   /**
@@ -270,6 +272,7 @@ export class SimpleSyncService {
    * 自动重试策略：
    * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
    * - 重试失败后加入持久化重试队列，等待网络恢复后重试
+   * - 使用限流服务控制并发请求数量，避免连接池耗尽
    */
   async pushTask(task: Task, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -279,29 +282,34 @@ export class SimpleSyncService {
     }
     
     try {
-      await this.retryWithBackoff(async () => {
-        const { error } = await client
-          .from('tasks')
-          .upsert({
-            id: task.id,
-            project_id: projectId,
-            title: task.title,
-            content: task.content,
-            stage: task.stage,
-            parent_id: task.parentId,
-            order: task.order,  // 数据库列名为 "order"
-            rank: task.rank,
-            status: task.status,
-            x: task.x,
-            y: task.y,
-            // displayId 由客户端动态计算，不存储到数据库
-            short_id: task.shortId,
-            deleted_at: task.deletedAt || null,
-            updated_at: task.updatedAt || nowISO()
+      await this.throttle.execute(
+        `push-task:${task.id}`,
+        async () => {
+          await this.retryWithBackoff(async () => {
+            const { error } = await client
+              .from('tasks')
+              .upsert({
+                id: task.id,
+                project_id: projectId,
+                title: task.title,
+                content: task.content,
+                stage: task.stage,
+                parent_id: task.parentId,
+                order: task.order,
+                rank: task.rank,
+                status: task.status,
+                x: task.x,
+                y: task.y,
+                short_id: task.shortId,
+                deleted_at: task.deletedAt || null,
+                updated_at: task.updatedAt || nowISO()
+              });
+            
+            if (error) throw supabaseErrorToError(error);
           });
-        
-        if (error) throw supabaseErrorToError(error);
-      });
+        },
+        { priority: 'normal', retries: 0 }  // 限流层不重试，由 retryWithBackoff 处理
+      );
       
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
       return true;
@@ -397,6 +405,7 @@ export class SimpleSyncService {
   /**
    * 推送项目到云端
    * 注意：RLS 策略要求 owner_id = auth.uid()，所以需要设置 owner_id
+   * 使用限流服务控制并发请求数量
    */
   async pushProject(project: Project): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -406,27 +415,32 @@ export class SimpleSyncService {
     }
     
     try {
-      // 获取当前用户 ID（RLS 策略需要 owner_id = auth.uid()）
-      const { data: { session } } = await client.auth.getSession();
-      const userId = session?.user?.id;
-      if (!userId) {
-        this.logger.warn('推送项目失败：用户未登录');
-        return false;
-      }
-      
-      const { error } = await client
-        .from('projects')
-        .upsert({
-          id: project.id,
-          owner_id: userId,  // RLS 策略必需
-          title: project.name,
-          description: project.description,
-          version: project.version || 1,
-          updated_at: project.updatedAt || nowISO(),
-          migrated_to_v2: true
-        });
-      
-      if (error) throw supabaseErrorToError(error);
+      await this.throttle.execute(
+        `push-project:${project.id}`,
+        async () => {
+          // 获取当前用户 ID（RLS 策略需要 owner_id = auth.uid()）
+          const { data: { session } } = await client.auth.getSession();
+          const userId = session?.user?.id;
+          if (!userId) {
+            throw new Error('用户未登录');
+          }
+          
+          const { error } = await client
+            .from('projects')
+            .upsert({
+              id: project.id,
+              owner_id: userId,
+              title: project.name,
+              description: project.description,
+              version: project.version || 1,
+              updated_at: project.updatedAt || nowISO(),
+              migrated_to_v2: true
+            });
+          
+          if (error) throw supabaseErrorToError(error);
+        },
+        { priority: 'high', retries: 2 }  // 项目操作优先级高
+      );
       return true;
     } catch (e) {
       const enhanced = supabaseErrorToError(e);
@@ -491,6 +505,7 @@ export class SimpleSyncService {
    * 自动重试策略：
    * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
    * - 重试失败后加入持久化重试队列，等待网络恢复后重试
+   * - 使用限流服务控制并发请求数量
    */
   async pushConnection(connection: Connection, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -500,20 +515,26 @@ export class SimpleSyncService {
     }
     
     try {
-      await this.retryWithBackoff(async () => {
-        const { error } = await client
-          .from('connections')
-          .upsert({
-            id: connection.id,
-            project_id: projectId,
-            source_id: connection.source,
-            target_id: connection.target,
-            description: connection.description || null,
-            deleted_at: connection.deletedAt || null
+      await this.throttle.execute(
+        `push-connection:${connection.id}`,
+        async () => {
+          await this.retryWithBackoff(async () => {
+            const { error } = await client
+              .from('connections')
+              .upsert({
+                id: connection.id,
+                project_id: projectId,
+                source_id: connection.source,
+                target_id: connection.target,
+                description: connection.description || null,
+                deleted_at: connection.deletedAt || null
+              });
+            
+            if (error) throw supabaseErrorToError(error);
           });
-        
-        if (error) throw supabaseErrorToError(error);
-      });
+        },
+        { priority: 'normal', retries: 0 }  // 限流层不重试，由 retryWithBackoff 处理
+      );
       
       return true;
     } catch (e) {
@@ -983,32 +1004,46 @@ export class SimpleSyncService {
   
   /**
    * 加载完整项目（包含任务和连接）
+   * 使用请求限流避免连接池耗尽
    */
   async loadFullProject(projectId: string, _userId: string): Promise<Project | null> {
     const client = this.getSupabaseClient();
     if (!client) return null;
     
     try {
-      // 1. 加载项目元数据
-      const { data: projectData, error: projectError } = await client
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .single();
+      // 1. 加载项目元数据（使用限流 + 去重）
+      const projectData = await this.throttle.execute(
+        `project-meta:${projectId}`,
+        async () => {
+          const { data, error } = await client
+            .from('projects')
+            .select('*')
+            .eq('id', projectId)
+            .single();
+          if (error) throw error;
+          return data;
+        },
+        { deduplicate: true, priority: 'normal' }
+      );
       
-      if (projectError) throw projectError;
+      // 2. 并行加载任务和连接（但通过限流服务控制总并发数）
+      const [tasks, connectionsData] = await Promise.all([
+        this.pullTasksThrottled(projectId),
+        this.throttle.execute(
+          `connections:${projectId}`,
+          async () => {
+            const { data } = await client
+              .from('connections')
+              .select('*')
+              .eq('project_id', projectId)
+              .is('deleted_at', null);
+            return data || [];
+          },
+          { deduplicate: true, priority: 'normal' }
+        )
+      ]);
       
-      // 2. 加载任务
-      const tasks = await this.pullTasks(projectId);
-      
-      // 3. 加载连接
-      const { data: connectionsData } = await client
-        .from('connections')
-        .select('*')
-        .eq('project_id', projectId)
-        .is('deleted_at', null);
-      
-      const connections = (connectionsData || []).map((row: any) => ({
+      const connections = connectionsData.map((row: any) => ({
         id: row.id,
         source: row.source_id,
         target: row.target_id,
@@ -1025,6 +1060,28 @@ export class SimpleSyncService {
       Sentry.captureException(e, { tags: { operation: 'loadFullProject' } });
       return null;
     }
+  }
+  
+  /**
+   * 拉取任务（带限流）
+   */
+  private async pullTasksThrottled(projectId: string): Promise<Task[]> {
+    const client = this.getSupabaseClient();
+    if (!client) return [];
+    
+    return this.throttle.execute(
+      `tasks:${projectId}`,
+      async () => {
+        const { data, error } = await client
+          .from('tasks')
+          .select('*')
+          .eq('project_id', projectId);
+        
+        if (error) throw supabaseErrorToError(error);
+        return (data as TaskRow[] || []).map(row => this.rowToTask(row));
+      },
+      { deduplicate: true, priority: 'normal' }
+    );
   }
   
   /**
@@ -1130,6 +1187,8 @@ export class SimpleSyncService {
   
   /**
    * 从云端加载项目列表（包含任务和连接）
+   * 使用请求限流避免并发请求耗尽连接池
+   * 
    * @param userId 用户 ID
    * @param _silent 静默模式（兼容旧接口，忽略）
    */
@@ -1140,18 +1199,27 @@ export class SimpleSyncService {
     this.isLoadingRemote.set(true);
     
     try {
-      // 注意：projects 表没有 deleted_at 列，项目删除是硬删除
-      const { data, error } = await client
-        .from('projects')
-        .select('*')
-        .eq('owner_id', userId)  // 数据库列名为 owner_id
-        .order('updated_at', { ascending: false });
+      // 1. 先加载项目列表（单个请求）
+      const projectList = await this.throttle.execute(
+        `project-list:${userId}`,
+        async () => {
+          const { data, error } = await client
+            .from('projects')
+            .select('*')
+            .eq('owner_id', userId)
+            .order('updated_at', { ascending: false });
+          
+          if (error) throw supabaseErrorToError(error);
+          return data || [];
+        },
+        { deduplicate: true, priority: 'high' }
+      );
       
-      if (error) throw supabaseErrorToError(error);
-      
-      // 为每个项目加载完整数据（任务和连接）
+      // 2. 串行加载每个项目的完整数据
+      // 这样通过限流服务自动控制并发数（默认 4 个）
+      // 避免一次性发起太多请求导致连接池耗尽
       const projects: Project[] = [];
-      for (const row of (data || [])) {
+      for (const row of projectList) {
         const project = await this.loadFullProject(row.id, userId);
         if (project) {
           projects.push(project);

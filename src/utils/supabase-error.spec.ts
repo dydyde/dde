@@ -132,13 +132,34 @@ describe('supabase-error', () => {
       expect(result.isRetryable).toBe(true);
     });
     
-    it('应该处理 Unknown Supabase error', () => {
+    it('应该处理空对象错误（无 message）', () => {
       const error = {};
       const result = supabaseErrorToError(error);
       
-      expect(result.message).toBe('Unknown Supabase error');
-      expect(result.name).toBe('SupabaseError');
-      expect(result.isRetryable).toBe(false);
+      // 空对象最终会使用默认消息 "Unknown Supabase error"
+      // 这会被识别为 UnknownServerError（可重试）
+      expect(result.message).toContain('服务器响应异常');
+      expect(result.name).toBe('UnknownServerError');
+      expect(result.isRetryable).toBe(true);
+    });
+    
+    it('应该将 "Unknown Supabase error" 识别为可重试的服务端错误', () => {
+      // Supabase 客户端在无法解析 504 等响应时返回此消息
+      const error = { message: 'Unknown Supabase error' };
+      const result = supabaseErrorToError(error);
+      
+      expect(result.name).toBe('UnknownServerError');
+      expect(result.message).toContain('服务器响应异常');
+      expect(result.isRetryable).toBe(true);
+      expect(result.errorType).toBe('UnknownServerError');
+    });
+    
+    it('应该将 "unknown error" 变体识别为可重试的服务端错误', () => {
+      const error = { message: 'Some unknown error occurred' };
+      const result = supabaseErrorToError(error);
+      
+      expect(result.name).toBe('UnknownServerError');
+      expect(result.isRetryable).toBe(true);
     });
     
     it('应该保留原始错误的 code, details, hint', () => {
@@ -193,6 +214,14 @@ describe('supabase-error', () => {
       expect(getFriendlyErrorMessage({ code: 502 })).toContain('网关错误');
       expect(getFriendlyErrorMessage({ message: 'timeout' })).toContain('网络响应超时');
       expect(getFriendlyErrorMessage({ message: 'offline' })).toContain('离线');
+    });
+    
+    it('应该为 Unknown Supabase error 提供友好提示', () => {
+      // 模拟 504 返回非 JSON 响应时 Supabase 客户端的回退错误
+      const error = { message: 'Unknown Supabase error' };
+      const result = getFriendlyErrorMessage(error);
+      
+      expect(result).toContain('服务器响应异常');
     });
     
     it('应该为不可重试错误返回详细消息', () => {

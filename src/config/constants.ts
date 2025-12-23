@@ -86,6 +86,32 @@ export const SYNC_MODE_CONFIG = {
 } as const;
 
 /**
+ * 请求限流配置
+ * 解决并发 Supabase API 调用耗尽连接池的问题
+ * 
+ * 问题背景：
+ * - Chrome 对同一域名限制 6 个并发 HTTP 连接
+ * - Supabase 数据库连接池有限
+ * - 页面加载时大量并发请求可能导致 "Failed to fetch" 错误
+ */
+export const REQUEST_THROTTLE_CONFIG = {
+  /** 最大并发请求数 - Chrome 对同一域名限制 6 个，留 2 个给用户交互 */
+  MAX_CONCURRENT: 4,
+  /** 默认超时时间（毫秒）*/
+  DEFAULT_TIMEOUT: 30000,
+  /** 默认重试次数 */
+  DEFAULT_RETRIES: 3,
+  /** 重试基础延迟（毫秒）*/
+  RETRY_BASE_DELAY: 1000,
+  /** 重试最大延迟（毫秒）*/
+  RETRY_MAX_DELAY: 30000,
+  /** 去重缓存过期时间（毫秒）*/
+  DEDUPE_TTL: 5000,
+  /** 请求队列最大长度 */
+  MAX_QUEUE_SIZE: 100,
+} as const;
+
+/**
  * 同步检查点配置
  * 基于快照的增量同步支持
  */

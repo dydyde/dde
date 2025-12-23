@@ -27,6 +27,7 @@ const RETRYABLE_ERROR_TYPES = new Set([
   'NetworkError',
   'OfflineError',
   'RateLimitError',  // 429 速率限制错误应该重试
+  'UnknownServerError',  // 504 等服务端错误返回非 JSON 响应时的回退类型
 ]);
 
 /**
@@ -114,12 +115,20 @@ export function supabaseErrorToError(error: any): EnhancedError {
       errorType = 'RateLimitError';
     } else if (lowerMsg.includes('jwt') || lowerMsg.includes('session') || lowerMsg.includes('expired')) {
       errorType = 'AuthError';
+    } else if (lowerMsg.includes('unknown supabase error') || lowerMsg.includes('unknown error')) {
+      // 504 Gateway Timeout 等服务端错误可能返回非 JSON 响应体
+      // Supabase 客户端无法解析时会回退到 "Unknown Supabase error"
+      // 这种情况通常是临时的网络/服务问题，应该标记为可重试
+      errorType = 'UnknownServerError';
+      message = '服务器响应异常 (可能是 504/502/503 错误)，请稍后重试';
     }
   }
   
   // 如果 message 仍然为空，使用默认消息
+  // 注意：空错误对象通常意味着服务端返回了非标准响应（如 504 的 HTML 错误页面）
   if (!message) {
-    message = 'Unknown Supabase error';
+    message = '服务器响应异常 (可能是 504/502/503 错误)，请稍后重试';
+    errorType = 'UnknownServerError';
   }
   
   const err = new Error(message) as EnhancedError;
@@ -172,6 +181,8 @@ export function getFriendlyErrorMessage(error: any): string {
         return '网络连接失败，数据将自动重试同步';
       case 'OfflineError':
         return '当前离线，数据将在恢复连接后同步';
+      case 'UnknownServerError':
+        return '服务器响应异常，已加入重试队列';
       default:
         return '操作失败，已加入重试队列';
     }
