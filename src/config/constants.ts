@@ -99,6 +99,17 @@ export const SYNC_CHECKPOINT_CONFIG = {
 } as const;
 
 /**
+ * 浮动任务树配置
+ * 支持待分配区构建任务树结构
+ */
+export const FLOATING_TREE_CONFIG = {
+  /** 阶段缓冲区大小：允许的最大阶段 = 当前最大阶段 + STAGE_BUFFER */
+  STAGE_BUFFER: 10,
+  /** 子树最大深度（防止无限递归） */
+  MAX_SUBTREE_DEPTH: 100,
+} as const;
+
+/**
  * 冲突历史配置
  * 冲突版本回溯支持
  */

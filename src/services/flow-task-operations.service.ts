@@ -91,12 +91,17 @@ export class FlowTaskOperationsService {
   
   /**
    * 添加同级任务
+   * 
+   * 【浮动任务树支持】
+   * - 待分配任务也可以添加同级任务，共享相同的 parentId
+   * - 新任务将继承当前任务的 stage 和 parentId
+   * 
    * @returns 新任务ID，如果失败返回 null
    */
   addSiblingTask(task: Task): string | null {
-    // 如果是待分配任务，直接在待分配区域创建新任务
+    // 待分配任务添加同级时，显示提示但继续执行
     if (task.stage === null) {
-      this.toast.info('在待分配区域创建', '当前任务未分配阶段');
+      this.toast.info('创建待分配同级任务', '新任务将与当前任务共享父节点');
     }
     
     const result = this.store.addTask('', '', task.stage, task.parentId, true);
@@ -109,15 +114,25 @@ export class FlowTaskOperationsService {
   
   /**
    * 添加子任务
+   * 
+   * 【浮动任务树支持】
+   * - 待分配任务也可以添加子任务，形成待分配区的任务树
+   * - 待分配任务的子任务 stage 保持为 null
+   * - 已分配任务的子任务 stage = 父任务 stage + 1
+   * 
    * @returns 新任务ID，如果失败返回 null
    */
   addChildTask(task: Task): string | null {
-    const nextStage = (task.stage || 0) + 1;
-    const result = this.store.addTask('', '', nextStage, task.id, false);
+    // 如果父任务是待分配的，子任务也保持待分配状态
+    // 否则子任务的 stage = 父任务 stage + 1
+    const childStage = task.stage === null ? null : task.stage + 1;
+    
+    const result = this.store.addTask('', '', childStage, task.id, false);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));
       return null;
     }
+    
     return result.value;
   }
   

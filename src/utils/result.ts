@@ -25,6 +25,10 @@ export const ErrorCodes = {
   LAYOUT_CYCLE_DETECTED: 'LAYOUT_CYCLE_DETECTED',
   LAYOUT_NO_SPACE: 'LAYOUT_NO_SPACE',
   
+  // 浮动任务树错误
+  STAGE_OVERFLOW: 'STAGE_OVERFLOW',
+  CROSS_BOUNDARY_VIOLATION: 'CROSS_BOUNDARY_VIOLATION',
+  
   // 数据错误
   DATA_NOT_FOUND: 'DATA_NOT_FOUND',
   DATA_INVALID: 'DATA_INVALID',
@@ -74,6 +78,8 @@ export const ErrorMessages: Record<ErrorCode, string> = {
   [ErrorCodes.LAYOUT_PARENT_CHILD_CONFLICT]: '无法移动：会破坏父子关系约束',
   [ErrorCodes.LAYOUT_CYCLE_DETECTED]: '无法移动：会产生循环依赖',
   [ErrorCodes.LAYOUT_NO_SPACE]: '该区域已满，无法放置更多任务',
+  [ErrorCodes.STAGE_OVERFLOW]: '操作被拦截：子任务将超出最大阶段限制',
+  [ErrorCodes.CROSS_BOUNDARY_VIOLATION]: '非法操作：不能跨越待分配/已分配边界建立父子关系',
   [ErrorCodes.DATA_NOT_FOUND]: '数据不存在',
   [ErrorCodes.DATA_INVALID]: '数据格式无效',
   [ErrorCodes.DATA_DUPLICATE]: '数据重复',

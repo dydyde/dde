@@ -234,7 +234,7 @@ export class FlowLinkService {
     targetId: string,
     x: number,
     y: number
-  ): 'show-dialog' | 'create-cross-tree' | 'none' {
+  ): 'show-dialog' | 'create-cross-tree' | 'create-parent-child' | 'none' {
     // 防止自连接
     if (sourceId === targetId) {
       this.toast.warning('无法连接', '节点不能连接到自身');
@@ -246,13 +246,22 @@ export class FlowLinkService {
     const sourceTask = this.store.tasks().find(t => t.id === sourceId);
     
     if (childTask?.parentId) {
-      // 目标已有父节点，只能创建跨树连接
-      // 场景二：若目标是"待分配块"，先将其任务化
-      if (childTask.stage === null) {
-        const inferredStage = sourceTask?.stage ?? 1;
-        this.store.moveTaskToStage(targetId, inferredStage, undefined, null);
+      // 🔴 浮动任务树特殊处理：待分配子任务可以被“认领”
+      // 如果目标是待分配区的子任务，允许将其分配到已分配区成为新父任务的子任务
+      if (sourceTask && childTask.stage === null && sourceTask.stage !== null && sourceTask.stage !== undefined) {
+        const targetStage = sourceTask.stage + 1;
+        // 将待分配子任务及其子树分配到新父任务下
+        const result = this.store.moveTaskToStage(targetId, targetStage, undefined, sourceId);
+        if (result.ok) {
+          this.toast.success('已分配任务', `"${childTask.title}" 已成为新任务的子任务`);
+          return 'create-parent-child';
+        } else {
+          this.toast.error('分配失败', result.error?.message || '未知错误');
+          return 'none';
+        }
       }
       
+      // 目标已有父节点且已分配，只能创建跨树连接
       this.store.addCrossTreeConnection(sourceId, targetId);
       this.toast.success('已创建关联', '目标任务已有父级，已创建关联连接');
       return 'create-cross-tree';

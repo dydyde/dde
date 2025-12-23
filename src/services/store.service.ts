@@ -688,6 +688,16 @@ export class StoreService {
     this.taskAdapter.detachTask(taskId);
   }
   
+  /**
+   * 分离任务及其整个子树（移回待分配区）
+   * 
+   * 【浮动任务树方法】
+   * 保留子树内部父子关系，仅断开根节点与外部的连接
+   */
+  detachTaskWithSubtree(taskId: string) {
+    return this.taskAdapter.detachTaskWithSubtree(taskId);
+  }
+  
   deleteTaskKeepChildren(taskId: string) {
     this.taskAdapter.deleteTaskKeepChildren(taskId);
   }

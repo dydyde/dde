@@ -346,6 +346,15 @@ export class TaskOperationAdapterService {
     this.taskOps.detachTask(taskId);
   }
   
+  /**
+   * 分离任务及其整个子树（移回待分配区）
+   * 
+   * 【浮动任务树方法】
+   */
+  detachTaskWithSubtree(taskId: string) {
+    return this.taskOps.detachTaskWithSubtree(taskId);
+  }
+  
   deleteTaskKeepChildren(taskId: string): void {
     // 创建乐观更新快照
     const snapshot = this.optimisticState.createTaskSnapshot(taskId, '删除');

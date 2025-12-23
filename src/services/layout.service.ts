@@ -124,12 +124,24 @@ export class LayoutService {
 
     tasks.forEach(t => byId.set(t.id, t));
 
-    const stage1Roots = tasks
-      .filter(t => t.stage === 1 && !t.parentId && isVisibleTask(t))
-      .sort((a, b) => a.rank - b.rank);
-
+    // 🔴 修复：收集所有阶段的根任务（没有 parentId 的已分配任务）
+    // 按阶段分组，确保每个阶段的根任务都能被遍历到
+    const allRoots = tasks
+      .filter(t => t.stage !== null && !t.parentId && isVisibleTask(t))
+      .sort((a, b) => (a.stage ?? 0) - (b.stage ?? 0) || a.rank - b.rank);
+    
+    // 为 stage 1 的根任务分配主编号
+    const stage1Roots = allRoots.filter(t => t.stage === 1);
     stage1Roots.forEach((t, idx) => {
       t.displayId = `${idx + 1}`;
+    });
+    
+    // 为其他阶段的根任务（孤儿任务）分配特殊编号
+    // 这些任务没有父节点但不在 stage 1，可能是被分配到中间阶段的浮动树根
+    const orphanRoots = allRoots.filter(t => t.stage !== 1);
+    orphanRoots.forEach((t, idx) => {
+      // 使用 "O" 前缀表示孤儿任务（Orphan）
+      t.displayId = `O${idx + 1}`;
     });
 
     const children = new Map<string, Task[]>();
@@ -165,13 +177,6 @@ export class LayoutService {
           // 修复原逻辑只处理 child.stage <= parent.stage 的情况，
           // 现在无论子任务在什么阶段，都强制修正为正确的阶段
           if (parent.stage !== null && child.stage !== parent.stage + 1) {
-            console.log('[Rebalance] 修正子任务 stage:', {
-              childId: child.id.slice(-4),
-              oldStage: child.stage,
-              newStage: parent.stage + 1,
-              parentId: parent.id.slice(-4),
-              parentStage: parent.stage
-            });
             child.stage = parent.stage + 1;
           }
           const letter = LETTERS[idx % LETTERS.length];
@@ -188,16 +193,14 @@ export class LayoutService {
       }
     };
 
-    stage1Roots.forEach(t => assignChildrenIterative(t.id));
+    // 🔴 遍历所有根任务（包括所有阶段的孤儿任务）
+    allRoots.forEach(t => assignChildrenIterative(t.id));
 
     tasks.forEach(t => {
       if (!t.displayId) t.displayId = '?';
       if (t.stage === null) {
-        // 未分配阶段的任务不应有父子关系；但回收站任务需要保留 parentId，
-        // 以便 restore 时能恢复整棵子树。
-        if (!t.deletedAt) {
-          t.parentId = null;
-        }
+        // 🔴 浮动任务树：保留待分配区的父子关系
+        // 不再强制清除 parentId，待分配区可以构建完整的任务树
         t.displayId = '?';
       }
     });
@@ -274,9 +277,34 @@ export class LayoutService {
 
   /**
    * 计算未分配任务的位置
-   * 使用网格布局而非随机位置，便于管理
+   * 
+   * 【浮动任务树增强】
+   * - 如果有父节点且父节点也在待分配区，放在父节点附近
+   * - 否则使用网格布局
+   * 
+   * @param existingCount 已存在的未分配任务数量
+   * @param parentId 父节点ID（可选）
+   * @param tasks 所有任务（可选，用于查找父节点位置）
    */
-  getUnassignedPosition(existingCount: number): { x: number; y: number } {
+  getUnassignedPosition(
+    existingCount: number, 
+    parentId?: string | null, 
+    tasks?: Task[]
+  ): { x: number; y: number } {
+    // 如果有父节点且父节点也在待分配区，放在父节点附近
+    if (parentId && tasks) {
+      const parent = tasks.find(t => t.id === parentId);
+      if (parent && parent.stage === null && parent.x !== undefined && parent.y !== undefined) {
+        // 计算该父节点已有多少个子节点（用于垂直偏移）
+        const siblingCount = tasks.filter(t => t.parentId === parentId && t.stage === null).length;
+        return {
+          x: parent.x + 180,  // 父节点右侧
+          y: parent.y + siblingCount * 60  // 每个子节点垂直间隔 60px
+        };
+      }
+    }
+    
+    // 默认网格布局
     const cols = 3; // 每行3个
     const row = Math.floor(existingCount / cols);
     const col = existingCount % cols;
@@ -303,10 +331,15 @@ export class LayoutService {
     existingTasks: Task[],
     parentId?: string | null
   ): { x: number; y: number } {
-    // 未分配任务，使用原有逻辑
+    // 未分配任务，使用增强的位置计算（支持父子关系）
     if (stage === null) {
-      return this.getUnassignedPosition(existingTasks.filter(t => t.stage === null).length);
+      return this.getUnassignedPosition(
+        existingTasks.filter(t => t.stage === null).length,
+        parentId,
+        existingTasks
+      );
     }
+
 
     // 获取同一阶段的所有可见任务（排除已删除和归档的）
     const sameStageTasks = existingTasks.filter(
