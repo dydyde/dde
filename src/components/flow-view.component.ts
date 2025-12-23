@@ -433,8 +433,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // ========== 私有状态 ==========
   private isDestroyed = false;
 
-  /** GoJS 拖拽过程中用于移动端幽灵反馈的监听器引用（便于销毁/重建时移除） */
-  private diagramSelectionMovingListener: ((e: go.DiagramEvent) => void) | null = null;
+  /** GoJS 拖拽结束时用于移动端幽灵清理的监听器引用（便于销毁/重建时移除） */
   private diagramSelectionMovedListener: ((e: go.DiagramEvent) => void) | null = null;
   
   /** 待清理的定时器（防止内存泄漏） */
@@ -762,72 +761,28 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
 
   private installMobileDiagramDragGhostListeners(): void {
     if (!this.store.isMobile()) return;
-    if (this.diagramSelectionMovingListener || this.diagramSelectionMovedListener) return;
+    if (this.diagramSelectionMovedListener) return;
 
     const diagramInstance = this.diagram.diagramInstance;
-    const diagramEl = this.diagramDiv?.nativeElement as HTMLElement | undefined;
-    if (!diagramInstance || !diagramEl) return;
+    if (!diagramInstance) return;
 
-    this.diagramSelectionMovingListener = (e: go.DiagramEvent) => {
-      if (this.isDestroyed) return;
-      if (!this.store.isMobile()) return;
-
-      // GoJS typings 中 InputEvent 未暴露 dragging 字段；用 DraggingTool 的 isActive 更可靠
-      const isDragging = diagramInstance.toolManager?.draggingTool?.isActive === true;
-      const input = diagramInstance.lastInput;
-      if (!input || !isDragging) {
-        this.touch.endDiagramNodeDragGhost();
-        return;
-      }
-
-      // 取第一个被拖拽的节点 key
-      let firstNodeKey: string | null = null;
-      const subject: any = (e as any).subject;
-      if (subject && typeof subject.each === 'function') {
-        subject.each((part: go.Part) => {
-          if (firstNodeKey) return;
-          if (part instanceof go.Node) {
-            const key = (part.data as any)?.key;
-            if (typeof key === 'string' && key.length > 0) {
-              firstNodeKey = key;
-            }
-          }
-        });
-      }
-
-      if (!firstNodeKey) return;
-      const task = this.store.tasks().find(t => t.id === firstNodeKey);
-      if (!task) return;
-
-      // GoJS viewPoint -> client 坐标
-      const viewPt = input.viewPoint;
-      const rect = diagramEl.getBoundingClientRect();
-      const clientX = rect.left + viewPt.x;
-      const clientY = rect.top + viewPt.y;
-
-      this.touch.startDiagramNodeDragGhost(task, clientX, clientY);
-    };
-
+    // 注意：GoJS 没有 'SelectionMoving' 事件（会导致运行时错误）
+    // 只使用 'SelectionMoved' 在拖拽结束时清理幽灵元素
+    // 如果需要实时跟踪，应该监听 ToolManager 或使用 doMouseMove
     this.diagramSelectionMovedListener = () => {
       if (!this.store.isMobile()) return;
       this.touch.endDiagramNodeDragGhost();
     };
 
-    // GoJS 的事件名在不同 typings 版本可能不完整；这里按项目现有做法用 string 兼容
-    diagramInstance.addDiagramListener('SelectionMoving' as unknown as go.DiagramEventName, this.diagramSelectionMovingListener);
-    diagramInstance.addDiagramListener('SelectionMoved' as unknown as go.DiagramEventName, this.diagramSelectionMovedListener);
+    diagramInstance.addDiagramListener('SelectionMoved', this.diagramSelectionMovedListener);
   }
 
   private uninstallMobileDiagramDragGhostListeners(): void {
     const diagramInstance = this.diagram.diagramInstance;
     if (!diagramInstance) return;
 
-    if (this.diagramSelectionMovingListener) {
-      diagramInstance.removeDiagramListener('SelectionMoving' as unknown as go.DiagramEventName, this.diagramSelectionMovingListener);
-      this.diagramSelectionMovingListener = null;
-    }
     if (this.diagramSelectionMovedListener) {
-      diagramInstance.removeDiagramListener('SelectionMoved' as unknown as go.DiagramEventName, this.diagramSelectionMovedListener);
+      diagramInstance.removeDiagramListener('SelectionMoved', this.diagramSelectionMovedListener);
       this.diagramSelectionMovedListener = null;
     }
   }

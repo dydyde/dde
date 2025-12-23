@@ -2,6 +2,7 @@ import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Attachment, AttachmentType } from '../models';
 import { ATTACHMENT_CONFIG } from '../config/constants';
+import { supabaseErrorToError } from '../utils/supabase-error';
 
 /**
  * 上传进度
@@ -290,7 +291,7 @@ export class AttachmentService {
       ]) as { data: unknown; error: Error | null };
 
       if (error) {
-        throw error;
+        throw supabaseErrorToError(error);
       }
 
       // 再次检查是否在上传完成后被取消（边界情况）
@@ -484,7 +485,7 @@ export class AttachmentService {
         .remove([filePath]);
 
       if (error) {
-        throw error;
+        throw supabaseErrorToError(error);
       }
 
       return { success: true };
@@ -607,7 +608,7 @@ export class AttachmentService {
         .download(filePath);
 
       if (error) {
-        throw error;
+        throw supabaseErrorToError(error);
       }
 
       return data;

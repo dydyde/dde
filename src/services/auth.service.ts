@@ -3,6 +3,7 @@ import { SupabaseClientService } from './supabase-client.service';
 import { 
   Result, OperationError, ErrorCodes, success, failure, humanizeErrorMessage 
 } from '../utils/result';
+import { supabaseErrorToError } from '../utils/supabase-error';
 import { environment } from '../environments/environment';
 
 export interface AuthState {
@@ -118,7 +119,7 @@ export class AuthService {
           name: error.name
         });
         // 不抛出异常，而是在 catch 块中统一处理
-        throw error;
+        throw supabaseErrorToError(error);
       }
       
       const session = data?.session;

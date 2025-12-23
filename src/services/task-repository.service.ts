@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Task, Connection } from '../models';
 import { sanitizeTask } from '../utils/validation';
+import { supabaseErrorToError } from '../utils/supabase-error';
 
 /**
  * 数据库行类型定义
@@ -83,7 +84,7 @@ export class TaskRepositoryService {
 
     if (error) {
       console.error('Failed to load tasks:', error);
-      throw error;
+      throw supabaseErrorToError(error);
     }
 
     if (!data || data.length === 0) {
@@ -184,7 +185,7 @@ export class TaskRepositoryService {
 
     if (error) {
       console.error('Failed to load connections:', error);
-      throw error;
+      throw supabaseErrorToError(error);
     }
 
     return (data || []).map(row => this.mapRowToConnection(row as ConnectionRow));
@@ -810,7 +811,7 @@ export class TaskRepositoryService {
 
     if (error) {
       console.error('Failed to get updated tasks:', error);
-      throw error;
+      throw supabaseErrorToError(error);
     }
 
     return (data || []).map(row => this.mapRowToTask(row as TaskRow));

@@ -20,27 +20,9 @@ import { ToastService } from '../../../services/toast.service';
 import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../models';
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
+import { supabaseErrorToError } from '../../../utils/supabase-error';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
-
-/**
- * 将 Supabase 错误对象转换为标准 Error 实例
- * Supabase 返回的错误是普通对象 {code, details, hint, message}，需要转换才能被 Sentry 正确捕获
- */
-function supabaseErrorToError(error: any): Error {
-  if (error instanceof Error) return error;
-  
-  const message = error?.message || 'Unknown Supabase error';
-  const err = new Error(message);
-  err.name = 'SupabaseError';
-  
-  // 保留原始错误信息
-  (err as any).code = error?.code;
-  (err as any).details = error?.details;
-  (err as any).hint = error?.hint;
-  
-  return err;
-}
 
 /**
  * 重试队列项
@@ -261,8 +243,29 @@ export class SimpleSyncService {
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
       return true;
     } catch (e) {
-      this.logger.error('推送任务失败', e);
-      Sentry.captureException(e, { tags: { operation: 'pushTask' } });
+      const err = e as any;
+      const isRetryable = err.isRetryable || false;
+      const errorName = err.name || 'Error';
+      
+      // 根据错误类型选择日志级别
+      if (isRetryable) {
+        // 网络相关错误：静默处理，仅 debug 日志
+        this.logger.debug(`推送任务失败 (${errorName})，已加入重试队列`, err.message);
+      } else {
+        // 非网络错误：记录完整错误
+        this.logger.error('推送任务失败', e);
+      }
+      
+      // 报告到 Sentry，但标记可重试错误的级别
+      Sentry.captureException(e, { 
+        tags: { 
+          operation: 'pushTask',
+          errorType: errorName,
+          isRetryable: isRetryable.toString()
+        },
+        level: isRetryable ? 'info' : 'error'
+      });
+      
       this.addToRetryQueue('task', 'upsert', task, projectId);
       return false;
     }
