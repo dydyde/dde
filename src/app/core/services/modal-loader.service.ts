@@ -36,7 +36,8 @@ export type ModalType =
   | 'migration'
   | 'errorRecovery'
   | 'storageEscape'
-  | 'dashboard';
+  | 'dashboard'
+  | 'deleteConfirm';
 
 @Injectable({
   providedIn: 'root'
@@ -92,6 +93,15 @@ export class ModalLoaderService {
   async loadNewProjectModal(): Promise<Type<unknown>> {
     return this.loadModal('newProject', () => 
       import('../../../components/modals/new-project-modal.component').then(m => m.NewProjectModalComponent)
+    );
+  }
+  
+  /**
+   * 加载删除确认模态框
+   */
+  async loadDeleteConfirmModal(): Promise<Type<unknown>> {
+    return this.loadModal('deleteConfirm', () => 
+      import('../../../components/modals/delete-confirm-modal.component').then(m => m.DeleteConfirmModalComponent)
     );
   }
   
@@ -342,5 +352,18 @@ export class ModalLoaderService {
   async openDashboardModal<R = unknown>(): Promise<ModalRef<R>> {
     const component = await this.loadDashboardModal();
     return this.dynamicModal.open(component, {});
+  }
+  
+  /**
+   * 打开删除确认模态框
+   */
+  async openDeleteConfirmModal<R = unknown>(data: { 
+    title?: string; 
+    message?: string; 
+    itemName: string; 
+    warning?: string; 
+  }): Promise<ModalRef<R>> {
+    const component = await this.loadDeleteConfirmModal();
+    return this.dynamicModal.open(component, { data });
   }
 }

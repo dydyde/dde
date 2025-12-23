@@ -99,11 +99,6 @@ export class FlowTaskOperationsService {
    * @returns 新任务ID，如果失败返回 null
    */
   addSiblingTask(task: Task): string | null {
-    // 待分配任务添加同级时，显示提示但继续执行
-    if (task.stage === null) {
-      this.toast.info('创建待分配同级任务', '新任务将与当前任务共享父节点');
-    }
-    
     const result = this.store.addTask('', '', task.stage, task.parentId, true);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));

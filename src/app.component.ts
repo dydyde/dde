@@ -12,6 +12,7 @@ import { GlobalErrorHandler } from './services/global-error-handler.service';
 import { ModalService, type DeleteProjectData, type ConflictData, type LoginData } from './services/modal.service';
 import { DynamicModalService } from './services/dynamic-modal.service';
 import { SyncCoordinatorService } from './services/sync-coordinator.service';
+import { ModalLoaderService } from './app/core/services/modal-loader.service';
 import { enableLocalMode, disableLocalMode } from './services/guards';
 import { ToastContainerComponent } from './components/toast-container.component';
 import { SyncStatusComponent } from './components/sync-status.component';
@@ -96,6 +97,7 @@ export class AppComponent implements OnInit, OnDestroy {
   migrationService = inject(MigrationService);
   errorHandler = inject(GlobalErrorHandler);
   modal = inject(ModalService);
+  modalLoader = inject(ModalLoaderService);
   dynamicModal = inject(DynamicModalService);
   private syncCoordinator = inject(SyncCoordinatorService);
   
@@ -106,6 +108,7 @@ export class AppComponent implements OnInit, OnDestroy {
   isSidebarOpen = signal(true);
   isFilterOpen = signal(false); // Add this line
   expandedProjectId = signal<string | null>(null);
+  isDeleting = signal(false);
   isEditingDescription = signal(false);
   projectDrafts = signal<Record<string, { description: string; createdDate: string }>>({});
   authEmail = signal('');
@@ -1057,27 +1060,37 @@ async signOut() {
   async confirmDeleteProject(projectId: string, projectName: string, event: Event) {
     event.stopPropagation();
     
-    // 动态渲染模态框，直接等待结果
-    const { DeleteConfirmModalComponent } = await import('./components/modals/delete-confirm-modal.component');
+    // 防止并发删除操作导致的动态导入冲突
+    if (this.isDeleting()) {
+      return;
+    }
     
-    const modalRef = this.dynamicModal.open(DeleteConfirmModalComponent, {
-      data: {
+    try {
+      this.isDeleting.set(true);
+      
+      // 使用 ModalLoaderService 加载模态框（内置重试和错误处理）
+      const modalRef = await this.modalLoader.openDeleteConfirmModal({
         title: '删除项目',
         message: '确定要删除项目吗？',
         itemName: projectName,
         warning: '此操作将删除项目及其所有任务，且无法撤销！'
+      });
+      
+      const result = await modalRef.result as { confirmed: boolean } | undefined;
+      
+      if (result?.confirmed) {
+        const deleteResult = await this.store.deleteProject(projectId);
+        if (deleteResult.success) {
+          this.expandedProjectId.set(null);
+          // 破坏性操作的成功反馈：让用户明确知道删除已完成
+          this.toast.success('项目已删除', `「${projectName}」已永久删除`);
+        }
       }
-    });
-    
-    const result = await modalRef.result as { confirmed: boolean } | undefined;
-    
-    if (result?.confirmed) {
-      const deleteResult = await this.store.deleteProject(projectId);
-      if (deleteResult.success) {
-        this.expandedProjectId.set(null);
-        // 破坏性操作的成功反馈：让用户明确知道删除已完成
-        this.toast.success('项目已删除', `「${projectName}」已永久删除`);
-      }
+    } catch (error) {
+      // 动态导入失败时的错误处理（避免 Sentry 重复上报）
+      this.toast.error('操作失败', '无法加载删除确认对话框，请刷新页面后重试');
+    } finally {
+      this.isDeleting.set(false);
     }
   }
   

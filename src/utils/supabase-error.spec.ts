@@ -57,13 +57,13 @@ describe('supabase-error', () => {
       expect(result.isRetryable).toBe(true);
     });
     
-    it('应该识别 429 Rate Limit 错误', () => {
+    it('应该识别 429 Rate Limit 错误（可重试）', () => {
       const error = { code: 429, message: 'Too many requests' };
       const result = supabaseErrorToError(error);
       
       expect(result.name).toBe('RateLimitError');
       expect(result.message).toContain('429 Too Many Requests');
-      expect(result.isRetryable).toBe(false);
+      expect(result.isRetryable).toBe(true); // 速率限制应该重试
     });
     
     it('应该识别 401 Unauthorized 错误', () => {
@@ -169,6 +169,7 @@ describe('supabase-error', () => {
       expect(isRetryableError({ code: 504 })).toBe(true);
       expect(isRetryableError({ code: 503 })).toBe(true);
       expect(isRetryableError({ code: 502 })).toBe(true);
+      expect(isRetryableError({ code: 429 })).toBe(true); // 速率限制错误应该重试
       expect(isRetryableError({ message: 'timeout' })).toBe(true);
       expect(isRetryableError({ message: 'network error' })).toBe(true);
     });
@@ -176,7 +177,6 @@ describe('supabase-error', () => {
     it('应该正确判断不可重试错误', () => {
       expect(isRetryableError({ code: 401 })).toBe(false);
       expect(isRetryableError({ code: 403 })).toBe(false);
-      expect(isRetryableError({ code: 429 })).toBe(false);
       expect(isRetryableError({ message: 'Invalid input' })).toBe(false);
     });
     

@@ -26,6 +26,7 @@ const RETRYABLE_ERROR_TYPES = new Set([
   'TimeoutError',
   'NetworkError',
   'OfflineError',
+  'RateLimitError',  // 429 速率限制错误应该重试
 ]);
 
 /**

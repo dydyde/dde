@@ -141,6 +141,12 @@ export class SimpleSyncService {
   /** 重试队列版本号（用于格式兼容） */
   private readonly RETRY_QUEUE_VERSION = 1;
   
+  /** 立即重试的最大次数（带指数退避） */
+  private readonly IMMEDIATE_RETRY_MAX = 3;
+  
+  /** 立即重试的基础延迟（毫秒） */
+  private readonly IMMEDIATE_RETRY_BASE_DELAY = 1000;
+  
   /** Realtime 订阅通道 */
   private realtimeChannel: RealtimeChannel | null = null;
   
@@ -204,11 +210,66 @@ export class SimpleSyncService {
     }
   }
   
+  /**
+   * 延迟工具函数
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+  
+  /**
+   * 带指数退避的重试辅助函数
+   * 仅对可重试的错误进行重试（5xx, 429, 408, 网络错误等）
+   * 
+   * @param operation 要执行的操作
+   * @param maxRetries 最大重试次数
+   * @param baseDelay 基础延迟（毫秒）
+   * @returns 操作结果
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxRetries = this.IMMEDIATE_RETRY_MAX,
+    baseDelay = this.IMMEDIATE_RETRY_BASE_DELAY
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        const enhanced = supabaseErrorToError(error);
+        
+        // 如果不是可重试错误，立即抛出
+        if (!enhanced.isRetryable) {
+          throw enhanced;
+        }
+        
+        // 如果还有重试机会，等待后重试
+        if (attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt); // 指数退避：1s, 2s, 4s
+          this.logger.debug(`操作失败 (${enhanced.errorType})，${delay}ms 后重试 (${attempt + 1}/${maxRetries})`, enhanced.message);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          // 所有重试用尽
+          this.logger.warn(`操作失败，已重试 ${maxRetries} 次`, enhanced);
+          throw enhanced;
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+  
   // ==================== 任务同步 ====================
   
   /**
    * 推送任务到云端
    * 使用 upsert 实现 LWW
+   * 
+   * 自动重试策略：
+   * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
+   * - 重试失败后加入持久化重试队列，等待网络恢复后重试
    */
   async pushTask(task: Task, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -218,27 +279,29 @@ export class SimpleSyncService {
     }
     
     try {
-      const { error } = await client
-        .from('tasks')
-        .upsert({
-          id: task.id,
-          project_id: projectId,
-          title: task.title,
-          content: task.content,
-          stage: task.stage,
-          parent_id: task.parentId,
-          order: task.order,  // 数据库列名为 "order"
-          rank: task.rank,
-          status: task.status,
-          x: task.x,
-          y: task.y,
-          // displayId 由客户端动态计算，不存储到数据库
-          short_id: task.shortId,
-          deleted_at: task.deletedAt || null,
-          updated_at: task.updatedAt || nowISO()
-        });
-      
-      if (error) throw supabaseErrorToError(error);
+      await this.retryWithBackoff(async () => {
+        const { error } = await client
+          .from('tasks')
+          .upsert({
+            id: task.id,
+            project_id: projectId,
+            title: task.title,
+            content: task.content,
+            stage: task.stage,
+            parent_id: task.parentId,
+            order: task.order,  // 数据库列名为 "order"
+            rank: task.rank,
+            status: task.status,
+            x: task.x,
+            y: task.y,
+            // displayId 由客户端动态计算，不存储到数据库
+            short_id: task.shortId,
+            deleted_at: task.deletedAt || null,
+            updated_at: task.updatedAt || nowISO()
+          });
+        
+        if (error) throw supabaseErrorToError(error);
+      });
       
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
       return true;
@@ -424,6 +487,10 @@ export class SimpleSyncService {
   
   /**
    * 推送连接到云端
+   * 
+   * 自动重试策略：
+   * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
+   * - 重试失败后加入持久化重试队列，等待网络恢复后重试
    */
   async pushConnection(connection: Connection, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -433,18 +500,21 @@ export class SimpleSyncService {
     }
     
     try {
-      const { error } = await client
-        .from('connections')
-        .upsert({
-          id: connection.id,
-          project_id: projectId,
-          source_id: connection.source,
-          target_id: connection.target,
-          description: connection.description || null,
-          deleted_at: connection.deletedAt || null
-        });
+      await this.retryWithBackoff(async () => {
+        const { error } = await client
+          .from('connections')
+          .upsert({
+            id: connection.id,
+            project_id: projectId,
+            source_id: connection.source,
+            target_id: connection.target,
+            description: connection.description || null,
+            deleted_at: connection.deletedAt || null
+          });
+        
+        if (error) throw supabaseErrorToError(error);
+      });
       
-      if (error) throw supabaseErrorToError(error);
       return true;
     } catch (e) {
       const enhanced = supabaseErrorToError(e);
@@ -843,6 +913,10 @@ export class SimpleSyncService {
   /**
    * 保存完整项目到云端（包含任务和连接）
    * 兼容旧 SyncService 接口
+   * 
+   * 批量推送优化：
+   * - 在连续请求之间添加 100ms 延迟，防止触发服务器速率限制
+   * - 每个请求自动重试（pushTask/pushConnection 内置重试机制）
    */
   async saveProjectToCloud(
     project: Project,
@@ -860,14 +934,20 @@ export class SimpleSyncService {
       // 1. 保存项目元数据
       await this.pushProject(project);
       
-      // 2. 批量保存任务
-      for (const task of project.tasks) {
-        await this.pushTask(task, project.id);
+      // 2. 批量保存任务（请求间延迟 100ms 防止速率限制）
+      for (let i = 0; i < project.tasks.length; i++) {
+        if (i > 0) {
+          await this.delay(100); // 防止连续请求触发 504/429
+        }
+        await this.pushTask(project.tasks[i], project.id);
       }
       
-      // 3. 批量保存连接
-      for (const connection of project.connections) {
-        await this.pushConnection(connection, project.id);
+      // 3. 批量保存连接（请求间延迟 100ms 防止速率限制）
+      for (let i = 0; i < project.connections.length; i++) {
+        if (i > 0) {
+          await this.delay(100); // 防止连续请求触发 504/429
+        }
+        await this.pushConnection(project.connections[i], project.id);
       }
       
       this.syncState.update(s => ({

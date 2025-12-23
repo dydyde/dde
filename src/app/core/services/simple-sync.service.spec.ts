@@ -308,6 +308,75 @@ describe('SimpleSyncService', () => {
     it('重试间隔应该为 5 秒', () => {
       expect(service['RETRY_INTERVAL']).toBe(5000);
     });
+    
+    it('应该对 504 错误进行立即重试（指数退避）', async () => {
+      mockSupabase.isConfigured = true;
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const task = createMockTask();
+      let attempts = 0;
+      
+      // 模拟前 2 次失败（504），第 3 次成功
+      mockClient.from = vi.fn().mockReturnValue({
+        upsert: vi.fn().mockImplementation(() => {
+          attempts++;
+          if (attempts < 3) {
+            return Promise.resolve({ error: { code: 504, message: 'Gateway timeout' } });
+          }
+          return Promise.resolve({ error: null });
+        })
+      });
+      
+      const result = await service.pushTask(task, 'project-1');
+      
+      expect(attempts).toBe(3); // 验证重试了 2 次后成功
+      expect(result).toBe(true);
+    });
+    
+    it('应该对 429 错误进行立即重试', async () => {
+      mockSupabase.isConfigured = true;
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const connection = createMockConnection();
+      let attempts = 0;
+      
+      // 模拟 429 错误后成功
+      mockClient.from = vi.fn().mockReturnValue({
+        upsert: vi.fn().mockImplementation(() => {
+          attempts++;
+          if (attempts === 1) {
+            return Promise.resolve({ error: { code: 429, message: 'Too many requests' } });
+          }
+          return Promise.resolve({ error: null });
+        })
+      });
+      
+      const result = await service.pushConnection(connection, 'project-1');
+      
+      expect(attempts).toBe(2); // 验证重试了 1 次后成功
+      expect(result).toBe(true);
+    });
+    
+    it('非可重试错误应该立即失败（无重试）', async () => {
+      mockSupabase.isConfigured = true;
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const task = createMockTask();
+      let attempts = 0;
+      
+      // 模拟 401 错误（不可重试）
+      mockClient.from = vi.fn().mockReturnValue({
+        upsert: vi.fn().mockImplementation(() => {
+          attempts++;
+          return Promise.resolve({ error: { code: 401, message: 'Unauthorized' } });
+        })
+      });
+      
+      const result = await service.pushTask(task, 'project-1');
+      
+      expect(attempts).toBe(1); // 验证没有重试
+      expect(result).toBe(false);
+    });
   });
   
   describe('网络状态监听', () => {
