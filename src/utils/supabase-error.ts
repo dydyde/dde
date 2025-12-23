@@ -34,6 +34,11 @@ const RETRYABLE_ERROR_TYPES = new Set([
  * Supabase 返回的错误是普通对象 {code, details, hint, message}，需要转换才能被 Sentry 正确捕获
  * 此函数会识别常见的网络错误（504, 503, 502等）并提供更友好的错误消息
  * 
+ * **错误识别优先级**:
+ * 1. 优先通过 HTTP 状态码（code/status）判断错误类型
+ * 2. 如果没有状态码，尝试从 message 内容识别
+ * 3. 最后使用默认的 SupabaseError 类型
+ * 
  * @param error - Supabase 错误对象或标准 Error
  * @returns 增强的 Error 实例，包含 isRetryable 和 errorType 属性
  */
@@ -69,11 +74,11 @@ export function supabaseErrorToError(error: any): EnhancedError {
   }
   
   // 识别网络相关错误
-  let message = error?.message || 'Unknown Supabase error';
-  let errorType = 'SupabaseError';
   const code = error?.code || error?.status;
+  let message = error?.message;
+  let errorType = 'SupabaseError';
   
-  // HTTP 状态码判断
+  // HTTP 状态码判断（优先级最高，因为最可靠）
   if (code === 504 || code === '504') {
     message = '服务器响应超时 (504 Gateway Timeout)';
     errorType = 'NetworkTimeoutError';
@@ -96,7 +101,7 @@ export function supabaseErrorToError(error: any): EnhancedError {
     message = '权限不足 (403 Forbidden)';
     errorType = 'PermissionError';
   } else if (message && typeof message === 'string') {
-    // 识别消息中的超时关键词
+    // 如果没有状态码，尝试从消息中识别错误类型
     const lowerMsg = message.toLowerCase();
     if (lowerMsg.includes('timeout') || lowerMsg.includes('timed out')) {
       errorType = 'TimeoutError';
@@ -109,6 +114,11 @@ export function supabaseErrorToError(error: any): EnhancedError {
     } else if (lowerMsg.includes('jwt') || lowerMsg.includes('session') || lowerMsg.includes('expired')) {
       errorType = 'AuthError';
     }
+  }
+  
+  // 如果 message 仍然为空，使用默认消息
+  if (!message) {
+    message = 'Unknown Supabase error';
   }
   
   const err = new Error(message) as EnhancedError;

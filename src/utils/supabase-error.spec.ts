@@ -20,6 +20,16 @@ describe('supabase-error', () => {
       expect(result.errorType).toBe('NetworkTimeoutError');
     });
     
+    it('应该识别只有 code 的 504 错误（无 message）', () => {
+      const error = { code: 504 };
+      const result = supabaseErrorToError(error);
+      
+      expect(result.name).toBe('NetworkTimeoutError');
+      expect(result.message).toContain('504 Gateway Timeout');
+      expect(result.isRetryable).toBe(true);
+      expect(result.errorType).toBe('NetworkTimeoutError');
+    });
+    
     it('应该识别 503 Service Unavailable 错误', () => {
       const error = { code: 503, message: 'Service unavailable' };
       const result = supabaseErrorToError(error);
