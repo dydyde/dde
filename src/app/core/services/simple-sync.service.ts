@@ -328,7 +328,7 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0 }  // 限流层不重试，由 retryWithBackoff 处理
+        { priority: 'normal', retries: 0, timeout: 90000 }  // 90秒超时，因为队列等待时间也计入
       );
       
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
@@ -604,7 +604,7 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0 }  // 限流层不重试，由 retryWithBackoff 处理
+        { priority: 'normal', retries: 0, timeout: 90000 }  // 90秒超时，因为队列等待时间也计入
       );
       
       return true;
@@ -1254,12 +1254,21 @@ export class SimpleSyncService {
   /**
    * 保存离线快照
    * 用于断网时的数据持久化
+   * 
+   * 【关键修复】保存前过滤已删除的任务，防止网络恢复后复活
    */
   saveOfflineSnapshot(projects: Project[]): void {
     if (typeof localStorage === 'undefined') return;
     try {
+      // 【关键修复】过滤每个项目中已删除的任务
+      // 只保存未删除的任务，防止已删除任务在网络恢复后被误认为"本地新增"而复活
+      const cleanedProjects = projects.map(p => ({
+        ...p,
+        tasks: (p.tasks || []).filter(t => !t.deletedAt)
+      }));
+      
       localStorage.setItem(this.OFFLINE_CACHE_KEY, JSON.stringify({
-        projects,
+        projects: cleanedProjects,
         version: this.CACHE_VERSION
       }));
     } catch (e) {
@@ -1269,6 +1278,9 @@ export class SimpleSyncService {
   
   /**
    * 加载离线快照
+   * 
+   * 【关键修复】加载时防御性过滤已删除任务
+   * 虽然 saveOfflineSnapshot 保存时已过滤，但旧版本缓存可能包含已删除任务
    */
   loadOfflineSnapshot(): Project[] | null {
     if (typeof localStorage === 'undefined') return null;
@@ -1277,7 +1289,11 @@ export class SimpleSyncService {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed?.projects)) {
-          return parsed.projects;
+          // 【关键修复】防御性过滤：确保不会从旧版本缓存中恢复已删除任务
+          return parsed.projects.map((p: Project) => ({
+            ...p,
+            tasks: (p.tasks || []).filter((t: Task) => !t.deletedAt)
+          }));
         }
       }
     } catch (e) {

@@ -155,9 +155,9 @@ export class ConflictResolutionService {
    * 
    * @param local 本地项目
    * @param remote 远程项目
-   * @param tombstoneIds 已永久删除的任务 ID 集合（可选，如果不传则使用旧逻辑）
+   * @param tombstoneIds 已永久删除的任务 ID 集合（必需参数，用于防止已删除任务复活）
    */
-  smartMerge(local: Project, remote: Project, tombstoneIds?: Set<string>): MergeResult {
+  smartMerge(local: Project, remote: Project, tombstoneIds: Set<string>): MergeResult {
     const issues: string[] = [];
     let conflictCount = 0;
     
@@ -189,7 +189,7 @@ export class ConflictResolutionService {
       processedIds.add(localTask.id);
       
       // 【关键修复】检查是否已被永久删除（在 tombstones 中）
-      if (tombstoneIds?.has(localTask.id)) {
+      if (tombstoneIds.has(localTask.id)) {
         this.logger.info('smartMerge: 跳过 tombstone 任务', { taskId: localTask.id });
         skippedTombstoneCount++;
         continue; // 不保留已永久删除的任务
@@ -469,42 +469,49 @@ export class ConflictResolutionService {
     let syncedCount = 0;
     
     for (const offlineProject of offlineProjects) {
-      const cloudProject = cloudMap.get(offlineProject.id);
+      // 【关键修复】在处理离线项目前，过滤已删除的任务
+      // 防止已删除任务通过离线数据同步复活
+      const cleanedOfflineProject = {
+        ...offlineProject,
+        tasks: (offlineProject.tasks || []).filter(t => !t.deletedAt)
+      };
+      
+      const cloudProject = cloudMap.get(cleanedOfflineProject.id);
       
       if (!cloudProject) {
         // 离线创建的新项目，需要上传到云端
-        const result = await this.syncService.saveProjectToCloud(offlineProject, userId);
+        const result = await this.syncService.saveProjectToCloud(cleanedOfflineProject, userId);
         if (result.success) {
-          mergedProjects.push(offlineProject);
+          mergedProjects.push(cleanedOfflineProject);
           syncedCount++;
-          this.logger.info('离线新建项目已同步', { projectName: offlineProject.name });
+          this.logger.info('离线新建项目已同步', { projectName: cleanedOfflineProject.name });
         }
         continue;
       }
       
       // 比较版本号
-      const offlineVersion = offlineProject.version ?? 0;
+      const offlineVersion = cleanedOfflineProject.version ?? 0;
       const cloudVersion = cloudProject.version ?? 0;
       
       if (offlineVersion > cloudVersion) {
         // 离线版本更新，需要同步到云端
         const projectToSync = {
-          ...offlineProject,
+          ...cleanedOfflineProject,
           version: Math.max(offlineVersion, cloudVersion) + 1
         };
         
         const result = await this.syncService.saveProjectToCloud(projectToSync, userId);
         if (result.success) {
-          const idx = mergedProjects.findIndex(p => p.id === offlineProject.id);
+          const idx = mergedProjects.findIndex(p => p.id === cleanedOfflineProject.id);
           if (idx !== -1) {
             mergedProjects[idx] = projectToSync;
           }
           syncedCount++;
-          this.logger.info('离线修改已同步', { projectName: offlineProject.name });
+          this.logger.info('离线修改已同步', { projectName: cleanedOfflineProject.name });
         } else if (result.conflict) {
           // 存在冲突
-          conflictProjects.push(offlineProject);
-          this.logger.warn('离线数据存在冲突', { projectName: offlineProject.name });
+          conflictProjects.push(cleanedOfflineProject);
+          this.logger.warn('离线数据存在冲突', { projectName: cleanedOfflineProject.name });
         }
       }
     }

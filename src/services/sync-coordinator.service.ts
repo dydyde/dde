@@ -698,9 +698,9 @@ export class SyncCoordinatorService {
    * 
    * @param localProject 本地项目
    * @param remoteProject 远程项目  
-   * @param tombstoneIds 已永久删除的任务 ID 集合（可选）
+   * @param tombstoneIds 已永久删除的任务 ID 集合（必需参数）
    */
-  smartMerge(localProject: Project, remoteProject: Project, tombstoneIds?: Set<string>) {
+  smartMerge(localProject: Project, remoteProject: Project, tombstoneIds: Set<string>) {
     return this.conflictService.smartMerge(localProject, remoteProject, tombstoneIds);
   }
   

@@ -331,7 +331,7 @@ export class RemoteChangeHandlerService {
         this.logger.info('开始加载远程任务更新', { eventType, taskId, projectId: targetProjectId, requestId });
         
         this.syncCoordinator.loadSingleProject(targetProjectId, userId)
-          .then(remoteProject => {
+          .then(async remoteProject => {
             // 检查是否已有更新的请求（当前请求已过时）
             if (requestId !== this.taskUpdateRequestId) {
               this.logger.debug('远程任务更新已被更新请求取代', { requestId, currentId: this.taskUpdateRequestId });
@@ -371,6 +371,11 @@ export class RemoteChangeHandlerService {
               updatedAt: remoteTask.updatedAt,
               deletedAt: remoteTask.deletedAt
             });
+
+            // 【关键修复】在更新 projects 前获取 tombstoneIds
+            // 用于检查任务是否已被永久删除，防止复活
+            // 直接查询 Supabase，不使用内存缓存，遵循 Single Source of Truth 原则
+            const tombstoneIds = await this.syncCoordinator.getTombstoneIds(targetProjectId);
 
             this.projectState.updateProjects(projects =>
               projects.map(p => {
@@ -475,7 +480,13 @@ export class RemoteChangeHandlerService {
                     this.logger.debug('忽略远端任务更新（本机 pending delete）', { taskId });
                     return p;
                   }
-
+                  // 【关键修复】检查 tombstone，防止已永久删除的任务复活
+                  // 直接查询 Supabase（通过 syncCoordinator.getTombstoneIds），不使用内存缓存
+                  // 遵循 Single Source of Truth 原则
+                  if (tombstoneIds.has(taskId)) {
+                    this.logger.info('忽略远端任务更新（tombstone 保护）', { taskId });
+                    return p;
+                  }
                   // 新任务，直接添加
                   this.logger.info('添加新任务', { taskId });
                   updatedProject = { ...p, tasks: [...p.tasks, remoteTask] };

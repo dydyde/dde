@@ -137,11 +137,11 @@ describe('ConflictResolutionService', () => {
 
   describe('冲突解决策略', () => {
     describe('local 策略', () => {
-      it('应该使用本地版本并递增版本号', () => {
+      it('应该使用本地版本并递增版本号', async () => {
         const localProject = createTestProject({ id: 'proj-1', version: 5 });
         const remoteProject = createTestProject({ id: 'proj-1', version: 7 });
 
-        const result = service.resolveConflict('proj-1', 'local', localProject, remoteProject);
+        const result = await service.resolveConflict('proj-1', 'local', localProject, remoteProject);
 
         expect(result.ok).toBe(true);
         if (result.ok) {
@@ -155,10 +155,10 @@ describe('ConflictResolutionService', () => {
         );
       });
 
-      it('版本为 undefined 时应该使用 1', () => {
+      it('版本为 undefined 时应该使用 1', async () => {
         const localProject = createTestProject({ id: 'proj-1', version: undefined });
 
-        const result = service.resolveConflict('proj-1', 'local', localProject);
+        const result = await service.resolveConflict('proj-1', 'local', localProject);
 
         expect(result.ok).toBe(true);
         if (result.ok) {
@@ -168,7 +168,7 @@ describe('ConflictResolutionService', () => {
     });
 
     describe('remote 策略', () => {
-      it('应该使用远程版本', () => {
+      it('应该使用远程版本', async () => {
         const localProject = createTestProject({ id: 'proj-1', version: 5 });
         const remoteProject = createTestProject({ 
           id: 'proj-1', 
@@ -176,7 +176,7 @@ describe('ConflictResolutionService', () => {
           name: 'Remote Name',
         });
 
-        const result = service.resolveConflict('proj-1', 'remote', localProject, remoteProject);
+        const result = await service.resolveConflict('proj-1', 'remote', localProject, remoteProject);
 
         expect(result.ok).toBe(true);
         if (result.ok) {
@@ -189,10 +189,10 @@ describe('ConflictResolutionService', () => {
         );
       });
 
-      it('远程项目为空时应该返回错误', () => {
+      it('远程项目为空时应该返回错误', async () => {
         const localProject = createTestProject({ id: 'proj-1' });
 
-        const result = service.resolveConflict('proj-1', 'remote', localProject);
+        const result = await service.resolveConflict('proj-1', 'remote', localProject);
 
         expect(result.ok).toBe(false);
         if (!result.ok) {
@@ -202,7 +202,7 @@ describe('ConflictResolutionService', () => {
     });
 
     describe('merge 策略', () => {
-      it('应该合并双方的更改', () => {
+      it('应该合并双方的更改', async () => {
         const localProject = createTestProject({
           id: 'proj-1',
           version: 5,
@@ -214,7 +214,7 @@ describe('ConflictResolutionService', () => {
           tasks: [createTestTask({ id: 'task-2', title: 'Remote Task' })],
         });
 
-        const result = service.resolveConflict('proj-1', 'merge', localProject, remoteProject);
+        const result = await service.resolveConflict('proj-1', 'merge', localProject, remoteProject);
 
         expect(result.ok).toBe(true);
         if (result.ok) {
@@ -223,15 +223,15 @@ describe('ConflictResolutionService', () => {
         }
       });
 
-      it('远程项目为空时应该返回错误', () => {
+      it('远程项目为空时应该返回错误', async () => {
         const localProject = createTestProject({ id: 'proj-1' });
 
-        const result = service.resolveConflict('proj-1', 'merge', localProject);
+        const result = await service.resolveConflict('proj-1', 'merge', localProject);
 
         expect(result.ok).toBe(false);
       });
 
-      it('合并有问题时应该显示提示', () => {
+      it('合并有问题时应该显示提示', async () => {
         const localProject = createTestProject({
           id: 'proj-1',
           tasks: [createTestTask({ id: 'task-1' })],
@@ -247,7 +247,7 @@ describe('ConflictResolutionService', () => {
           issues: ['Fixed orphan task'],
         });
 
-        service.resolveConflict('proj-1', 'merge', localProject, remoteProject);
+        await service.resolveConflict('proj-1', 'merge', localProject, remoteProject);
 
         expect(mockToastService.info).toHaveBeenCalled();
       });
@@ -269,7 +269,7 @@ describe('ConflictResolutionService', () => {
           tasks: [createTestTask({ id: 'task-1', title: 'Original' })],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         expect(result.project.tasks).toHaveLength(2);
         expect(result.project.tasks.find(t => t.id === 'task-new-local')).toBeDefined();
@@ -286,7 +286,7 @@ describe('ConflictResolutionService', () => {
           ],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         expect(result.project.tasks).toHaveLength(2);
         expect(result.project.tasks.find(t => t.id === 'task-new-remote')).toBeDefined();
@@ -313,7 +313,7 @@ describe('ConflictResolutionService', () => {
           })],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         const mergedTask = result.project.tasks[0];
         expect(mergedTask.title).toBe('Local Title'); // 本地更新时间更新
@@ -330,7 +330,7 @@ describe('ConflictResolutionService', () => {
           connections: [createTestConnection({ id: 'conn-2', source: 'task-3', target: 'task-4' })],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         expect(result.project.connections).toHaveLength(2);
       });
@@ -343,7 +343,7 @@ describe('ConflictResolutionService', () => {
           connections: [createTestConnection({ id: 'conn-2', source: 'task-1', target: 'task-2' })],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         expect(result.project.connections).toHaveLength(1);
       });
@@ -361,7 +361,7 @@ describe('ConflictResolutionService', () => {
           ],
         });
 
-        const result = service.smartMerge(localProject, remoteProject);
+        const result = service.smartMerge(localProject, remoteProject, new Set());
 
         // 删除优先策略：远程已删除，应该采用删除状态
         const conn = result.project.connections.find(
@@ -396,7 +396,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       const task = result.project.tasks[0];
       expect(task.title).toBe('New Title');
@@ -421,7 +421,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       const task = result.project.tasks[0];
       expect(task.tags).toEqual(expect.arrayContaining(['tag1', 'tag2', 'tag3']));
@@ -446,7 +446,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       const task = result.project.tasks[0];
       expect(task.attachments?.length).toBe(2);
@@ -470,7 +470,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       const task = result.project.tasks[0];
       expect(task.x).toBe(100); // 保留本地位置
@@ -496,7 +496,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result1 = service.smartMerge(localProject1, remoteProject1);
+      const result1 = service.smartMerge(localProject1, remoteProject1, new Set());
       expect(result1.project.tasks[0].deletedAt).toBe(now);
 
       // 场景2: 本地未删除，远程删除
@@ -515,7 +515,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result2 = service.smartMerge(localProject2, remoteProject2);
+      const result2 = service.smartMerge(localProject2, remoteProject2, new Set());
       expect(result2.project.tasks[0].deletedAt).toBe(now);
 
       // 场景3: 双方都删除（使用较早的删除时间）
@@ -535,7 +535,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result3 = service.smartMerge(localProject3, remoteProject3);
+      const result3 = service.smartMerge(localProject3, remoteProject3, new Set());
       expect(result3.project.tasks[0].deletedAt).toBe(earlierTime);
     });
   });
@@ -559,7 +559,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks[0].content).toBe('Hello World');
     });
@@ -580,7 +580,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks[0].content).toBe('Hello World');
     });
@@ -605,7 +605,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       // 行级合并应该包含双方的新增行
       const content = result.project.tasks[0].content;
@@ -630,7 +630,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks[0].content).toBe('Totally new content B');
     });
@@ -731,7 +731,7 @@ describe('ConflictResolutionService', () => {
       const localProject = createTestProject({ version: 3 });
       const remoteProject = createTestProject({ version: 7 });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.version).toBe(8);
     });
@@ -740,7 +740,7 @@ describe('ConflictResolutionService', () => {
       const localProject = createTestProject({ version: undefined });
       const remoteProject = createTestProject({ version: 5 });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.version).toBe(6);
     });
@@ -749,7 +749,7 @@ describe('ConflictResolutionService', () => {
       const localProject = createTestProject({ version: undefined });
       const remoteProject = createTestProject({ version: undefined });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.version).toBe(1);
     });
@@ -762,7 +762,7 @@ describe('ConflictResolutionService', () => {
       const localProject = createTestProject({ tasks: [] });
       const remoteProject = createTestProject({ tasks: [] });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks).toHaveLength(0);
       expect(result.conflictCount).toBe(0);
@@ -782,7 +782,7 @@ describe('ConflictResolutionService', () => {
       const localProject = createTestProject({ tasks: localTasks });
       const remoteProject = createTestProject({ tasks: remoteTasks });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks).toHaveLength(1000);
     });
@@ -808,7 +808,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks).toHaveLength(1);
       expect(result.project.tasks[0].title).toBe('Local Version');
@@ -833,7 +833,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       // 时间相同时，remoteTime > localTime 为 false，所以用 local
       expect(result.project.tasks[0].title).toBe('Local Title');
@@ -863,7 +863,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks[0].title).toBe('Client Edit (faster clock)');
     });
@@ -888,7 +888,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       expect(result.project.tasks[0].title).toBe('Server Edit');
     });
@@ -909,7 +909,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       // 有时间戳的应该胜出
       expect(result.project.tasks[0].title).toBe('Has timestamp');
@@ -944,7 +944,7 @@ describe('ConflictResolutionService', () => {
         })],
       });
 
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
 
       const task = result.project.tasks[0];
       expect(task.stage).toBe(2);

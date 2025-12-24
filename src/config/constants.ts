@@ -97,8 +97,10 @@ export const SYNC_MODE_CONFIG = {
 export const REQUEST_THROTTLE_CONFIG = {
   /** 最大并发请求数 - Chrome 对同一域名限制 6 个，留 2 个给用户交互 */
   MAX_CONCURRENT: 4,
-  /** 默认超时时间（毫秒）*/
-  DEFAULT_TIMEOUT: 30000,
+  /** 默认超时时间（毫秒）- 增加到 60 秒，因为队列等待时间也计入超时 */
+  DEFAULT_TIMEOUT: 60000,
+  /** 批量同步操作超时时间（毫秒）- 90 秒，给批量 push 操作更多时间 */
+  BATCH_SYNC_TIMEOUT: 90000,
   /** 默认重试次数 */
   DEFAULT_RETRIES: 3,
   /** 重试基础延迟（毫秒）*/

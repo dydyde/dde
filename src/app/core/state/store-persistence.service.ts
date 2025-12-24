@@ -293,7 +293,16 @@ export class StorePersistenceService {
       
       // 恢复到 Store
       this.projectStore.setProject(project);
-      this.taskStore.setTasks(tasks.map(t => {
+      
+      // 【关键修复】过滤已删除的任务，防止从 IndexedDB 恢复时复活已删除任务
+      // 只恢复 deletedAt 为空的任务
+      const activeTasks = tasks.filter(t => !t.deletedAt);
+      const filteredCount = tasks.length - activeTasks.length;
+      if (filteredCount > 0) {
+        this.logger.debug('已过滤已删除任务', { projectId, filteredCount });
+      }
+      
+      this.taskStore.setTasks(activeTasks.map(t => {
         const { projectId: _, ...task } = t;
         return task as Task;
       }), projectId);
@@ -304,7 +313,7 @@ export class StorePersistenceService {
       
       this.logger.info('项目数据已从本地恢复', { 
         projectId, 
-        tasksCount: tasks.length, 
+        tasksCount: activeTasks.length, 
         connectionsCount: connections.length 
       });
       

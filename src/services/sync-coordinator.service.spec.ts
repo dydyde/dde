@@ -430,7 +430,7 @@ describe('SyncCoordinatorService', () => {
       const localProject = createTestProject({ id: 'proj-1' });
       const remoteProject = createTestProject({ id: 'proj-1' });
       
-      const result = service.smartMerge(localProject, remoteProject);
+      const result = service.smartMerge(localProject, remoteProject, new Set());
       
       expect(mockConflictService.smartMerge).toHaveBeenCalledWith(localProject, remoteProject);
       expect(result.project).toBeDefined();
@@ -976,7 +976,7 @@ describe('SyncCoordinatorService 集成场景', () => {
       expect(result.remoteData).toEqual(remoteProject);
       
       // 用户选择合并
-      const mergeResult = service.smartMerge(localProject, remoteProject);
+      const mergeResult = service.smartMerge(localProject, remoteProject, new Set());
       
       expect(mockConflictService.smartMerge).toHaveBeenCalledWith(localProject, remoteProject);
     });
@@ -1138,7 +1138,7 @@ describe('SyncCoordinatorService 集成场景', () => {
       const remoteProject = createTestProject({ id: 'proj-1', version: 1000 });
       
       // 调用智能合并
-      service.smartMerge(localProject, remoteProject);
+      service.smartMerge(localProject, remoteProject, new Set());
       
       // 验证调用参数
       expect(mockConflictService.smartMerge).toHaveBeenCalledWith(

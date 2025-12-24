@@ -1,6 +1,6 @@
 # Project Context: NanoFlow Lite (Fast & Efficient)
 
-> **核心哲学**：不要造轮子。利用 Supabase Realtime 做同步，利用 UUID 做 ID，利用 PWA 做离线。
+> **核心哲学**：不要造轮子。利用 Supabase Realtime 做同步，利用 UUID 做 ID，利用 PWA 做离线，利用 Sentry 做错误监控。
 
 ## 1. 极简架构原则
 
@@ -15,8 +15,8 @@
     - 后台：静默请求 Supabase 拉取最新数据 (`updated_at > last_sync_time`) 并更新本地库。
 2.  **写入 (乐观更新)**：
     - 用户操作 -> 立即写入本地 IndexedDB -> 立即更新 UI。
-    - 后台：推送到 Supabase。
-    - 错误处理：如果推送失败，放入 `RetryQueue`（重试队列），等待网络恢复自动重试。
+    - 后台：推送到 Supabase（防抖 3 秒）。
+    - 错误处理：如果推送失败，放入 `RetryQueue`（重试队列，持久化到 localStorage），等待网络恢复自动重试。
 3.  **冲突解决**：
     - 采用 **Last-Write-Wins (LWW)** 策略。以 `updated_at` 时间戳为准，谁晚谁生效。对于个人目标追踪，这足够好用且实现成本最低。
 
@@ -32,22 +32,47 @@
 ### 状态管理 (Angular Signals)
 - 使用 Angular 19 的 Signals 进行细粒度更新。
 - **Store 设计**：
-    - `projects` signal: 存储元数据。
-    - `tasksMap` signal: `Map<string, Task>` 用于 O(1) 查找。
+    - `TaskStore.tasksMap` signal: `Map<string, Task>` 用于 O(1) 查找。
+    - `TaskStore.tasksByProject` signal: `Map<string, Set<string>>` 按项目索引任务。
+    - `ProjectStore.projects` signal: 存储元数据。
     - 避免深层嵌套对象的 Signal，保持扁平化。
+
+### 树遍历深度限制
+- **问题**：深层嵌套任务树可能导致栈溢出。
+- **策略**：所有树遍历使用迭代算法 + 深度限制（`ALGORITHM_CONFIG.MAX_TREE_DEPTH: 500`）。
 
 ## 3. 代码风格与模式
 
-### 错误处理 (Result Pattern)
+### 错误处理 (Result Pattern + Sentry)
 - 保持原有的 Result 类型设计，避免 try-catch 地狱。
 - 网络错误静默处理（加入队列），业务错误 Toast 提示。
+- 关键错误自动上报 Sentry（`Sentry.captureException`）。
+- Supabase 错误需转换：`supabaseErrorToError(error)` 后再上报。
+
+### 错误分级 (GlobalErrorHandler)
+- `SILENT`：静默级，仅记录日志（图片加载失败、ResizeObserver 警告等）
+- `NOTIFY`：提示级，Toast 告知用户（网络断开、保存失败）
+- `RECOVERABLE`：可恢复级，显示恢复对话框
+- `FATAL`：致命级，跳转错误页面
 
 ### 目录结构
-- `src/app/core/` (单例服务：SupabaseClient, SyncService)
-- `src/app/features/` (业务组件：Flow, List)
+- `src/app/core/` (核心单例服务：SimpleSyncService, stores.ts)
+- `src/app/features/` (业务组件：Flow, Text)
 - `src/app/shared/` (UI 组件库)
+- `src/services/` (主服务层：StoreService 门面、GoJS 服务、业务服务)
+- `src/utils/` (工具函数：result.ts, supabase-error.ts)
 
-## 4. 用户意图 (User Intent)
+## 4. 关键配置 (src/config/constants.ts)
+
+| 配置 | 值 | 说明 |
+|------|-----|------|
+| `SYNC_CONFIG.DEBOUNCE_DELAY` | 3000ms | 同步防抖延迟 |
+| `SYNC_CONFIG.CLOUD_LOAD_TIMEOUT` | 30000ms | 云端数据加载超时 |
+| `REQUEST_THROTTLE_CONFIG.MAX_CONCURRENT` | 4 | 最大并发请求数 |
+| `TIMEOUT_CONFIG.STANDARD` | 10000ms | 普通 API 超时 |
+| `ALGORITHM_CONFIG.MAX_TREE_DEPTH` | 500 | 树遍历最大深度 |
+
+## 5. 用户意图 (User Intent)
 用户希望获得一个**“打开即用”**的 PWA。
 - 个人使用的项目: 决策时候以个人项目进行选择 (Highest priority-first)
 - 不需要复杂的协同算法。
