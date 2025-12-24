@@ -429,10 +429,12 @@ describe('SyncCoordinatorService', () => {
     it('smartMerge 应该委托给 conflictService', () => {
       const localProject = createTestProject({ id: 'proj-1' });
       const remoteProject = createTestProject({ id: 'proj-1' });
+      const tombstoneIds = new Set<string>();
       
-      const result = service.smartMerge(localProject, remoteProject, new Set());
+      const result = service.smartMerge(localProject, remoteProject, tombstoneIds);
       
-      expect(mockConflictService.smartMerge).toHaveBeenCalledWith(localProject, remoteProject);
+      // 【更新】smartMerge 现在需要传入 tombstoneIds 参数（防止已删除任务复活）
+      expect(mockConflictService.smartMerge).toHaveBeenCalledWith(localProject, remoteProject, tombstoneIds);
       expect(result.project).toBeDefined();
     });
   });

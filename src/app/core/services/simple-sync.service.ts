@@ -131,6 +131,9 @@ export class SimpleSyncService {
   /** 重试定时器 */
   private retryTimer: ReturnType<typeof setInterval> | null = null;
   
+  /** 同步计数器（用于数据漂移检测） */
+  private syncCounter = 0;
+  
   /** 最大重试次数 */
   private readonly MAX_RETRIES = 5;
   
@@ -209,6 +212,26 @@ export class SimpleSyncService {
     if (this.retryTimer) {
       clearInterval(this.retryTimer);
       this.retryTimer = null;
+    }
+  }
+  
+  /**
+   * 立即刷新重试队列（同步方式）
+   * 用于 beforeunload 事件，确保页面关闭前尽可能保存数据
+   * 
+   * 【设计原则】来自高级顾问审查：
+   * - 3 秒防抖在"关闭笔记本"场景下可能丢失数据
+   * - beforeunload 时应立即 flush 待处理队列
+   */
+  flushRetryQueueSync(): void {
+    // 确保重试队列已持久化到 localStorage
+    this.saveRetryQueueToStorage();
+    
+    // 记录待处理项数量，供调试
+    if (this.retryQueue.length > 0) {
+      this.logger.info('beforeunload: 保存待处理同步项', { 
+        count: this.retryQueue.length 
+      });
     }
   }
   
@@ -400,18 +423,20 @@ export class SimpleSyncService {
         }
       }
       
-      // 3. 转换为本地模型并过滤已删除的任务
+      // 3. 转换为本地模型
+      // 【关键修复】不再过滤已删除的任务！
+      // 同步查询必须返回已删除记录，由客户端处理删除逻辑
+      // 否则其他设备无法知道某个任务已被删除，导致任务"复活"
       const allTasks = (tasksResult.data as TaskRow[] || []).map(row => this.rowToTask(row));
-      return allTasks.filter(task => {
+      
+      // 标记 tombstone 任务（永久删除），客户端应从本地删除这些任务
+      return allTasks.map(task => {
         if (tombstoneIds.has(task.id)) {
-          this.logger.debug('pullTasks: 跳过 tombstone 任务', { taskId: task.id });
-          return false;
+          this.logger.debug('pullTasks: 标记 tombstone 任务', { taskId: task.id });
+          // 将 tombstone 任务也标记为已删除，确保客户端处理
+          return { ...task, deletedAt: task.deletedAt || new Date().toISOString() };
         }
-        if (task.deletedAt) {
-          this.logger.debug('pullTasks: 跳过软删除任务', { taskId: task.id });
-          return false;
-        }
-        return true;
+        return task;
       });
     } catch (e) {
       this.logger.error('拉取任务失败', e);
@@ -970,6 +995,85 @@ export class SimpleSyncService {
     }
   }
   
+  // ==================== 数据漂移检测 ====================
+  
+  /**
+   * 检测数据漂移
+   * 比较本地和远程的行数差异，如果差异显著则上报 Sentry
+   * 
+   * 【设计原则】来自高级顾问建议：
+   * - 每 50 次同步检查一次
+   * - 如果本地和远程行数差异超过 20%，上报警告
+   * - 用于检测同步逻辑是否静默丢弃数据
+   */
+  private async checkDataDrift(projectId: string, localTaskCount: number, localConnectionCount: number): Promise<void> {
+    const client = this.getSupabaseClient();
+    if (!client) return;
+    
+    try {
+      // 查询远程任务和连接数量
+      const [tasksResult, connectionsResult] = await Promise.all([
+        client.from('tasks').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null),
+        client.from('connections').select('id', { count: 'exact', head: true }).eq('project_id', projectId).is('deleted_at', null)
+      ]);
+      
+      const remoteTaskCount = tasksResult.count ?? 0;
+      const remoteConnectionCount = connectionsResult.count ?? 0;
+      
+      // 计算差异
+      const taskDiff = Math.abs(localTaskCount - remoteTaskCount);
+      const connectionDiff = Math.abs(localConnectionCount - remoteConnectionCount);
+      
+      // 差异阈值：20% 或 5 个以上
+      const taskDriftThreshold = Math.max(localTaskCount * 0.2, 5);
+      const connectionDriftThreshold = Math.max(localConnectionCount * 0.2, 3);
+      
+      const hasTaskDrift = taskDiff > taskDriftThreshold;
+      const hasConnectionDrift = connectionDiff > connectionDriftThreshold;
+      
+      if (hasTaskDrift || hasConnectionDrift) {
+        this.logger.warn('检测到数据漂移', {
+          projectId,
+          localTaskCount,
+          remoteTaskCount,
+          taskDiff,
+          localConnectionCount,
+          remoteConnectionCount,
+          connectionDiff
+        });
+        
+        // 上报 Sentry 警告
+        Sentry.captureMessage('Data Drift Detected', {
+          level: 'warning',
+          tags: {
+            operation: 'checkDataDrift',
+            projectId
+          },
+          extra: {
+            localTaskCount,
+            remoteTaskCount,
+            taskDiff,
+            localConnectionCount,
+            remoteConnectionCount,
+            connectionDiff,
+            syncCounter: this.syncCounter
+          }
+        });
+      } else {
+        this.logger.debug('数据漂移检测通过', {
+          projectId,
+          localTaskCount,
+          remoteTaskCount,
+          localConnectionCount,
+          remoteConnectionCount
+        });
+      }
+    } catch (e) {
+      // 数据漂移检测失败不应影响正常同步流程
+      this.logger.debug('数据漂移检测失败', e);
+    }
+  }
+  
   // ==================== 冲突解决（LWW） ====================
   
   /**
@@ -1073,6 +1177,13 @@ export class SimpleSyncService {
         lastSyncTime: nowISO()
       }));
       
+      // 【数据漂移检测】来自高级顾问建议
+      // 每 50 次同步检查本地和远程行数差异，上报 Sentry 警告
+      this.syncCounter++;
+      if (this.syncCounter % 50 === 0) {
+        this.checkDataDrift(project.id, tasksToSync.length, project.connections.length);
+      }
+      
       return { success: true, newVersion: project.version };
     } catch (e) {
       this.logger.error('保存项目失败', e);
@@ -1130,25 +1241,31 @@ export class SimpleSyncService {
       const connectionsData = await this.throttle.execute(
         `connections:${projectId}`,
         async () => {
+          // 【关键修复】不再过滤 deleted_at！
+          // 同步查询必须返回已删除记录，由客户端处理删除逻辑
+          // 否则其他设备无法知道某个连接已被删除，导致连接"复活"
           const { data } = await client
             .from('connections')
             .select('*')
-            .eq('project_id', projectId)
-            .is('deleted_at', null);
+            .eq('project_id', projectId);
           return data || [];
         },
         { deduplicate: true, priority: 'normal' }
       );
       
+      // 转换连接数据，保留 deletedAt 字段
       const connections = connectionsData.map((row: any) => ({
         id: row.id,
         source: row.source_id,
         target: row.target_id,
-        description: row.description || ''
+        description: row.description || '',
+        deletedAt: row.deleted_at || null
       }));
       
       const project = this.rowToProject(projectData);
-      project.tasks = tasks.filter(t => !t.deletedAt);
+      // 【关键修复】不再在这里过滤已删除的任务和连接
+      // 返回所有数据，由调用方决定如何处理已删除的记录
+      project.tasks = tasks;
       project.connections = connections;
       
       return project;
@@ -1207,31 +1324,31 @@ export class SimpleSyncService {
           }
         }
         
-        // 3. 过滤：排除已在 tombstones 中的任务和已软删除的任务
+        // 3. 【关键修复】返回所有任务，包括已删除的
+        // 同步查询必须返回已删除记录，由客户端处理删除逻辑
+        // 否则其他设备无法知道某个任务已被删除，导致任务"复活"
         const allTasks = (tasksResult.data as TaskRow[] || []).map(row => this.rowToTask(row));
-        const filteredTasks = allTasks.filter(task => {
-          // 排除已永久删除（在 tombstones 中）的任务
+        
+        // 标记 tombstone 任务（永久删除）
+        const markedTasks = allTasks.map(task => {
           if (tombstoneIds.has(task.id)) {
-            this.logger.debug('跳过 tombstone 任务', { taskId: task.id });
-            return false;
+            this.logger.debug('标记 tombstone 任务', { taskId: task.id });
+            return { ...task, deletedAt: task.deletedAt || new Date().toISOString() };
           }
-          // 排除已软删除的任务（deleted_at 非空）
-          if (task.deletedAt) {
-            this.logger.debug('跳过软删除任务', { taskId: task.id, deletedAt: task.deletedAt });
-            return false;
-          }
-          return true;
+          return task;
         });
         
-        if (tombstoneIds.size > 0 || allTasks.length !== filteredTasks.length) {
-          this.logger.info(`任务过滤: ${allTasks.length} -> ${filteredTasks.length}`, {
+        const deletedCount = markedTasks.filter(t => t.deletedAt).length;
+        if (tombstoneIds.size > 0 || deletedCount > 0) {
+          this.logger.info(`任务同步信息`, {
             projectId,
+            totalCount: allTasks.length,
             tombstoneCount: tombstoneIds.size,
-            softDeletedCount: allTasks.filter(t => t.deletedAt && !tombstoneIds.has(t.id)).length
+            softDeletedCount: deletedCount - tombstoneIds.size
           });
         }
         
-        return filteredTasks;
+        return markedTasks;
       },
       { deduplicate: true, priority: 'normal' }
     );

@@ -204,14 +204,56 @@ export class RemoteChangeHandlerService {
       const remoteProject = await this.syncCoordinator.loadSingleProject(projectId, userId);
       if (!remoteProject) return;
 
+      // 【关键修复】处理远程返回的已删除记录
+      // 同步查询现在返回所有记录（包括已删除的），需要在客户端处理
+      const deletedTaskIds = new Set(
+        (remoteProject.tasks || []).filter(t => t.deletedAt).map(t => t.id)
+      );
+      const deletedConnectionIds = new Set(
+        (remoteProject.connections || []).filter(c => c.deletedAt).map(c => c.id)
+      );
+      
+      // 从远程项目中移除已删除的记录（用于后续合并）
+      const cleanedRemoteProject = {
+        ...remoteProject,
+        tasks: (remoteProject.tasks || []).filter(t => !t.deletedAt),
+        connections: (remoteProject.connections || []).filter(c => !c.deletedAt)
+      };
+
       const localProject = this.projectState.projects().find(p => p.id === projectId);
 
       if (!localProject) {
-        const validated = this.syncCoordinator.validateAndRebalance(remoteProject);
+        const validated = this.syncCoordinator.validateAndRebalance(cleanedRemoteProject);
         this.projectState.updateProjects(ps => [...ps, validated]);
       } else {
         const localVersion = localProject.version ?? 0;
         const remoteVersion = remoteProject.version ?? 0;
+
+        // 【关键修复】即使版本号相同或更低，也要处理删除操作
+        // 删除操作是幂等的，处理多次不会有问题
+        if (deletedTaskIds.size > 0 || deletedConnectionIds.size > 0) {
+          this.logger.info('处理远程删除操作', {
+            projectId,
+            deletedTaskCount: deletedTaskIds.size,
+            deletedConnectionCount: deletedConnectionIds.size
+          });
+          
+          // 从本地项目中删除远程已删除的任务和连接
+          this.projectState.updateProjects(ps => ps.map(p => {
+            if (p.id !== projectId) return p;
+            const updatedTasks = p.tasks.filter(t => !deletedTaskIds.has(t.id));
+            const updatedConnections = p.connections.filter(c => !deletedConnectionIds.has(c.id));
+            
+            if (updatedTasks.length !== p.tasks.length || updatedConnections.length !== p.connections.length) {
+              return this.syncCoordinator.validateAndRebalance({
+                ...p,
+                tasks: updatedTasks,
+                connections: updatedConnections
+              });
+            }
+            return p;
+          }));
+        }
 
         if (remoteVersion > localVersion) {
           const versionDiff = remoteVersion - localVersion;
@@ -227,7 +269,12 @@ export class RemoteChangeHandlerService {
 
           // 【关键修复】获取 tombstoneIds，防止已删除任务在合并时复活
           const tombstoneIds = await this.syncCoordinator.getTombstoneIds(projectId);
-          const mergeResult = this.syncCoordinator.smartMerge(localProject, remoteProject, tombstoneIds);
+          
+          // 获取最新的本地项目状态（可能已被上面的删除操作更新）
+          const currentLocalProject = this.projectState.projects().find(p => p.id === projectId);
+          if (!currentLocalProject) return;
+          
+          const mergeResult = this.syncCoordinator.smartMerge(currentLocalProject, cleanedRemoteProject, tombstoneIds);
 
           if (mergeResult.conflictCount > 0 && this.uiState.isEditing) {
             this.toastService.warning('合并提示', '检测到与远程更改的冲突，已自动合并');
@@ -462,9 +509,15 @@ export class RemoteChangeHandlerService {
                           this.logger.debug('保护本地字段值', { taskId, field, localValue: (localTask as any)[field] });
                         }
                       }
-                      // tombstone wins
-                      if (remoteTask.deletedAt) {
-                        merged.deletedAt = remoteTask.deletedAt;
+                      // 【关键修复】deletedAt 优先级：任一方删除则删除
+                      // 这确保删除操作不会被意外覆盖
+                      if (remoteTask.deletedAt || localTask.deletedAt) {
+                        merged.deletedAt = remoteTask.deletedAt || localTask.deletedAt;
+                        this.logger.info('保护删除状态', { 
+                          taskId, 
+                          localDeletedAt: localTask.deletedAt, 
+                          remoteDeletedAt: remoteTask.deletedAt 
+                        });
                       }
                       mergedTask = merged as any;
                     }

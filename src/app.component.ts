@@ -12,6 +12,7 @@ import { GlobalErrorHandler } from './services/global-error-handler.service';
 import { ModalService, type DeleteProjectData, type ConflictData, type LoginData } from './services/modal.service';
 import { DynamicModalService } from './services/dynamic-modal.service';
 import { SyncCoordinatorService } from './services/sync-coordinator.service';
+import { SimpleSyncService } from './app/core/services/simple-sync.service';
 import { ModalLoaderService } from './app/core/services/modal-loader.service';
 import { enableLocalMode, disableLocalMode } from './services/guards';
 import { ToastContainerComponent } from './components/toast-container.component';
@@ -100,6 +101,7 @@ export class AppComponent implements OnInit, OnDestroy {
   modalLoader = inject(ModalLoaderService);
   dynamicModal = inject(DynamicModalService);
   private syncCoordinator = inject(SyncCoordinatorService);
+  private simpleSync = inject(SimpleSyncService);
   
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -355,6 +357,9 @@ export class AppComponent implements OnInit, OnDestroy {
       this.syncCoordinator.flushPendingPersist();
       // 同时刷新撤销服务的待处理操作
       this.undoService.flushPendingAction();
+      // 【关键修复】立即保存 SimpleSyncService 的重试队列
+      // 防止 3 秒防抖期间关闭页面导致数据丢失
+      this.simpleSync.flushRetryQueueSync();
     };
     
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
