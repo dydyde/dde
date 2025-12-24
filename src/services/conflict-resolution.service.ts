@@ -183,6 +183,7 @@ export class ConflictResolutionService {
     const mergedTasks: Task[] = [];
     const processedIds = new Set<string>();
     let skippedTombstoneCount = 0;
+    let preservedSoftDeleteCount = 0;
     
     // 处理本地任务
     for (const localTask of localTasks) {
@@ -195,13 +196,21 @@ export class ConflictResolutionService {
         continue; // 不保留已永久删除的任务
       }
       
-      // 检查是否已软删除
-      if (localTask.deletedAt) {
-        this.logger.debug('smartMerge: 跳过软删除任务', { taskId: localTask.id });
-        continue;
-      }
-      
       const remoteTask = remoteTaskMap.get(localTask.id);
+      
+      // 【BUG 修复】软删除任务的处理
+      // 情况 1: 本地软删除，远程不存在 → 保留本地软删除状态
+      // 情况 2: 本地软删除，远程存在 → 执行字段合并（保留删除状态）
+      if (localTask.deletedAt) {
+        if (!remoteTask) {
+          // 远程不存在该任务，保留本地的软删除任务
+          this.logger.debug('smartMerge: 保留软删除任务（远程不存在）', { taskId: localTask.id });
+          mergedTasks.push(localTask);
+          preservedSoftDeleteCount++;
+          continue;
+        }
+        // 远程存在，继续执行字段合并，让 mergeTaskFields 处理 deletedAt
+      }
       
       if (!remoteTask) {
         // 本地存在但远程不存在
@@ -238,6 +247,13 @@ export class ConflictResolutionService {
         projectId: local.id 
       });
       issues.push(`已过滤 ${skippedTombstoneCount} 个已删除的任务`);
+    }
+    
+    if (preservedSoftDeleteCount > 0) {
+      this.logger.info('smartMerge: 保留软删除任务', { 
+        count: preservedSoftDeleteCount, 
+        projectId: local.id 
+      });
     }
     
     // 合并 connections

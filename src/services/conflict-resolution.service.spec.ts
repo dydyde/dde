@@ -33,14 +33,15 @@ const mockSyncService = {
   }),
   resolveConflict: vi.fn(),
   saveProjectToCloud: vi.fn().mockResolvedValue({ success: true }),
+  getTombstoneIds: vi.fn().mockResolvedValue(new Set<string>()),
 };
 
 const mockLayoutService = {
-  validateAndFixTree: vi.fn((project: Project) => ({
+  validateAndFixTree: vi.fn().mockImplementation((project: Project) => ({
     project,
     issues: [] as string[],
   })),
-  rebalance: vi.fn((project: Project) => project),
+  rebalance: vi.fn().mockImplementation((project: Project) => project),
 };
 
 const mockToastService = {

@@ -126,6 +126,9 @@ export class AppComponent implements OnInit, OnDestroy {
   storageEscapeData = signal<StorageEscapeData | null>(null);
   showStorageEscapeModal = signal(false);
   
+  /** 项目删除中状态 - 防止重复点击 */
+  isDeleting = signal(false);
+  
   // 注册模式
   isSignupMode = signal(false);
   authConfirmPassword = signal('');
@@ -1059,6 +1062,9 @@ async signOut() {
   async confirmDeleteProject(projectId: string, projectName: string, event: Event) {
     event.stopPropagation();
     
+    // 防止重复点击
+    if (this.isDeleting()) return;
+    
     // 使用 ModalLoaderService 加载模态框（内置重试和错误处理）
     const modalRef = await this.modalLoader.openDeleteConfirmModal({
       title: '删除项目',
@@ -1070,11 +1076,16 @@ async signOut() {
     const result = await modalRef.result as { confirmed: boolean } | undefined;
     
     if (result?.confirmed) {
-      const deleteResult = await this.store.deleteProject(projectId);
-      if (deleteResult.success) {
-        this.expandedProjectId.set(null);
-        // 破坏性操作的成功反馈：让用户明确知道删除已完成
-        this.toast.success('项目已删除', `「${projectName}」已永久删除`);
+      this.isDeleting.set(true);
+      try {
+        const deleteResult = await this.store.deleteProject(projectId);
+        if (deleteResult.success) {
+          this.expandedProjectId.set(null);
+          // 破坏性操作的成功反馈：让用户明确知道删除已完成
+          this.toast.success('项目已删除', `「${projectName}」已永久删除`);
+        }
+      } finally {
+        this.isDeleting.set(false);
       }
     }
   }
