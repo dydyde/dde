@@ -981,13 +981,19 @@ export class FlowTemplateService {
   // ========== Overview 模板 ==========
   
   /**
-   * 设置 Overview 节点模板（热力图效果）
+   * 设置 Overview 节点模板（简化版 - 性能优化）
+   * 
+   * 关键优化：
+   * 1. 去掉文字渲染：Overview 只需显示节点位置和颜色
+   * 2. 去掉阴影和复杂效果：减少渲染开销
+   * 3. 使用固定尺寸：避免每帧计算
    */
   setupOverviewNodeTemplate(overview: go.Overview): void {
     const $ = go.GraphObject.make;
     const styles = this.configService.currentStyles();
     
-    overview.nodeTemplate = $(go.Node, "Spot",
+    // 简化的节点模板 - 只有一个矩形
+    overview.nodeTemplate = $(go.Node, "Auto",
       {
         locationSpot: go.Spot.Center,
         minSize: new go.Size(4, 4)
@@ -997,44 +1003,49 @@ export class FlowTemplateService {
         {
           name: "SHAPE",
           height: 80,
-          strokeWidth: 3,
-          opacity: 1
+          strokeWidth: 2,
+          stroke: null  // 无边框，减少渲染
         },
         new go.Binding("width", "isUnassigned", (isUnassigned: boolean) =>
           isUnassigned ? GOJS_CONFIG.UNASSIGNED_NODE_WIDTH : GOJS_CONFIG.ASSIGNED_NODE_WIDTH
         ),
-        new go.Binding("fill", "color", (color: string) => color || "#ffffff"),
-        new go.Binding("stroke", "borderColor", (color: string) => color || styles.node.defaultBorder)
+        new go.Binding("fill", "color", (color: string) => color || styles.node.background)
       )
     );
     
-    this.logger.debug('Overview 节点模板已设置');
+    // 降低 Overview 更新频率，防抖
+    overview.updateDelay = 100;
+    
+    this.logger.debug('Overview 节点模板已设置（简化版）');
   }
   
   /**
-   * 设置 Overview 连接线模板
+   * 设置 Overview 连接线模板（简化版 - 性能优化）
+   * 
+   * 关键优化：
+   * 1. 使用直线而非曲线：减少计算开销
+   * 2. 去掉颜色绑定：使用固定颜色
    */
   setupOverviewLinkTemplate(overview: go.Overview): void {
     const $ = go.GraphObject.make;
     const styles = this.configService.currentStyles();
     
+    // 简化的连接线模板 - 直线 + 固定颜色
     overview.linkTemplate = $(go.Link,
       {
         routing: go.Link.Normal,
-        curve: go.Link.None
+        curve: go.Link.None  // 直线，不用 Bezier
       },
       $(go.Shape,
         {
-          strokeWidth: 12,
-          opacity: 0.8
-        },
-        new go.Binding("stroke", "isCrossTree", (isCrossTree: boolean) =>
-          isCrossTree ? styles.link.crossTreeColor : styles.link.parentChildColor
-        )
+          strokeWidth: 8,
+          stroke: styles.link.parentChildColor,
+          opacity: 0.6
+        }
       )
     );
     
-    this.logger.debug('Overview 连接线模板已设置');
+    this.logger.debug('Overview 连接线模板已设置（简化版）');
   }
   
   /**

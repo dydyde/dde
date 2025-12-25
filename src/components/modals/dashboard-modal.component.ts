@@ -46,7 +46,7 @@ interface ConflictItem {
 @Component({
   selector: 'app-dashboard-modal',
   standalone: true,
-  imports: [CommonModule, DatePipe],
+  imports: [CommonModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-scale-in" (click)="$event.stopPropagation()">

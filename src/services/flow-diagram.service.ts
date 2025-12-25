@@ -152,7 +152,9 @@ export class FlowDiagramService {
         layout: $(go.Layout),
         "autoScale": go.Diagram.None,
         "initialAutoScale": go.Diagram.None,
-        "scrollMargin": new go.Margin(5000, 5000, 5000, 5000),
+        // 无限画布：使用 InfiniteScroll 模式，允许视口自由移动到任何位置
+        "scrollMode": go.Diagram.InfiniteScroll,
+        "scrollMargin": new go.Margin(Infinity, Infinity, Infinity, Infinity),
         "draggingTool.isGridSnapEnabled": false,
         "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN),
         "computePixelRatio": () => window.devicePixelRatio || 1,
@@ -447,56 +449,61 @@ export class FlowDiagramService {
     const nodeBounds = getNodesBounds();
     this.overview.centerRect(nodeBounds);
     
-    const limitDisplayBounds = (baseBounds: go.Rect, viewportBounds: go.Rect): go.Rect => {
-      const maxOverflow = 1200; // 限制空白区域对缩放的影响，防止视口远离内容时过度缩小
+    /**
+     * 动态扩展边界 - 无限画布核心
+     * 
+     * 关键改进（解决拖拽卡死问题）：
+     * 1. 移除硬墙 clamp：允许 viewportBounds 继续远离内容边界
+     * 2. 动态 maxOverflow：根据超出距离动态扩展，实现"无限画布"效果
+     * 3. 分离逻辑/显示位置：逻辑位置不 clamp，scaleRatio 会随边界扩展而变小
+     */
+    const calculateExtendedBounds = (baseBounds: go.Rect, viewportBounds: go.Rect): go.Rect => {
+      // 动态 maxOverflow：不再硬编码 1200，允许无限扩展
+      // 这是实现"视口窗渐缩"的关键：视口越远，extendedBounds 越大，scaleRatio 越小
       const overflowLeft = Math.max(0, baseBounds.x - viewportBounds.x);
       const overflowRight = Math.max(0, viewportBounds.right - baseBounds.right);
       const overflowTop = Math.max(0, baseBounds.y - viewportBounds.y);
       const overflowBottom = Math.max(0, viewportBounds.bottom - baseBounds.bottom);
 
-      const expandLeft = Math.min(overflowLeft, maxOverflow);
-      const expandRight = Math.min(overflowRight, maxOverflow);
-      const expandTop = Math.min(overflowTop, maxOverflow);
-      const expandBottom = Math.min(overflowBottom, maxOverflow);
-
-      const limited = new go.Rect(
-        baseBounds.x - expandLeft,
-        baseBounds.y - expandTop,
-        baseBounds.width + expandLeft + expandRight,
-        baseBounds.height + expandTop + expandBottom
+      // 不再限制 overflow，允许无限扩展
+      const extended = new go.Rect(
+        baseBounds.x - overflowLeft,
+        baseBounds.y - overflowTop,
+        baseBounds.width + overflowLeft + overflowRight,
+        baseBounds.height + overflowTop + overflowBottom
       );
 
-      // 确保限制后的边界至少能容纳视口（含缓冲），避免视口高度大于限制框时上下越界
+      // 确保边界至少能容纳视口（含缓冲）
       const minWidth = viewportBounds.width + 200;
-      if (limited.width < minWidth) {
-        const pad = (minWidth - limited.width) / 2;
-        limited.x -= pad;
-        limited.width = minWidth;
+      if (extended.width < minWidth) {
+        const pad = (minWidth - extended.width) / 2;
+        extended.x -= pad;
+        extended.width = minWidth;
       }
       const minHeight = viewportBounds.height + 200;
-      if (limited.height < minHeight) {
-        const pad = (minHeight - limited.height) / 2;
-        limited.y -= pad;
-        limited.height = minHeight;
+      if (extended.height < minHeight) {
+        const pad = (minHeight - extended.height) / 2;
+        extended.y -= pad;
+        extended.height = minHeight;
       }
 
-      // 将视口位置限制在限制框内，再合并，确保视口框不会被拉到无限远
-      const clampedViewportX = Math.max(limited.x, Math.min(viewportBounds.x, limited.right - viewportBounds.width));
-      const clampedViewportY = Math.max(limited.y, Math.min(viewportBounds.y, limited.bottom - viewportBounds.height));
-      const clampedViewport = new go.Rect(
-        clampedViewportX,
-        clampedViewportY,
-        viewportBounds.width,
-        viewportBounds.height
-      );
-
-      return limited.unionRect(clampedViewport);
+      // 关键：不再 clamp viewportBounds，直接合并
+      // 这让视口可以"走出"当前边界，触发 scaleRatio 变小
+      return extended.unionRect(viewportBounds);
     };
 
     let pendingUpdateSource: 'viewport' | 'document' = 'viewport';
 
+    /**
+     * 执行视口更新 - 添加性能监控
+     * 
+     * 当耗时超过 16ms（掉帧）时上报 Sentry，便于后续性能调优
+     */
     const runViewportUpdate = (source: 'viewport' | 'document') => {
       if (!this.overview || !this.diagram) return;
+
+      // 性能监控：记录开始时间
+      const perfStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
       this.overviewDebugUpdateCalls++;
 
@@ -588,7 +595,7 @@ export class FlowDiagramService {
               : nodeBounds;
             // scaleBounds：用于缩放计算的“展示边界”（限幅以避免过度缩小）
             const _scaleBounds = isViewportOutside
-              ? limitDisplayBounds(rawBounds, viewportBounds)
+              ? calculateExtendedBounds(rawBounds, viewportBounds)
               : rawBounds;
 
             // 取整避免浮点抖动导致 boundsKey 高频变化（尤其在边界拖拽/缩放时）
@@ -684,6 +691,32 @@ export class FlowDiagramService {
         }
       } finally {
         this.isApplyingOverviewViewportUpdate = false;
+        
+        // 性能监控：检查耗时并上报 Sentry
+        const perfEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const duration = perfEnd - perfStart;
+        
+        // 如果耗时超过 16ms（掉帧），上报 Sentry
+        if (duration > 16) {
+          const nodeCount = this.diagram?.nodes?.count ?? 0;
+          Sentry.captureMessage('Overview Lag Detected', {
+            level: 'warning',
+            extra: {
+              duration: Math.round(duration),
+              nodeCount,
+              source,
+              isMobile: this.store.isMobile()
+            }
+          });
+          
+          // 同时在控制台输出警告
+          this.logger.warn('[OverviewPerf] 性能警告', {
+            duration: `${Math.round(duration)}ms`,
+            nodeCount,
+            source
+          });
+        }
+        
         if (this.overviewUpdateQueuedWhileApplying) {
           this.overviewUpdateQueuedWhileApplying = false;
           // 重入期间可能丢掉最后一次状态，这里补一帧
@@ -829,32 +862,46 @@ export class FlowDiagramService {
     }
   }
 
+  /**
+   * 绑定 Overview 的 Pointer 事件监听
+   * 
+   * 关键改进（解决拖拽卡死问题）：
+   * 1. 使用 setPointerCapture：确保拖拽出界后仍能收到事件
+   * 2. 移除 500ms 超时保护：该机制在快速拖拽时不可靠
+   * 3. 完全跳过交互期间的 viewport 更新：避免事件风暴
+   */
   private attachOverviewPointerListeners(container: HTMLDivElement): void {
     if (this.overviewPointerCleanup) {
       this.overviewPointerCleanup();
       this.overviewPointerCleanup = null;
     }
 
-    let interactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    // 存储当前捕获的 pointerId，用于 releasePointerCapture
+    let capturedPointerId: number | null = null;
 
-    const onPointerDown = () => {
+    const onPointerDown = (ev: PointerEvent) => {
       this.isOverviewInteracting = true;
       
-      // 设置超时保护：500ms 后自动重置，防止事件丢失导致状态卡住
-      if (interactionTimeoutId) {
-        clearTimeout(interactionTimeoutId);
+      // 使用 PointerCapture 确保拖拽出界后仍能收到事件
+      // 这是实现"无限拖拽"的关键，解决了鼠标离开小地图后事件丢失的问题
+      try {
+        container.setPointerCapture(ev.pointerId);
+        capturedPointerId = ev.pointerId;
+      } catch (e) {
+        // 某些触摸设备可能不支持，忽略错误
+        this.logger.debug('setPointerCapture 不可用:', e);
       }
-      interactionTimeoutId = setTimeout(() => {
-        if (this.isOverviewInteracting) {
-          this.isOverviewInteracting = false;
-          this.overviewInteractionLastApplyAt = 0;
-        }
-      }, 500);
     };
+    
     const onPointerUpLike = () => {
-      if (interactionTimeoutId) {
-        clearTimeout(interactionTimeoutId);
-        interactionTimeoutId = null;
+      // 释放 PointerCapture
+      if (capturedPointerId !== null) {
+        try {
+          container.releasePointerCapture(capturedPointerId);
+        } catch (e) {
+          // 忽略释放错误
+        }
+        capturedPointerId = null;
       }
       
       if (!this.isOverviewInteracting) return;
@@ -873,20 +920,26 @@ export class FlowDiagramService {
       });
     };
 
-    container.addEventListener('pointerdown', onPointerDown, { passive: true });
+    // 注意：pointerdown 不能是 passive，因为可能需要 setPointerCapture
+    container.addEventListener('pointerdown', onPointerDown, { passive: false });
     container.addEventListener('pointerup', onPointerUpLike, { passive: true });
     container.addEventListener('pointercancel', onPointerUpLike, { passive: true });
-    container.addEventListener('pointerleave', onPointerUpLike, { passive: true });
+    // 使用 lostpointercapture 替代 pointerleave，更可靠地检测拖拽结束
+    container.addEventListener('lostpointercapture', onPointerUpLike, { passive: true });
 
     this.overviewPointerCleanup = () => {
-      if (interactionTimeoutId) {
-        clearTimeout(interactionTimeoutId);
-        interactionTimeoutId = null;
+      if (capturedPointerId !== null) {
+        try {
+          container.releasePointerCapture(capturedPointerId);
+        } catch (e) {
+          // 忽略
+        }
+        capturedPointerId = null;
       }
       container.removeEventListener('pointerdown', onPointerDown);
       container.removeEventListener('pointerup', onPointerUpLike);
       container.removeEventListener('pointercancel', onPointerUpLike);
-      container.removeEventListener('pointerleave', onPointerUpLike);
+      container.removeEventListener('lostpointercapture', onPointerUpLike);
     };
   }
   
