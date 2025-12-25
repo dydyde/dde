@@ -206,6 +206,9 @@ export interface ConnectionRow {
   project_id: string;
   source_id: string;
   target_id: string;
+  /** 联系块标题（外显内容） */
+  title: string | null;
+  /** 联系块详细描述 */
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -219,12 +222,14 @@ export interface ConnectionInsert {
   project_id: string;
   source_id: string;
   target_id: string;
+  title?: string | null;
   description?: string | null;
   deleted_at?: string | null;
 }
 
 /** 连接更新数据 */
 export interface ConnectionUpdate {
+  title?: string | null;
   description?: string | null;
   deleted_at?: string | null;
 }

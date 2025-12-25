@@ -38,6 +38,9 @@ export interface GoJSLinkData {
   from: string;
   to: string;
   isCrossTree: boolean;
+  /** 联系块标题（外显内容） */
+  title?: string;
+  /** 联系块详细描述 */
   description?: string;
   /** 始祖节点索引（用于血缘聚类） */
   rootAncestorIndex?: number;
@@ -198,6 +201,7 @@ export class FlowDiagramConfigService {
             from: conn.source,
             to: conn.target,
             isCrossTree: true,
+            title: conn.title || '',
             description: conn.description || ''
           });
         }

@@ -89,7 +89,10 @@ export interface Connection {
   id: string;
   source: string;
   target: string;
-  description?: string; // 联系块描述
+  /** 联系块标题（外显内容，类似维基百科的预览标题） */
+  title?: string;
+  /** 联系块详细描述（悬停/点击时显示） */
+  description?: string;
   /** 软删除时间戳，存在表示已标记删除，等待恢复或永久删除 */
   deletedAt?: string | null;
 }

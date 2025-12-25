@@ -130,6 +130,7 @@ export function mapConnectionFromDb(row: ConnectionRow): Connection {
     id: row.id,
     source: row.source_id,
     target: row.target_id,
+    title: row.title ?? undefined,
     description: row.description ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
   };
@@ -144,6 +145,7 @@ export function mapConnectionToDbInsert(conn: Connection, projectId: string): Co
     project_id: projectId,
     source_id: conn.source,
     target_id: conn.target,
+    title: conn.title,
     description: conn.description,
     deleted_at: conn.deletedAt ?? null,
   };

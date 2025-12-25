@@ -858,8 +858,72 @@ export class FlowTemplateService {
   
   /**
    * 创建跨树连接标签面板
+   * 
+   * 设计说明（类似维基百科悬浮预览）：
+   * - 默认只显示标题（title）或截断的描述
+   * - 鼠标悬停时只显示描述内容（不含标题）
+   * - 悬停提示位置自动适应，避免遮挡节点
+   * - 点击时打开完整编辑器
    */
   private createConnectionLabelPanel($: any): go.Panel {
+    const isMobile = this.store.isMobile();
+    
+    // 创建悬停提示（仅桌面端，移动端不显示 tooltip）
+    // 智能定位：基于连接线角度决定 Tooltip 位置（O(1) 操作，无节点遍历）
+    const createTooltip = () => {
+      if (isMobile) return undefined;
+      
+      return $(go.Adornment, "Auto",
+        {
+          background: null,
+          isShadowed: true,
+          shadowOffset: new go.Point(0, 2),
+          shadowColor: "rgba(0, 0, 0, 0.12)",
+          shadowBlur: 6
+        },
+        // 基于连接线角度智能定位 Tooltip
+        // - 水平连接线（0-45° 或 135-180°）：Tooltip 向上偏移
+        // - 垂直连接线（45-135°）：Tooltip 向右偏移
+        new go.Binding("segmentOffset", "", (_data: unknown, obj: go.GraphObject) => {
+          const adornment = obj.part;
+          if (!adornment || !(adornment instanceof go.Adornment)) {
+            return new go.Point(0, -25);
+          }
+          const link = adornment.adornedPart;
+          if (!link || !(link instanceof go.Link)) {
+            return new go.Point(0, -25);
+          }
+          // 获取连接线中点角度（O(1) 几何计算）
+          const midAngle = link.midAngle;
+          // 归一化到 0-180° 简化判断
+          const normalized = Math.abs(midAngle % 180);
+          
+          if (normalized > 45 && normalized < 135) {
+            // 垂直连接线 → 向右偏移，避免遮挡节点
+            return new go.Point(25, 0);
+          } else {
+            // 水平连接线 → 向上偏移
+            return new go.Point(0, -25);
+          }
+        }).ofObject(),
+        $(go.Shape, "RoundedRectangle", {
+          fill: "rgba(255, 255, 255, 0.98)",
+          stroke: "#a78bfa",
+          strokeWidth: 1,
+          parameter1: 5
+        }),
+        $(go.TextBlock, {
+          font: "10px \"LXGW WenKai Screen\", sans-serif",
+          stroke: "#525252",
+          margin: 8,
+          maxSize: new go.Size(180, 120),
+          overflow: go.TextBlock.OverflowEllipsis,
+          wrap: go.TextBlock.WrapFit
+        },
+        new go.Binding("text", "description", (desc: string) => desc || "暂无描述"))
+      );
+    };
+    
     return $(go.Panel, "Auto",
       {
         segmentIndex: NaN,
@@ -867,6 +931,8 @@ export class FlowTemplateService {
         cursor: "pointer",
         isActionable: true,
         background: "transparent",
+        // 悬停提示 - 只显示描述内容
+        toolTip: createTooltip(),
         // 事件代理：点击时通过全局事件总线发送信号（使用 any 类型）
         click: (e: any, obj: any) => {
           const link = obj?.part;
@@ -888,18 +954,27 @@ export class FlowTemplateService {
         isActionable: true
       }),
       $(go.Panel, "Horizontal",
-        { margin: 3, defaultAlignment: go.Spot.Center, cursor: "pointer", isActionable: true },
-        $(go.TextBlock, "🔗", { font: "8px \"LXGW WenKai Screen\", sans-serif", cursor: "pointer", isActionable: true }),
+        { margin: isMobile ? 4 : 3, defaultAlignment: go.Spot.Center, cursor: "pointer", isActionable: true },
+        $(go.TextBlock, "🔗", { 
+          font: `${isMobile ? '10px' : '8px'} "LXGW WenKai Screen", sans-serif`, 
+          cursor: "pointer", 
+          isActionable: true 
+        }),
         $(go.TextBlock, {
-          font: "500 8px \"LXGW WenKai Screen\", sans-serif",
+          font: `500 ${isMobile ? '10px' : '8px'} "LXGW WenKai Screen", sans-serif`,
           stroke: "#6d28d9",
-          maxSize: new go.Size(50, 14),
+          maxSize: new go.Size(isMobile ? 60 : 50, 14),
           overflow: go.TextBlock.OverflowEllipsis,
           margin: new go.Margin(0, 0, 0, 2),
           cursor: "pointer",
           isActionable: true
         },
-        new go.Binding("text", "description", (desc: string) => desc ? desc.substring(0, 6) : "..."))
+        // 优先显示 title，若无则显示截断的 description
+        new go.Binding("text", "", (data: any) => {
+          if (data.title) return data.title.substring(0, 8);
+          if (data.description) return data.description.substring(0, 6);
+          return "...";
+        }))
       )
     );
   }

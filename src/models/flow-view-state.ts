@@ -28,6 +28,9 @@ export interface LinkTypeDialogData {
 export interface ConnectionEditorData {
   sourceId: string;
   targetId: string;
+  /** 联系块标题（外显内容） */
+  title: string;
+  /** 联系块详细描述 */
   description: string;
   x: number;
   y: number;

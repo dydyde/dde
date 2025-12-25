@@ -417,9 +417,21 @@ export class TaskOperationAdapterService {
     this.taskOps.removeConnection(sourceId, targetId);
   }
   
+  /**
+   * 更新连接内容（标题和描述）
+   */
+  updateConnectionContent(sourceId: string, targetId: string, title: string, description: string): void {
+    this.markEditing();
+    this.taskOps.updateConnectionContent(sourceId, targetId, title, description);
+  }
+  
+  /**
+   * 更新连接描述（兼容旧 API）
+   * @deprecated 使用 updateConnectionContent 代替
+   */
   updateConnectionDescription(sourceId: string, targetId: string, description: string): void {
     this.markEditing();
-    this.taskOps.updateConnectionDescription(sourceId, targetId, description);
+    this.taskOps.updateConnectionContent(sourceId, targetId, '', description);
   }
   
   // ========== 查询方法 ==========

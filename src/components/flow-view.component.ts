@@ -665,14 +665,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           this.link.showLinkDeleteHint(linkData, x, y);
         } else if (linkData?.isCrossTree) {
           console.log('[FlowView] 移动端单击：打开跨树连接编辑器');
-          this.link.openConnectionEditor(linkData.from, linkData.to, linkData.description || '', x, y);
+          this.link.openConnectionEditor(linkData.from, linkData.to, linkData.description || '', x, y, linkData.title || '');
         }
         // 普通父子连接单击不做处理
       } else {
         // 桌面端：跨树连接线打开编辑器，普通连接线不处理（由右键菜单处理）
         if (linkData?.isCrossTree) {
           console.log('[FlowView] 桌面端：打开跨树连接编辑器', { from: linkData.from, to: linkData.to });
-          this.link.openConnectionEditor(linkData.from, linkData.to, linkData.description || '', x, y);
+          this.link.openConnectionEditor(linkData.from, linkData.to, linkData.description || '', x, y, linkData.title || '');
         }
       }
     });
@@ -1194,8 +1194,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     return maxDepth;
   }
   
-  saveConnectionDescription(description: string): void {
-    this.link.saveConnectionDescription(description);
+  /** 保存联系块的标题和描述 */
+  saveConnectionDescription(data: { title: string; description: string }): void {
+    this.link.saveConnectionContent(data.title, data.description);
     this.refreshDiagram();
   }
   

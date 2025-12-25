@@ -155,7 +155,9 @@ export class FlowDiagramService {
         "scrollMargin": new go.Margin(5000, 5000, 5000, 5000),
         "draggingTool.isGridSnapEnabled": false,
         "fixedBounds": new go.Rect(NaN, NaN, NaN, NaN),
-        "computePixelRatio": () => window.devicePixelRatio || 1
+        "computePixelRatio": () => window.devicePixelRatio || 1,
+        // 减少 tooltip 悬停延迟（默认 850ms，改为 200ms）
+        "toolManager.hoverDelay": 200
       });
 
       // 委托给 FlowTemplateService 设置图层和模板

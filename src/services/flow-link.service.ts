@@ -72,6 +72,9 @@ export class FlowLinkService {
   /** 拖动状态 */
   private connEditorDragState: DragState = createInitialDragState();
   
+  /** 流程图容器边界（用于限制关联块编辑器拖动范围） */
+  private diagramBounds: { left: number; top: number; right: number; bottom: number } | null = null;
+  
   // ========== 移动端连接线删除提示 ==========
   
   /** 连接线删除提示数据 */
@@ -504,21 +507,41 @@ export class FlowLinkService {
     targetId: string,
     description: string,
     x: number,
-    y: number
+    y: number,
+    title?: string
   ): void {
-    console.log('[FlowLink] openConnectionEditor 被调用', { sourceId, targetId, description, x, y });
+    console.log('[FlowLink] openConnectionEditor 被调用', { sourceId, targetId, title, description, x, y });
     
-    // 编辑器宽度约 176px (w-44 = 11rem)，高度约 120px
-    const editorWidth = 176;
-    const editorHeight = 120;
+    // 编辑器尺寸
+    const editorWidth = 176;  // w-44 = 11rem = 176px
+    const editorHeight = 140; // 估算高度
+    const padding = 8;
     
     // 将编辑器居中对齐到点击位置，并向上偏移使其显示在关联块正上方
-    const adjustedX = Math.max(10, x - editorWidth / 2);
-    const adjustedY = Math.max(10, y - editorHeight - 10); // 向上偏移，留 10px 间距
+    let adjustedX = x - editorWidth / 2;
+    let adjustedY = y - editorHeight - 10; // 向上偏移，留 10px 间距
+    
+    // 获取流程图容器边界，限制编辑器在流程图区域内
+    const diagramDiv = document.querySelector('[data-testid="flow-diagram"]');
+    if (diagramDiv) {
+      const rect = diagramDiv.getBoundingClientRect();
+      const minX = rect.left + padding;
+      const minY = rect.top + padding;
+      const maxX = rect.right - editorWidth - padding;
+      const maxY = rect.bottom - editorHeight - padding;
+      
+      adjustedX = Math.max(minX, Math.min(maxX, adjustedX));
+      adjustedY = Math.max(minY, Math.min(maxY, adjustedY));
+    } else {
+      // 兜底：保持在视口内
+      adjustedX = Math.max(10, adjustedX);
+      adjustedY = Math.max(10, adjustedY);
+    }
     
     const editorData = {
       sourceId,
       targetId,
+      title: title || '',
       description,
       x: adjustedX,
       y: adjustedY
@@ -548,12 +571,31 @@ export class FlowLinkService {
   }
   
   /**
-   * 保存联系块描述（实时保存，不关闭编辑器）
+   * 保存联系块内容（标题和描述）
+   * @param title 标题（外显内容）
+   * @param description 描述（悬停显示）
+   */
+  saveConnectionContent(title: string, description: string): void {
+    const data = this.connectionEditorData();
+    if (data) {
+      this.store.updateConnectionContent(data.sourceId, data.targetId, title, description);
+      // 更新本地数据，保持编辑器状态同步
+      this.connectionEditorData.set({
+        ...data,
+        title,
+        description
+      });
+    }
+  }
+  
+  /**
+   * 保存联系块描述（兼容旧 API）
+   * @deprecated 使用 saveConnectionContent 代替
    */
   saveConnectionDescription(description: string): void {
     const data = this.connectionEditorData();
     if (data) {
-      this.store.updateConnectionDescription(data.sourceId, data.targetId, description);
+      this.store.updateConnectionContent(data.sourceId, data.targetId, data.title, description);
       // 更新本地数据，保持编辑器状态同步
       this.connectionEditorData.set({
         ...data,
@@ -612,10 +654,32 @@ export class FlowLinkService {
       offsetY: pos.y
     };
     
+    // 获取流程图容器边界
+    this.updateDiagramBounds();
+    
     document.addEventListener('mousemove', this.onDragConnEditor);
     document.addEventListener('mouseup', this.stopDragConnEditor);
     document.addEventListener('touchmove', this.onDragConnEditor);
     document.addEventListener('touchend', this.stopDragConnEditor);
+  }
+  
+  /**
+   * 更新流程图容器边界
+   * 关联块编辑器只能在流程图区域内拖动
+   */
+  updateDiagramBounds(): void {
+    const diagramDiv = document.querySelector('[data-testid="flow-diagram"]');
+    if (diagramDiv) {
+      const rect = diagramDiv.getBoundingClientRect();
+      this.diagramBounds = {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom
+      };
+    } else {
+      this.diagramBounds = null;
+    }
   }
   
   /**
@@ -630,8 +694,28 @@ export class FlowLinkService {
     const deltaX = clientX - this.connEditorDragState.startX;
     const deltaY = clientY - this.connEditorDragState.startY;
     
-    const newX = Math.max(0, this.connEditorDragState.offsetX + deltaX);
-    const newY = Math.max(0, this.connEditorDragState.offsetY + deltaY);
+    // 编辑器尺寸（用于边界计算）
+    const editorWidth = 176;  // w-44 = 11rem = 176px
+    const editorHeight = 140; // 估算高度
+    const padding = 8;        // 边缘内边距
+    
+    let newX = this.connEditorDragState.offsetX + deltaX;
+    let newY = this.connEditorDragState.offsetY + deltaY;
+    
+    // 如果有流程图边界，限制在流程图区域内
+    if (this.diagramBounds) {
+      const minX = this.diagramBounds.left + padding;
+      const minY = this.diagramBounds.top + padding;
+      const maxX = this.diagramBounds.right - editorWidth - padding;
+      const maxY = this.diagramBounds.bottom - editorHeight - padding;
+      
+      newX = Math.max(minX, Math.min(maxX, newX));
+      newY = Math.max(minY, Math.min(maxY, newY));
+    } else {
+      // 兜底：至少保持在视口内
+      newX = Math.max(0, newX);
+      newY = Math.max(0, newY);
+    }
     
     this.zone.run(() => {
       this.connectionEditorPos.set({ x: newX, y: newY });
