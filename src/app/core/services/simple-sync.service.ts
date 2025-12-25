@@ -136,6 +136,16 @@ export class SimpleSyncService {
   /** 同步计数器（用于数据漂移检测） */
   private syncCounter = 0;
   
+  /** 
+   * 本地 tombstone 缓存 
+   * 用于在云端 RPC 不可用时防止已删除任务复活
+   * 格式：Map<projectId, Set<taskId>>
+   */
+  private localTombstones: Map<string, Set<string>> = new Map();
+  
+  /** 本地 tombstone 持久化 key */
+  private readonly LOCAL_TOMBSTONES_KEY = 'nanoflow.local-tombstones';
+  
   /** 最大重试次数 */
   private readonly MAX_RETRIES = 5;
   
@@ -162,12 +172,93 @@ export class SimpleSyncService {
   
   constructor() {
     this.loadRetryQueueFromStorage(); // 恢复持久化的重试队列
+    this.loadLocalTombstones(); // 恢复本地 tombstone 缓存
     this.setupNetworkListeners();
     this.startRetryLoop();
     
     this.destroyRef.onDestroy(() => {
       this.cleanup();
     });
+  }
+  
+  // ==================== 本地 Tombstone 管理 ====================
+  
+  /**
+   * 加载本地 tombstone 缓存
+   */
+  private loadLocalTombstones(): void {
+    if (typeof localStorage === 'undefined') return;
+    
+    try {
+      const data = localStorage.getItem(this.LOCAL_TOMBSTONES_KEY);
+      if (data) {
+        const parsed = JSON.parse(data);
+        this.localTombstones = new Map(
+          Object.entries(parsed).map(([k, v]) => [k, new Set(v as string[])])
+        );
+        this.logger.debug('已恢复本地 tombstone 缓存', { 
+          projectCount: this.localTombstones.size 
+        });
+      }
+    } catch (e) {
+      this.logger.warn('加载本地 tombstone 缓存失败', e);
+      this.localTombstones = new Map();
+    }
+  }
+  
+  /**
+   * 保存本地 tombstone 缓存
+   */
+  private saveLocalTombstones(): void {
+    if (typeof localStorage === 'undefined') return;
+    
+    try {
+      const data: Record<string, string[]> = {};
+      for (const [projectId, taskIds] of this.localTombstones.entries()) {
+        data[projectId] = Array.from(taskIds);
+      }
+      localStorage.setItem(this.LOCAL_TOMBSTONES_KEY, JSON.stringify(data));
+    } catch (e) {
+      this.logger.warn('保存本地 tombstone 缓存失败', e);
+    }
+  }
+  
+  /**
+   * 添加本地 tombstone（用于在 RPC 不可用时防止任务复活）
+   */
+  addLocalTombstones(projectId: string, taskIds: string[]): void {
+    if (!this.localTombstones.has(projectId)) {
+      this.localTombstones.set(projectId, new Set());
+    }
+    const set = this.localTombstones.get(projectId)!;
+    for (const id of taskIds) {
+      set.add(id);
+    }
+    this.saveLocalTombstones();
+    this.logger.debug('添加本地 tombstone', { projectId, taskIds });
+  }
+  
+  /**
+   * 获取本地 tombstone（合并云端 tombstone）
+   */
+  getLocalTombstones(projectId: string): Set<string> {
+    return this.localTombstones.get(projectId) || new Set();
+  }
+  
+  /**
+   * 清除本地 tombstone（当云端 tombstone 同步成功后）
+   */
+  clearLocalTombstones(projectId: string, taskIds: string[]): void {
+    const set = this.localTombstones.get(projectId);
+    if (set) {
+      for (const id of taskIds) {
+        set.delete(id);
+      }
+      if (set.size === 0) {
+        this.localTombstones.delete(projectId);
+      }
+      this.saveLocalTombstones();
+    }
   }
   
   /**
@@ -475,10 +566,28 @@ export class SimpleSyncService {
   /**
    * 获取项目的所有 tombstone 任务 ID
    * 用于检查任务是否已被永久删除
+   * 
+   * 【关键修复】合并云端 tombstones 和本地 tombstone 缓存
+   * 本地缓存用于 RPC 不可用时的保护
    */
   async getTombstoneIds(projectId: string): Promise<Set<string>> {
+    const tombstoneIds = new Set<string>();
+    
+    // 1. 首先添加本地 tombstone 缓存（即使云端查询失败也能保护）
+    const localTombstones = this.getLocalTombstones(projectId);
+    for (const id of localTombstones) {
+      tombstoneIds.add(id);
+    }
+    
+    // 2. 查询云端 tombstones
     const client = this.getSupabaseClient();
-    if (!client) return new Set();
+    if (!client) {
+      this.logger.info('getTombstoneIds: 离线模式，仅使用本地缓存', { 
+        projectId, 
+        localCount: localTombstones.size 
+      });
+      return tombstoneIds;
+    }
     
     try {
       const { data, error } = await client
@@ -487,14 +596,28 @@ export class SimpleSyncService {
         .eq('project_id', projectId);
       
       if (error) {
-        this.logger.warn('获取 tombstones 失败', error);
-        return new Set();
+        this.logger.warn('获取云端 tombstones 失败，使用本地缓存', error);
+        return tombstoneIds;
       }
       
-      return new Set((data || []).map(t => t.task_id));
+      // 添加云端 tombstones
+      for (const t of (data || [])) {
+        tombstoneIds.add(t.task_id);
+      }
+      
+      if (localTombstones.size > 0 || tombstoneIds.size > localTombstones.size) {
+        this.logger.debug('getTombstoneIds: 合并完成', {
+          projectId,
+          localCount: localTombstones.size,
+          cloudCount: tombstoneIds.size - localTombstones.size,
+          totalCount: tombstoneIds.size
+        });
+      }
+      
+      return tombstoneIds;
     } catch (e) {
-      this.logger.warn('获取 tombstones 异常', e);
-      return new Set();
+      this.logger.warn('获取 tombstones 异常，使用本地缓存', e);
+      return tombstoneIds;
     }
   }
   
@@ -503,8 +626,10 @@ export class SimpleSyncService {
    * 
    * 【关键】这是防止已删除任务复活的核心方法
    * - 调用 purge_tasks_v2 RPC 写入 tombstone 并删除任务
-   * - 如果 RPC 不可用，降级为软删除
+   * - 如果 RPC 不可用，降级为软删除（但这不是理想方案，因为软删除任务仍可能被同步回来）
    * - tombstone 记录会阻止任何后续的 upsert 复活该任务
+   * 
+   * @returns true 表示成功（包括降级为软删除），false 表示完全失败
    */
   async purgeTasksFromCloud(projectId: string, taskIds: string[]): Promise<boolean> {
     if (taskIds.length === 0) return true;
@@ -521,36 +646,70 @@ export class SimpleSyncService {
     
     try {
       // 优先使用 purge_tasks_v2（支持在 tasks 行不存在时也能写 tombstone）
+      this.logger.debug('purgeTasksFromCloud: 调用 purge_tasks_v2', { projectId, taskIds });
       const purgeV2Result = await client.rpc('purge_tasks_v2', {
         p_project_id: projectId,
         p_task_ids: taskIds
       });
       
-      // 如果 v2 失败，降级到 v1
-      const purgeResult = purgeV2Result.error
-        ? await client.rpc('purge_tasks', { p_task_ids: taskIds })
-        : purgeV2Result;
-      
-      if (purgeResult.error) {
-        // RPC 不可用时降级为软删除
-        this.logger.warn('purge RPC 失败，降级为软删除', purgeResult.error);
-        const { error } = await client
-          .from('tasks')
-          .update({ deleted_at: new Date().toISOString() })
-          .eq('project_id', projectId)
-          .in('id', taskIds);
-        
-        if (error) {
-          throw supabaseErrorToError(error);
-        }
+      if (!purgeV2Result.error) {
+        this.logger.info('purgeTasksFromCloud: purge_tasks_v2 成功', { 
+          projectId, 
+          taskCount: taskIds.length,
+          taskIds,
+          purgedCount: purgeV2Result.data
+        });
+        // 【关键】即使 RPC 成功也添加本地 tombstone，确保多设备一致性
+        this.addLocalTombstones(projectId, taskIds);
+        return true;
       }
       
-      this.logger.info('purgeTasksFromCloud: 成功删除任务', { 
+      // v2 失败，降级到 v1
+      this.logger.warn('purgeTasksFromCloud: purge_tasks_v2 失败，尝试 v1', purgeV2Result.error);
+      const purgeV1Result = await client.rpc('purge_tasks', { p_task_ids: taskIds });
+      
+      if (!purgeV1Result.error) {
+        this.logger.info('purgeTasksFromCloud: purge_tasks (v1) 成功', { 
+          projectId, 
+          taskCount: taskIds.length,
+          taskIds,
+          purgedCount: purgeV1Result.data
+        });
+        // 【关键】即使 RPC 成功也添加本地 tombstone，确保多设备一致性
+        this.addLocalTombstones(projectId, taskIds);
+        return true;
+      }
+      
+      // 两个 RPC 都失败，降级为软删除
+      // 注意：软删除不会写入 tombstone，任务仍可能被其他设备同步回来
+      this.logger.warn('purgeTasksFromCloud: RPC 均失败，降级为软删除', { 
+        v2Error: purgeV2Result.error,
+        v1Error: purgeV1Result.error 
+      });
+      
+      const { error } = await client
+        .from('tasks')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('project_id', projectId)
+        .in('id', taskIds);
+      
+      if (error) {
+        this.logger.error('purgeTasksFromCloud: 软删除也失败', error);
+        throw supabaseErrorToError(error);
+      }
+      
+      // 【关键修复】添加本地 tombstone，防止软删除的任务被同步回来
+      // 即使云端没有 tombstone，本地也会过滤这些任务
+      this.addLocalTombstones(projectId, taskIds);
+      
+      // 软删除成功，但需要警告
+      this.logger.warn('purgeTasksFromCloud: 已降级为软删除（已添加本地 tombstone 保护）', { 
         projectId, 
-        taskCount: taskIds.length,
         taskIds 
       });
       
+      // 【重要】软删除成功也返回 true，因为任务确实被标记删除了
+      // 本地 tombstone 会防止这些任务在同步时复活
       return true;
     } catch (e) {
       this.logger.error('purgeTasksFromCloud 失败', e);
@@ -1226,7 +1385,15 @@ export class SimpleSyncService {
         this.logger.info('saveProjectToCloud: 检测到永久删除任务', { 
           taskIds: changes.taskIdsToDelete 
         });
-        await this.purgeTasksFromCloud(project.id, changes.taskIdsToDelete);
+        const purgeSuccess = await this.purgeTasksFromCloud(project.id, changes.taskIdsToDelete);
+        
+        // 【关键】purge 成功后清除变更记录，防止重复删除
+        if (purgeSuccess) {
+          for (const taskId of changes.taskIdsToDelete) {
+            this.changeTracker.clearTaskChange(project.id, taskId);
+          }
+          this.logger.debug('saveProjectToCloud: 已清除永久删除任务的变更记录');
+        }
       }
       
       // 1. 保存项目元数据
@@ -1390,15 +1557,31 @@ export class SimpleSyncService {
         
         if (tasksResult.error) throw supabaseErrorToError(tasksResult.error);
         
-        // 2. 构建 tombstone ID 集合
-        // tombstones 查询失败时降级：只依赖 deleted_at 过滤
+        // 2. 构建 tombstone ID 集合（云端 + 本地）
+        // tombstones 查询失败时降级：只依赖本地 tombstone 和 deleted_at 过滤
         const tombstoneIds = new Set<string>();
+        
+        // 添加云端 tombstones
         if (tombstonesResult.error) {
-          this.logger.warn('加载 tombstones 失败，降级处理', tombstonesResult.error);
+          this.logger.warn('加载云端 tombstones 失败，使用本地缓存', tombstonesResult.error);
         } else {
           for (const t of (tombstonesResult.data || [])) {
             tombstoneIds.add(t.task_id);
           }
+        }
+        
+        // 【关键修复】合并本地 tombstones（用于 RPC 不可用时的保护）
+        const localTombstones = this.getLocalTombstones(projectId);
+        for (const id of localTombstones) {
+          tombstoneIds.add(id);
+        }
+        
+        if (localTombstones.size > 0) {
+          this.logger.debug('合并本地 tombstones', { 
+            projectId, 
+            localCount: localTombstones.size,
+            cloudCount: tombstoneIds.size - localTombstones.size
+          });
         }
         
         // 3. 【关键修复】返回所有任务，包括已删除的
