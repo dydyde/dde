@@ -101,6 +101,8 @@ export const REQUEST_THROTTLE_CONFIG = {
   DEFAULT_TIMEOUT: 60000,
   /** 批量同步操作超时时间（毫秒）- 90 秒，给批量 push 操作更多时间 */
   BATCH_SYNC_TIMEOUT: 90000,
+  /** 单个操作超时时间（毫秒）- 120 秒，避免慢速网络或大数据操作超时 */
+  INDIVIDUAL_OPERATION_TIMEOUT: 120000,
   /** 默认重试次数 */
   DEFAULT_RETRIES: 3,
   /** 重试基础延迟（毫秒）*/

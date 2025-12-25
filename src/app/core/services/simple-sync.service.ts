@@ -23,6 +23,7 @@ import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import { supabaseErrorToError } from '../../../utils/supabase-error';
+import { REQUEST_THROTTLE_CONFIG } from '../../../config/constants';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
 
@@ -444,7 +445,7 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0, timeout: 90000 }  // 90秒超时，因为队列等待时间也计入
+        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 120秒超时，避免慢速网络超时
       );
       
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
@@ -855,7 +856,7 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0, timeout: 90000 }  // 90秒超时，因为队列等待时间也计入
+        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 120秒超时，避免慢速网络超时
       );
       
       return true;

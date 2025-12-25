@@ -878,8 +878,7 @@ export class FlowTemplateService {
           background: null,
           isShadowed: true,
           shadowOffset: new go.Point(0, 2),
-          shadowColor: "rgba(0, 0, 0, 0.12)",
-          shadowBlur: 6
+          shadowColor: "rgba(0, 0, 0, 0.12)"
         },
         // 基于连接线角度智能定位 Tooltip
         // - 水平连接线（0-45° 或 135-180°）：Tooltip 向上偏移

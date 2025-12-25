@@ -625,6 +625,12 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   // ========== 图表初始化 ==========
   
   private initDiagram(): void {
+    // 防御性检查：确保 DOM 元素已准备好
+    if (!this.diagramDiv || !this.diagramDiv.nativeElement) {
+      this.logger.warn('[FlowView] diagramDiv 未准备好，跳过初始化');
+      return;
+    }
+
     // 若重复初始化（重试/重置），先移除旧监听并清理幽灵
     this.uninstallMobileDiagramDragGhostListeners();
     this.touch.endDiagramNodeDragGhost();
@@ -878,15 +884,27 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     const delay = FLOW_VIEW_CONFIG.DIAGRAM_RETRY_BASE_DELAY * Math.pow(2, this.diagramRetryCount - 1);
     
     this.scheduleTimer(() => {
-      this.initDiagram();
-      if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks());
-        // 成功后重置重试计数
-        this.diagramRetryCount = 0;
-        this.hasReachedRetryLimit.set(false);
-        this.toast.success('加载成功', '流程图已就绪');
-      }
-      this.isRetryingDiagram.set(false);
+      // 在 Angular zone 内运行以确保变更检测
+      this.zone.run(() => {
+        // 再次检查 DOM 是否准备好
+        if (!this.diagramDiv || !this.diagramDiv.nativeElement) {
+          this.logger.warn('[FlowView] 重试时 diagramDiv 仍未准备好，将再次重试');
+          this.isRetryingDiagram.set(false);
+          // 如果 DOM 未准备好，递归重试（会增加重试计数）
+          this.scheduleTimer(() => this.retryInitDiagram(), 500);
+          return;
+        }
+
+        this.initDiagram();
+        if (this.diagram.isInitialized) {
+          this.diagram.updateDiagram(this.store.tasks());
+          // 成功后重置重试计数
+          this.diagramRetryCount = 0;
+          this.hasReachedRetryLimit.set(false);
+          this.toast.success('加载成功', '流程图已就绪');
+        }
+        this.isRetryingDiagram.set(false);
+      });
     }, delay);
   }
   
@@ -904,14 +922,23 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.toast.info('重置中...', '正在完全重置流程图');
     
     this.scheduleTimer(() => {
-      this.initDiagram();
-      if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks());
-        this.toast.success('重置成功', '流程图已就绪');
-      } else {
-        // 重置后仍然失败，显示错误但允许再次重试
-        this.toast.error('重置失败', '流程图初始化失败，请尝试刷新页面');
-      }
+      this.zone.run(() => {
+        // 检查 DOM 是否准备好
+        if (!this.diagramDiv || !this.diagramDiv.nativeElement) {
+          this.logger.error('[FlowView] 重置时 diagramDiv 不可用');
+          this.toast.error('重置失败', '视图未准备好，请稍后重试');
+          return;
+        }
+
+        this.initDiagram();
+        if (this.diagram.isInitialized) {
+          this.diagram.updateDiagram(this.store.tasks());
+          this.toast.success('重置成功', '流程图已就绪');
+        } else {
+          // 重置后仍然失败，显示错误但允许再次重试
+          this.toast.error('重置失败', '流程图初始化失败，请尝试刷新页面');
+        }
+      });
     }, 200);
   }
   
