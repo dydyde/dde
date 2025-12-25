@@ -159,12 +159,15 @@ import { renderMarkdown } from '../../utils/markdown';
               <button 
                   (click)="toggleEditMode()"
                 data-testid="flow-edit-toggle-btn"
-                  class="text-[9px] px-1.5 py-0.5 rounded transition-colors"
+                  class="text-[9px] px-1.5 py-0.5 rounded transition-all duration-200"
                   [class.bg-indigo-100]="isEditMode()"
                   [class.text-indigo-600]="isEditMode()"
                   [class.bg-stone-100]="!isEditMode()"
                   [class.text-stone-500]="!isEditMode()"
-                  [class.hover:bg-indigo-50]="!isEditMode()">
+                  [class.hover:bg-indigo-50]="!isEditMode()"
+                  [class.scale-95]="isTogglingMode"
+                  [class.opacity-70]="isTogglingMode"
+                  [disabled]="isTogglingMode">
                   {{ isEditMode() ? '预览' : '编辑' }}
               </button>
           </div>
@@ -271,11 +274,14 @@ import { renderMarkdown } from '../../utils/markdown';
         <!-- 预览/编辑切换按钮 -->
         <button 
           (click)="toggleEditMode()"
-          class="ml-auto text-[9px] px-1.5 py-0.5 rounded transition-colors"
+          class="ml-auto text-[9px] px-1.5 py-0.5 rounded transition-all duration-200"
           [class.bg-indigo-100]="!isEditMode()"
           [class.text-indigo-600]="!isEditMode()"
           [class.bg-stone-100]="isEditMode()"
-          [class.text-stone-500]="isEditMode()">
+          [class.text-stone-500]="isEditMode()"
+          [class.scale-95]="isTogglingMode"
+          [class.opacity-70]="isTogglingMode"
+          [disabled]="isTogglingMode">
           {{ isEditMode() ? '预览' : '编辑' }}
         </button>
       </div>
@@ -398,6 +404,9 @@ export class FlowTaskDetailComponent implements OnDestroy {
   // 标记是否正在进行文本选择
   private isSelecting = false;
   
+  // 防止快速点击的节流标记（需要响应式，供模板使用）
+  readonly isTogglingMode = signal(false);
+  
   // 紧凑模式：只有当抽屉高度非常小（< 12vh）时才启用，隐藏操作按钮
   // 日期和状态应该一直显示，除非抽屉几乎完全收起
   readonly isCompactMode = computed(() => this.drawerHeight() < 12);
@@ -439,12 +448,24 @@ export class FlowTaskDetailComponent implements OnDestroy {
   private drawerStartHeight = 0;
   
   /**
-   * 切换编辑模式
+   * 切换编辑模式（带节流保护，防止 Rage Click）
    */
   toggleEditMode(): void {
+    // 防止快速连续点击（节流 300ms）
+    if (this.isTogglingMode()) {
+      console.log('[FlowTaskDetail] toggleEditMode: 节流中，忽略点击');
+      return;
+    }
+    
+    this.isTogglingMode.set(true);
     const newMode = !this.isEditMode();
     console.log('[FlowTaskDetail] toggleEditMode: 当前模式 =', this.isEditMode(), '→ 新模式 =', newMode);
     this.isEditMode.update(v => !v);
+    
+    // 300ms 后重置节流标记
+    setTimeout(() => {
+      this.isTogglingMode.set(false);
+    }, 300);
   }
   
   /**
