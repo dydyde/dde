@@ -54,7 +54,7 @@
 |------|------|------|--------|------|
 | **Phase 0** | 清理废弃/重复代码 | ✅ 完成 | 2h | 100% |
 | **Phase 1** | 巨型服务拆分 | ✅ 完成 | 6h | 100% |
-| **Phase 2** | 目录结构重组 | ⏳ 待开始 | 16h | 0% |
+| **Phase 2** | 目录结构重组 | 🔄 进行中 | 16h | 50% |
 | **Phase 3** | 配置文件拆分 | ⏳ 待开始 | 2h | 0% |
 | **Phase 4** | 类型安全增强 | ⏳ 待开始 | 4h | 0% |
 | **Phase 5** | 测试覆盖补充 | ⏳ 待开始 | 16h | 0% |
@@ -197,11 +197,15 @@ src/
 
 ### 2.2 迁移顺序
 
-**第一批: text-view（低风险）**
-- [ ] 创建 `src/app/features/text/components/`
-- [ ] 迁移 `src/components/text-view/*.component.ts`
-- [ ] 更新所有导入路径
-- [ ] 验证构建通过
+**第一批: text-view（低风险）✅**
+- [x] 创建 `src/app/features/text/components/`
+- [x] 迁移 `src/components/text-view/*.component.ts` (12 个文件)
+- [x] 更新所有导入路径 (`../../services/` → `../../../../services/`)
+- [x] 更新 `features/text/index.ts` 指向新位置
+- [x] 更新 `project-shell.component.ts` 使用 feature 导入
+- [x] 修正类型导出（移除不存在的类型）
+- [x] 删除冗余文件 (index.ts, stage-list.component.ts, task-card.component.ts)
+- [x] TypeScript 编译通过
 
 **第二批: flow（中风险）**
 - [ ] 创建 `src/app/features/flow/components/`
@@ -301,6 +305,30 @@ src/config/
 ---
 
 ## 变更日志
+
+### 2024-12-26 (第三轮)
+
+**Phase 2.1 text-view 迁移完成**:
+- ✅ 创建 `src/app/features/text/components/` 目录
+- ✅ 迁移 12 个 text-view 组件和服务:
+  - `text-view.component.ts`
+  - `text-stages.component.ts`
+  - `text-stage-card.component.ts`
+  - `text-task-card.component.ts`
+  - `text-task-editor.component.ts`
+  - `text-task-connections.component.ts`
+  - `text-unassigned.component.ts`
+  - `text-unfinished.component.ts`
+  - `text-view-loading.component.ts`
+  - `text-delete-dialog.component.ts`
+  - `text-view-drag-drop.service.ts`
+  - `text-view.types.ts`
+- ✅ 批量更新导入路径 (`../../services/` → `../../../../services/`)
+- ✅ 更新 `features/text/index.ts` 指向新位置
+- ✅ 更新 `project-shell.component.ts` 使用 feature 导入
+- ✅ 修正类型导出（移除不存在的 TextViewState 等类型）
+- ✅ 删除冗余文件 (index.ts, stage-list.component.ts, task-card.component.ts)
+- ✅ TypeScript 编译验证通过
 
 ### 2024-12-26 (续)
 
