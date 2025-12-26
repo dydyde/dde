@@ -54,7 +54,7 @@
 |------|------|------|--------|------|
 | **Phase 0** | 清理废弃/重复代码 | ✅ 完成 | 2h | 100% |
 | **Phase 1** | 巨型服务拆分 | ✅ 完成 | 6h | 100% |
-| **Phase 2** | 目录结构重组 | 🔄 进行中 | 16h | 50% |
+| **Phase 2** | 目录结构重组 | 🔄 进行中 | 16h | 75% |
 | **Phase 3** | 配置文件拆分 | ⏳ 待开始 | 2h | 0% |
 | **Phase 4** | 类型安全增强 | ⏳ 待开始 | 4h | 0% |
 | **Phase 5** | 测试覆盖补充 | ⏳ 待开始 | 16h | 0% |
@@ -207,12 +207,17 @@ src/
 - [x] 删除冗余文件 (index.ts, stage-list.component.ts, task-card.component.ts)
 - [x] TypeScript 编译通过
 
-**第二批: flow（中风险）**
-- [ ] 创建 `src/app/features/flow/components/`
-- [ ] 创建 `src/app/features/flow/services/`
-- [ ] 迁移 `src/components/flow/*.component.ts`
-- [ ] 迁移 `src/services/flow-*.service.ts`
-- [ ] 验证 GoJS 功能正常
+**第二批: flow（中风险）✅**
+- [x] 创建 `src/app/features/flow/components/`
+- [x] 创建 `src/app/features/flow/services/`
+- [x] 迁移 `src/components/flow/*.component.ts` (10 个组件文件)
+- [x] 迁移 `src/services/flow-*.service.ts` (14 个服务文件)
+- [x] 创建 components/index.ts 和 services/index.ts barrel 文件
+- [x] 更新 features/flow/index.ts 导出
+- [x] 更新所有内部导入路径
+- [x] 更新外部引用 (project-shell, lineage-color.service, services/index.ts)
+- [x] 保留 src/components/flow/index.ts 作为兼容层
+- [x] TypeScript 编译通过
 
 **第三批: modals（低风险）**
 - [ ] 创建 `src/app/features/project/components/modals/`
@@ -349,6 +354,17 @@ src/config/
 - ✅ 定义回收站相关接口
 - ✅ 添加到 `services/index.ts` 和 `features/flow/index.ts`
 - ✅ 构建验证通过
+
+### 2024-12-26 (更新)
+
+**Phase 2.2 - flow 迁移完成**
+- ✅ 迁移 10 个 flow 组件到 `src/app/features/flow/components/`
+- ✅ 迁移 14 个 flow 服务到 `src/app/features/flow/services/`
+- ✅ 创建 barrel 文件 (components/index.ts, services/index.ts)
+- ✅ 更新所有导入路径（内部 + 外部引用）
+- ✅ 保留 `src/components/flow/index.ts` 作为兼容层
+- ✅ TypeScript 编译通过
+- 📝 提交: 3d97438
 
 ### 2024-12-26
 
