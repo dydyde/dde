@@ -1,5 +1,5 @@
 import { Injectable, signal, computed } from '@angular/core';
-import { TOAST_CONFIG } from '../config/constants';
+import { TOAST_CONFIG } from '../config';
 
 /**
  * Toast 消息类型

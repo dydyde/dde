@@ -23,7 +23,7 @@ import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import { supabaseErrorToError } from '../../../utils/supabase-error';
-import { REQUEST_THROTTLE_CONFIG } from '../../../config/constants';
+import { REQUEST_THROTTLE_CONFIG } from '../../../config';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
 

@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ToastService } from './toast.service';
 import { Project, Task } from '../models';
-import { CACHE_CONFIG } from '../config/constants';
+import { CACHE_CONFIG } from '../config';
 
 /**
  * 本地数据迁移策略

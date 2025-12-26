@@ -23,7 +23,7 @@
  */
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { LoggerService } from './logger.service';
-import { REQUEST_THROTTLE_CONFIG } from '../config/constants';
+import { REQUEST_THROTTLE_CONFIG } from '../config';
 
 /** 请求配置选项 */
 export interface ThrottleOptions {

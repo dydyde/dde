@@ -57,7 +57,7 @@ import {
 import { 
   Result, OperationError, isFailure
 } from '../utils/result';
-import { TRASH_CONFIG } from '../config/constants';
+import { TRASH_CONFIG } from '../config';
 
 @Injectable({
   providedIn: 'root'

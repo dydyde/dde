@@ -4,7 +4,7 @@ import { LoggerService } from '../../../../services/logger.service';
 import { FlowDragDropService, InsertPositionInfo } from './flow-drag-drop.service';
 import { Task } from '../../../../models';
 import { UnassignedTouchState, createInitialUnassignedTouchState } from '../../../../models/flow-view-state';
-import { UI_CONFIG } from '../../../../config/constants';
+import { UI_CONFIG } from '../../../../config';
 import * as go from 'gojs';
 
 /**

@@ -11,7 +11,7 @@ import {
   DragState,
   createInitialDragState
 } from '../../../../models/flow-view-state';
-import { UI_CONFIG } from '../../../../config/constants';
+import { UI_CONFIG } from '../../../../config';
 
 /**
  * 连接类型

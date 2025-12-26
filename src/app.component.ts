@@ -38,7 +38,7 @@ import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { getErrorMessage, isFailure, humanizeErrorMessage } from './utils/result';
 import { ThemeType } from './models';
-import { UI_CONFIG, AUTH_CONFIG } from './config/constants';
+import { UI_CONFIG, AUTH_CONFIG } from './config';
 
 /**
  * 应用根组件

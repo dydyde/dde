@@ -30,7 +30,7 @@ import { LoggerService } from './logger.service';
 // 借鉴思源笔记的同步增强服务
 import { SyncModeService, SyncDirection } from './sync-mode.service';
 import { Project, Task, UserPreferences } from '../models';
-import { SYNC_CONFIG } from '../config/constants';
+import { SYNC_CONFIG } from '../config';
 import { validateProject, sanitizeProject } from '../utils/validation';
 import { Result, success, failure, ErrorCodes, OperationError, isFailure } from '../utils/result';
 

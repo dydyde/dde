@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
 import { StoreService } from '../store.service';
 import { ToastService } from '../toast.service';
-import { GUARD_CONFIG } from '../../config/constants';
+import { GUARD_CONFIG } from '../../config';
 
 /**
  * 等待数据初始化完成

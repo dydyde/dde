@@ -1,6 +1,6 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { ThemeType } from '../models';
-import { CACHE_CONFIG } from '../config/constants';
+import { CACHE_CONFIG } from '../config';
 import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { AuthService } from './auth.service';
 import { ToastService } from './toast.service';

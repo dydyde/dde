@@ -3,7 +3,7 @@ import { StoreService } from '../../../../services/store.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task, Attachment } from '../../../../models';
 import { isFailure, getErrorMessage } from '../../../../utils/result';
-import { UI_CONFIG } from '../../../../config/constants';
+import { UI_CONFIG } from '../../../../config';
 
 /**
  * FlowTaskOperationsService - 任务操作代理服务

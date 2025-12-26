@@ -11,7 +11,7 @@ import { FlowTemplateService } from './flow-template.service';
 import { MinimapMathService } from '../../../../services/minimap-math.service';
 import { Task } from '../../../../models';
 import { environment } from '../../../../environments/environment';
-import { UI_CONFIG } from '../../../../config/constants';
+import { UI_CONFIG } from '../../../../config';
 import * as go from 'gojs';
 import * as Sentry from '@sentry/angular';
 

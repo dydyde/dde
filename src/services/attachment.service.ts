@@ -1,7 +1,7 @@
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { Attachment, AttachmentType } from '../models';
-import { ATTACHMENT_CONFIG } from '../config/constants';
+import { ATTACHMENT_CONFIG } from '../config';
 import { supabaseErrorToError } from '../utils/supabase-error';
 
 /**

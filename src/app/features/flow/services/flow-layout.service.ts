@@ -13,7 +13,7 @@
 import { Injectable, inject } from '@angular/core';
 import { LoggerService } from '../../../../services/logger.service';
 import { StoreService } from '../../../../services/store.service';
-import { GOJS_CONFIG, UI_CONFIG } from '../../../../config/constants';
+import { GOJS_CONFIG, UI_CONFIG } from '../../../../config';
 import * as go from 'gojs';
 
 /**

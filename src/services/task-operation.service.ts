@@ -1,7 +1,7 @@
 import { Injectable, inject, DestroyRef } from '@angular/core';
 import { Task, Project, Attachment } from '../models';
 import { LayoutService } from './layout.service';
-import { LAYOUT_CONFIG, TRASH_CONFIG, FLOATING_TREE_CONFIG } from '../config/constants';
+import { LAYOUT_CONFIG, TRASH_CONFIG, FLOATING_TREE_CONFIG } from '../config';
 import {
   Result, OperationError, ErrorCodes, success, failure
 } from '../utils/result';

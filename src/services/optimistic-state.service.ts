@@ -43,7 +43,7 @@
  * ✗ 数据同步 → SyncCoordinatorService
  */
 import { DestroyRef, Injectable, inject, signal } from '@angular/core';
-import { OPTIMISTIC_CONFIG } from '../config/constants';
+import { OPTIMISTIC_CONFIG } from '../config';
 import { Project } from '../models';
 import { LoggerService } from './logger.service';
 import { ProjectStateService } from './project-state.service';

@@ -19,7 +19,7 @@ import { ProjectStateService } from './project-state.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
 import { Project } from '../models';
-import { OPTIMISTIC_CONFIG } from '../config/constants';
+import { OPTIMISTIC_CONFIG } from '../config';
 
 // ========== 模拟依赖服务 ==========
 

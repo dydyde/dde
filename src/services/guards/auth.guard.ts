@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn } from '@angular/router';
 import { AuthService } from '../auth.service';
 import { ModalService } from '../modal.service';
-import { GUARD_CONFIG, AUTH_CONFIG } from '../../config/constants';
+import { GUARD_CONFIG, AUTH_CONFIG } from '../../config';
 
 /** 本地认证缓存 key */
 const AUTH_CACHE_KEY = 'nanoflow.auth-cache';

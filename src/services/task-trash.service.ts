@@ -18,7 +18,7 @@ import { Injectable, inject } from '@angular/core';
 import { LoggerService } from './logger.service';
 import { LayoutService } from './layout.service';
 import { Project, Task, Connection } from '../models';
-import { TRASH_CONFIG } from '../config/constants';
+import { TRASH_CONFIG } from '../config';
 
 /**
  * 回收站任务元数据

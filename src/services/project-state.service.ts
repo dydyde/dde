@@ -3,7 +3,7 @@ import { Project, Task, Connection, UnfinishedItem } from '../models';
 import { LayoutService } from './layout.service';
 import { UiStateService } from './ui-state.service';
 import { TaskStore, ProjectStore, ConnectionStore } from '../app/core/state/stores';
-import { SUPERSCRIPT_DIGITS } from '../config/constants';
+import { SUPERSCRIPT_DIGITS } from '../config';
 
 /**
  * 项目状态服务

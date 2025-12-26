@@ -1,7 +1,7 @@
 import { Injectable, inject, computed } from '@angular/core';
 import { ThemeService } from '../../../../services/theme.service';
 import { getFlowStyles, FlowStyleConfig, FlowTheme } from '../../../../config/flow-styles';
-import { GOJS_CONFIG, SUPERSCRIPT_DIGITS } from '../../../../config/constants';
+import { GOJS_CONFIG, SUPERSCRIPT_DIGITS } from '../../../../config';
 import { Task, Project } from '../../../../models';
 import { LineageColorService } from '../../../../services/lineage-color.service';
 import * as go from 'gojs';

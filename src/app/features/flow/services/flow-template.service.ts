@@ -18,7 +18,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { GOJS_CONFIG } from '../../../../config/constants';
+import { GOJS_CONFIG } from '../../../../config';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
 import { StoreService } from '../../../../services/store.service';

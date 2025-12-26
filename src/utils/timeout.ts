@@ -1,4 +1,4 @@
-import { TIMEOUT_CONFIG, RETRY_POLICY, TimeoutLevel } from '../config/constants';
+import { TIMEOUT_CONFIG, RETRY_POLICY, TimeoutLevel } from '../config';
 
 /**
  * 请求超时和重试工具函数

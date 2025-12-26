@@ -22,7 +22,7 @@ import { MigrationService } from './migration.service';
 import { LayoutService } from './layout.service';
 import { LoggerService } from './logger.service';
 import { Project } from '../models';
-import { CACHE_CONFIG, AUTH_CONFIG } from '../config/constants';
+import { CACHE_CONFIG, AUTH_CONFIG } from '../config';
 import { isFailure } from '../utils/result';
 import { ToastService } from './toast.service';
 

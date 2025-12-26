@@ -1,6 +1,6 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { UndoAction, Project } from '../models';
-import { UNDO_CONFIG } from '../config/constants';
+import { UNDO_CONFIG } from '../config';
 
 /**
  * 撤销操作结果类型

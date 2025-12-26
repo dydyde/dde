@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Task, Project, Connection } from '../models';
 import { ToastService } from './toast.service';
-import { LAYOUT_CONFIG, LETTERS } from '../config/constants';
+import { LAYOUT_CONFIG, LETTERS } from '../config';
 
 /**
  * 布局算法配置

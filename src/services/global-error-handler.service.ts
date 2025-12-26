@@ -2,7 +2,7 @@ import { ErrorHandler, Injectable, inject, NgZone, signal } from '@angular/core'
 import { Router } from '@angular/router';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
-import { TOAST_CONFIG } from '../config/constants';
+import { TOAST_CONFIG } from '../config';
 
 /**
  * 错误级别

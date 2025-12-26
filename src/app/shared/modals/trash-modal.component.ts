@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { StoreService } from '../../../services/store.service';
 import { ToastService } from '../../../services/toast.service';
 import { Task } from '../../../models';
-import { TRASH_CONFIG } from '../../../config/constants';
+import { TRASH_CONFIG } from '../../../config';
 
 /**
  * 回收站模态框组件

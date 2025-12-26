@@ -14,7 +14,7 @@ import { FlowTouchService } from '../services/flow-touch.service';
 import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
 import { Task } from '../../../../models';
-import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../../../../config/constants';
+import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../../../../config';
 import { 
   FlowToolbarComponent, 
   FlowPaletteComponent, 

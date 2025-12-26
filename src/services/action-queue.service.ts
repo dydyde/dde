@@ -1,5 +1,5 @@
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
-import { QUEUE_CONFIG } from '../config/constants';
+import { QUEUE_CONFIG } from '../config';
 import { Project, Task, UserPreferences } from '../models';
 import { LoggerService } from './logger.service';
 import { ToastService } from './toast.service';
