@@ -15,6 +15,7 @@ import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
 import { TabSyncService } from '../services/tab-sync.service';
 import { TextViewComponent } from './text-view/text-view.component';
+import { FlowViewComponent } from './flow-view.component';
 import { ErrorBoundaryComponent } from './error-boundary.component';
 
 /**
@@ -32,7 +33,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
 @Component({
   selector: 'app-project-shell',
   standalone: true,
-  imports: [CommonModule, TextViewComponent, ErrorBoundaryComponent],
+  imports: [CommonModule, TextViewComponent, FlowViewComponent, ErrorBoundaryComponent],
   styles: [`
     :host {
       display: flex;
@@ -205,7 +206,7 @@ import { ErrorBoundaryComponent } from './error-boundary.component';
                   </button>
               }
            </div>
-           @defer (on viewport; prefetch on idle) {
+           @defer (on viewport; prefetch on idle; prefetch when store.activeView() === 'flow') {
              <app-error-boundary 
                 [title]="'流程图加载失败'" 
                 [defaultMessage]="'您可以切换到文本视图或刷新页面重试'"
