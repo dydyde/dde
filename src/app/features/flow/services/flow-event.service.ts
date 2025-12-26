@@ -21,6 +21,7 @@ import { LoggerService } from '../../../../services/logger.service';
 import { StoreService } from '../../../../services/store.service';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { GOJS_CONFIG } from '../../../../config';
+import type { GoJSLinkData } from '../../../../types/gojs-extended';
 import * as go from 'gojs';
 
 // ========== 自定义事件名称常量（供向后兼容） ==========
@@ -41,17 +42,17 @@ export type NodeClickCallback = (taskId: string, isDoubleClick: boolean) => void
 /**
  * 连接线点击回调
  */
-export type LinkClickCallback = (linkData: any, x: number, y: number, isDoubleClick?: boolean) => void;
+export type LinkClickCallback = (linkData: GoJSLinkData, x: number, y: number, isDoubleClick?: boolean) => void;
 
 /**
  * 连接线删除回调
  */
-export type LinkDeleteCallback = (linkData: any) => void;
+export type LinkDeleteCallback = (linkData: GoJSLinkData) => void;
 
 /**
  * 连接手势回调
  */
-export type LinkGestureCallback = (sourceId: string, targetId: string, x: number, y: number, link: any) => void;
+export type LinkGestureCallback = (sourceId: string, targetId: string, x: number, y: number, link: go.Link) => void;
 
 /**
  * 选择移动完成回调
@@ -82,7 +83,7 @@ export type LinkRelinkCallback = (
   relinkInfo: LinkRelinkInfo,
   x: number,
   y: number,
-  gojsLink: any
+  gojsLink: go.Link
 ) => void;
 
 /**
@@ -90,7 +91,7 @@ export type LinkRelinkCallback = (
  */
 interface RegisteredListener {
   name: go.DiagramEventName | string;
-  handler: (e: any) => void;
+  handler: (e: go.DiagramEvent) => void;
 }
 
 @Injectable({
