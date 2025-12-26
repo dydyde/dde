@@ -1,9 +1,9 @@
 import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
-import { StoreService } from '../../services/store.service';
-import { Task } from '../../models';
-import { renderMarkdownSafe } from '../../utils/markdown';
+import { StoreService } from '../../../../services/store.service';
+import { Task } from '../../../../models';
+import { renderMarkdownSafe } from '../../../../utils/markdown';
 import { TextTaskEditorComponent } from './text-task-editor.component';
 
 /**

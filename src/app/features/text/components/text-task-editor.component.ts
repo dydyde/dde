@@ -1,11 +1,11 @@
 import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
-import { StoreService } from '../../services/store.service';
-import { AttachmentService } from '../../services/attachment.service';
-import { ToastService } from '../../services/toast.service';
-import { Task, Attachment } from '../../models';
-import { renderMarkdownSafe } from '../../utils/markdown';
+import { StoreService } from '../../../../services/store.service';
+import { AttachmentService } from '../../../../services/attachment.service';
+import { ToastService } from '../../../../services/toast.service';
+import { Task, Attachment } from '../../../../models';
+import { renderMarkdownSafe } from '../../../../utils/markdown';
 import { TextTaskConnectionsComponent } from './text-task-connections.component';
 
 /**

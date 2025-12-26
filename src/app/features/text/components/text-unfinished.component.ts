@@ -1,6 +1,6 @@
 import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
+import { StoreService } from '../../../../services/store.service';
 import { UnfinishedItem } from './text-view.types';
 
 /**

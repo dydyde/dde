@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Task } from '../../models';
+import { Task } from '../../../../models';
 
 /**
  * 删除确认弹窗组件

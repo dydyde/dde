@@ -1,7 +1,7 @@
 import { Component, inject, Input, Output, EventEmitter, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
-import { Task } from '../../models';
+import { StoreService } from '../../../../services/store.service';
+import { Task } from '../../../../models';
 import { DropTargetInfo } from './text-view.types';
 import { TextStageCardComponent } from './text-stage-card.component';
 

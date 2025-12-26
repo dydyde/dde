@@ -1,7 +1,7 @@
 /**
  * TextView 组件共享类型定义
  */
-import { Task } from '../../models';
+import { Task } from '../../../../models';
 
 /** 拖拽状态 */
 export interface DragState {

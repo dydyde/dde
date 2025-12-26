@@ -1,9 +1,9 @@
 import { Component, inject, signal, computed, Output, EventEmitter, OnInit, OnDestroy, ElementRef, ViewChild, NgZone, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
-import { ToastService } from '../../services/toast.service';
-import { Task } from '../../models';
-import { getErrorMessage, isFailure } from '../../utils/result';
+import { StoreService } from '../../../../services/store.service';
+import { ToastService } from '../../../../services/toast.service';
+import { Task } from '../../../../models';
+import { getErrorMessage, isFailure } from '../../../../utils/result';
 
 // 子组件导入
 import { TextViewLoadingComponent } from './text-view-loading.component';

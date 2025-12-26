@@ -1,6 +1,6 @@
 import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
+import { StoreService } from '../../../../services/store.service';
 import { TaskConnections } from './text-view.types';
 
 /**

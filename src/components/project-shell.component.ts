@@ -14,7 +14,7 @@ import { takeUntil } from 'rxjs/operators';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
 import { TabSyncService } from '../services/tab-sync.service';
-import { TextViewComponent } from './text-view/text-view.component';
+import { TextViewComponent } from '../app/features/text';
 import { FlowViewComponent } from './flow-view.component';
 import { ErrorBoundaryComponent } from './error-boundary.component';
 
