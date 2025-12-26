@@ -57,7 +57,7 @@
 | **Phase 2** | 目录结构重组 | ✅ 完成 | 16h | 100% |
 | **Phase 3** | 配置文件拆分 | ✅ 完成 | 2h | 100% |
 | **Phase 4** | 类型安全增强 | 🔄 进行中 | 4h | 30% |
-| **Phase 5** | 测试覆盖补充 | ⏳ 待开始 | 16h | 0% |
+| **Phase 5** | 测试覆盖补充 | 🔄 进行中 | 16h | 20% |
 
 ---
 
@@ -295,22 +295,28 @@ src/config/
 
 ## Phase 5: 测试覆盖补充
 
+### 状态：🔄 进行中
+
 ### 优先级
 
-| 服务 | 当前覆盖 | 目标 |
-|------|----------|------|
-| `FlowDiagramService` | ❌ 无 | 核心方法 70% |
-| `TaskOperationService` | ✅ 已有 | 补充边界用例 |
-| `SimpleSyncService` | ✅ 已有 | 补充 Sentry 测试 |
-| `LayoutService` | ✅ 已有 | 保持 |
+| 服务 | 当前覆盖 | 目标 | 状态 |
+|------|----------|------|------|
+| `FlowDiagramService` | ✅ 基础 | 核心方法 70% | 9 个测试 |
+| `TaskOperationService` | ✅ 已有 | 补充边界用例 | 5 个测试 |
+| `SimpleSyncService` | ✅ 已有 | 补充 Sentry 测试 | 完整 |
+| `LayoutService` | ✅ 已有 | 保持 | 完整 |
 
 ### 任务清单
 
-- [ ] 创建 `flow-diagram.service.spec.ts`
-- [ ] 测试：节点创建/删除
+- [x] 创建 `flow-diagram.service.spec.ts` (9 个测试)
+  - [x] 测试初始状态
+  - [x] 测试错误处理
+  - [x] 测试暂停/恢复模式
+  - [x] 测试销毁逻辑
+- [ ] 测试：节点创建/删除（需要完整 GoJS mock）
 - [ ] 测试：连接线创建/删除
 - [ ] 测试：视图状态保存/恢复
-- [ ] 创建 Sentry 集成测试
+- [x] 验证 Sentry 守卫测试完整（Phase 0 已完成）
 
 ---
 
@@ -358,6 +364,20 @@ src/config/
 - ✅ TypeScript 编译通过
 - 📝 提交: 40404e6
 - 📊 剩余 241 个警告（主要在 GoJS 回调函数中，属于 P2/P3 优先级）
+
+### 2024-12-26 (Phase 5 启动)
+
+**Phase 5.1 FlowDiagramService 测试覆盖**:
+- ✅ 创建 `flow-diagram.service.spec.ts`
+- ✅ Mock GoJS 库和所有子服务
+- ✅ 9 个测试用例：
+  - 初始状态测试 (4)
+  - 错误处理测试 (1)
+  - 暂停/恢复模式测试 (2)
+  - 销毁逻辑测试 (2)
+- ✅ 所有测试通过
+- 📝 提交: 9ba4b3d
+- 📊 总测试数：441 passed | 8 skipped
 
 ### 2024-12-26 (Phase 2 完成)
 
