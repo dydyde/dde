@@ -8,6 +8,7 @@
  * 这个文件定义了业务层与 GoJS 层之间的数据转换接口
  */
 
+import * as go from 'gojs';
 import { Task, Connection } from './index';
 
 // ============================================
@@ -176,9 +177,9 @@ export interface GojsNodeMoveData {
  * 从 GoJS Part 提取移动数据
  * 这是"边境检查站"的出口函数
  * 
- * @param part GoJS Part 对象（使用 any 因为我们对内宽容）
+ * @param part GoJS Part 对象
  */
-export function extractNodeMoveData(part: any): GojsNodeMoveData | null {
+export function extractNodeMoveData(part: go.Part): GojsNodeMoveData | null {
   if (!part?.data?.key || !part.location) {
     return null;
   }
@@ -203,7 +204,7 @@ export interface GojsLinkCreateData {
 /**
  * 从 GoJS Link 提取连接数据
  */
-export function extractLinkCreateData(link: any): GojsLinkCreateData | null {
+export function extractLinkCreateData(link: go.Link): GojsLinkCreateData | null {
   const fromNode = link?.fromNode;
   const toNode = link?.toNode;
   const sourceId = fromNode?.data?.key;

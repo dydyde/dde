@@ -41,7 +41,7 @@ export default [
         caughtErrors: 'none' // 忽略 catch 中未使用的错误变量
       }],
       '@typescript-eslint/explicit-function-return-type': 'off',
-      '@typescript-eslint/no-explicit-any': 'off', // 渐进式修复，暂时关闭
+      '@typescript-eslint/no-explicit-any': 'warn', // Phase 4: 类型安全增强
       '@typescript-eslint/no-non-null-assertion': 'off',
       
       // 通用规则 - 允许调试用的 console

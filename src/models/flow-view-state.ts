@@ -37,10 +37,22 @@ export interface ConnectionEditorData {
 }
 
 /**
+ * 连接线数据引用（用于删除时定位连接）
+ */
+export interface LinkDataRef {
+  data: {
+    from?: string;
+    to?: string;
+    isCrossTree?: boolean;
+    [key: string]: unknown;
+  };
+}
+
+/**
  * 连接线删除提示数据（移动端）
  */
 export interface LinkDeleteHint {
-  link: any; // GoJS Link 对象
+  link: LinkDataRef; // 连接线数据引用
   x: number;
   y: number;
   /** 是否跨树连接（用于 UI 文案区分） */
