@@ -1,6 +1,6 @@
 import { Component, signal, Output, EventEmitter, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Project, Task } from '../../models';
+import { Project, Task } from '../../../models';
 
 /**
  * 冲突解决模态框组件

@@ -1,6 +1,6 @@
 import { Component, EventEmitter, Input, Output, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { QueuedAction, DeadLetterItem } from '../../services/action-queue.service';
+import { QueuedAction, DeadLetterItem } from '../../../services/action-queue.service';
 
 /**
  * 存储失败逃生数据

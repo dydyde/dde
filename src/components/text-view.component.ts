@@ -1,5 +1,0 @@
-/**
- * 重导出文件 - 保持向后兼容
- * 实际组件已迁移到 text-view/ 目录
- */
-export { TextViewComponent } from './text-view/text-view.component';

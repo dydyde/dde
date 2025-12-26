@@ -65,7 +65,7 @@ export class ModalLoaderService {
    */
   async loadSettingsModal(): Promise<Type<unknown>> {
     return this.loadModal('settings', () => 
-      import('../../../components/modals/settings-modal.component').then(m => m.SettingsModalComponent)
+      import('../../shared/modals/settings-modal.component').then(m => m.SettingsModalComponent)
     );
   }
   
@@ -74,7 +74,7 @@ export class ModalLoaderService {
    */
   async loadLoginModal(): Promise<Type<unknown>> {
     return this.loadModal('login', () => 
-      import('../../../components/modals/login-modal.component').then(m => m.LoginModalComponent)
+      import('../../shared/modals/login-modal.component').then(m => m.LoginModalComponent)
     );
   }
   
@@ -83,7 +83,7 @@ export class ModalLoaderService {
    */
   async loadConflictModal(): Promise<Type<unknown>> {
     return this.loadModal('conflict', () => 
-      import('../../../components/modals/conflict-modal.component').then(m => m.ConflictModalComponent)
+      import('../../shared/modals/conflict-modal.component').then(m => m.ConflictModalComponent)
     );
   }
   
@@ -92,7 +92,7 @@ export class ModalLoaderService {
    */
   async loadNewProjectModal(): Promise<Type<unknown>> {
     return this.loadModal('newProject', () => 
-      import('../../../components/modals/new-project-modal.component').then(m => m.NewProjectModalComponent)
+      import('../../shared/modals/new-project-modal.component').then(m => m.NewProjectModalComponent)
     );
   }
   
@@ -101,7 +101,7 @@ export class ModalLoaderService {
    */
   async loadDeleteConfirmModal(): Promise<Type<unknown>> {
     return this.loadModal('deleteConfirm', () => 
-      import('../../../components/modals/delete-confirm-modal.component').then(m => m.DeleteConfirmModalComponent)
+      import('../../shared/modals/delete-confirm-modal.component').then(m => m.DeleteConfirmModalComponent)
     );
   }
   
@@ -110,7 +110,7 @@ export class ModalLoaderService {
    */
   async loadConfigHelpModal(): Promise<Type<unknown>> {
     return this.loadModal('configHelp', () => 
-      import('../../../components/modals/config-help-modal.component').then(m => m.ConfigHelpModalComponent)
+      import('../../shared/modals/config-help-modal.component').then(m => m.ConfigHelpModalComponent)
     );
   }
   
@@ -119,7 +119,7 @@ export class ModalLoaderService {
    */
   async loadTrashModal(): Promise<Type<unknown>> {
     return this.loadModal('trash', () => 
-      import('../../../components/modals/trash-modal.component').then(m => m.TrashModalComponent)
+      import('../../shared/modals/trash-modal.component').then(m => m.TrashModalComponent)
     );
   }
   
@@ -128,7 +128,7 @@ export class ModalLoaderService {
    */
   async loadMigrationModal(): Promise<Type<unknown>> {
     return this.loadModal('migration', () => 
-      import('../../../components/modals/migration-modal.component').then(m => m.MigrationModalComponent)
+      import('../../shared/modals/migration-modal.component').then(m => m.MigrationModalComponent)
     );
   }
   
@@ -137,7 +137,7 @@ export class ModalLoaderService {
    */
   async loadErrorRecoveryModal(): Promise<Type<unknown>> {
     return this.loadModal('errorRecovery', () => 
-      import('../../../components/modals/error-recovery-modal.component').then(m => m.ErrorRecoveryModalComponent)
+      import('../../shared/modals/error-recovery-modal.component').then(m => m.ErrorRecoveryModalComponent)
     );
   }
   
@@ -146,7 +146,7 @@ export class ModalLoaderService {
    */
   async loadStorageEscapeModal(): Promise<Type<unknown>> {
     return this.loadModal('storageEscape', () => 
-      import('../../../components/modals/storage-escape-modal.component').then(m => m.StorageEscapeModalComponent)
+      import('../../shared/modals/storage-escape-modal.component').then(m => m.StorageEscapeModalComponent)
     );
   }
   
@@ -155,7 +155,7 @@ export class ModalLoaderService {
    */
   async loadDashboardModal(): Promise<Type<unknown>> {
     return this.loadModal('dashboard', () => 
-      import('../../../components/modals/dashboard-modal.component').then(m => m.DashboardModalComponent)
+      import('../../shared/modals/dashboard-modal.component').then(m => m.DashboardModalComponent)
     );
   }
   

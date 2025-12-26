@@ -1,13 +1,13 @@
 import { Component, inject, Output, EventEmitter, computed, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
-import { ActionQueueService } from '../../services/action-queue.service';
-import { SimpleSyncService } from '../../app/core/services/simple-sync.service';
-import { AuthService } from '../../services/auth.service';
-import { ConflictStorageService, ConflictRecord } from '../../services/conflict-storage.service';
-import { ConflictResolutionService } from '../../services/conflict-resolution.service';
-import { ToastService } from '../../services/toast.service';
-import { SyncCoordinatorService } from '../../services/sync-coordinator.service';
-import { Task } from '../../models';
+import { ActionQueueService } from '../../../services/action-queue.service';
+import { SimpleSyncService } from '../../core/services/simple-sync.service';
+import { AuthService } from '../../../services/auth.service';
+import { ConflictStorageService, ConflictRecord } from '../../../services/conflict-storage.service';
+import { ConflictResolutionService } from '../../../services/conflict-resolution.service';
+import { ToastService } from '../../../services/toast.service';
+import { SyncCoordinatorService } from '../../../services/sync-coordinator.service';
+import { Task } from '../../../models';
 
 /** 任务差异项 */
 interface TaskDiff {

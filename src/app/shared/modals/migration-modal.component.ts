@@ -1,8 +1,8 @@
 import { Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MigrationService, MigrationStrategy } from '../../services/migration.service';
-import { AuthService } from '../../services/auth.service';
-import { ToastService } from '../../services/toast.service';
+import { MigrationService, MigrationStrategy } from '../../../services/migration.service';
+import { AuthService } from '../../../services/auth.service';
+import { ToastService } from '../../../services/toast.service';
 
 /**
  * 数据迁移对话框组件

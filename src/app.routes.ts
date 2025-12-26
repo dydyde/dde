@@ -72,19 +72,19 @@ export const routes: Routes = [
   // 3. 该页面不涉及敏感数据，只用于设置新密码
   { 
     path: 'reset-password', 
-    loadComponent: () => import('./components/reset-password.component').then(m => m.ResetPasswordComponent)
+    loadComponent: () => import('./app/shared/components/reset-password.component').then(m => m.ResetPasswordComponent)
   },
   
   // 致命错误页面
   { 
     path: 'error', 
-    loadComponent: () => import('./components/error-page.component').then(m => m.ErrorPageComponent)
+    loadComponent: () => import('./app/shared/components/error-page.component').then(m => m.ErrorPageComponent)
   },
   
   // 404 页面
   { 
     path: 'not-found', 
-    loadComponent: () => import('./components/not-found.component').then(m => m.NotFoundComponent)
+    loadComponent: () => import('./app/shared/components/not-found.component').then(m => m.NotFoundComponent)
   },
   
   // 兜底路由 - 重定向到 404

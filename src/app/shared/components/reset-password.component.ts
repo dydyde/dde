@@ -2,8 +2,8 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
-import { SupabaseClientService } from '../services/supabase-client.service';
-import { ToastService } from '../services/toast.service';
+import { SupabaseClientService } from '../../../services/supabase-client.service';
+import { ToastService } from '../../../services/toast.service';
 
 /**
  * 密码重置组件

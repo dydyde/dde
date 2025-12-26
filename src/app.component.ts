@@ -15,9 +15,9 @@ import { SyncCoordinatorService } from './services/sync-coordinator.service';
 import { SimpleSyncService } from './app/core/services/simple-sync.service';
 import { ModalLoaderService } from './app/core/services/modal-loader.service';
 import { enableLocalMode, disableLocalMode } from './services/guards';
-import { ToastContainerComponent } from './components/toast-container.component';
-import { SyncStatusComponent } from './components/sync-status.component';
-import { OfflineBannerComponent } from './components/offline-banner.component';
+import { ToastContainerComponent } from './app/shared/components/toast-container.component';
+import { SyncStatusComponent } from './app/shared/components/sync-status.component';
+import { OfflineBannerComponent } from './app/shared/components/offline-banner.component';
 import { 
   SettingsModalComponent, 
   LoginModalComponent, 
@@ -30,8 +30,8 @@ import {
   StorageEscapeModalComponent,
   StorageEscapeData,
   DashboardModalComponent
-} from './components/modals';
-import { ErrorBoundaryComponent } from './components/error-boundary.component';
+} from './app/shared/modals';
+import { ErrorBoundaryComponent } from './app/shared/components/error-boundary.component';
 import { FormsModule } from '@angular/forms';
 import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
 import { filter, takeUntil } from 'rxjs/operators';

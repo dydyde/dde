@@ -10,8 +10,8 @@ import {
   NgZone
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { GlobalErrorHandler } from '../services/global-error-handler.service';
-import { LoggerService } from '../services/logger.service';
+import { GlobalErrorHandler } from '../../../services/global-error-handler.service';
+import { LoggerService } from '../../../services/logger.service';
 
 /**
  * 错误边界组件

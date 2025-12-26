@@ -1,11 +1,11 @@
 import { Component, inject, signal, computed, input, ChangeDetectionStrategy, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActionQueueService } from '../services/action-queue.service';
-import { SimpleSyncService } from '../app/core/services/simple-sync.service';
-import { SyncCoordinatorService } from '../services/sync-coordinator.service';
-import { AuthService } from '../services/auth.service';
-import { ConflictStorageService } from '../services/conflict-storage.service';
-import { ToastService } from '../services/toast.service';
+import { ActionQueueService } from '../../../services/action-queue.service';
+import { SimpleSyncService } from '../../core/services/simple-sync.service';
+import { SyncCoordinatorService } from '../../../services/sync-coordinator.service';
+import { AuthService } from '../../../services/auth.service';
+import { ConflictStorageService } from '../../../services/conflict-storage.service';
+import { ToastService } from '../../../services/toast.service';
 
 /**
  * 同步状态组件

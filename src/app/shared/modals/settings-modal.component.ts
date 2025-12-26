@@ -1,8 +1,8 @@
 import { Component, inject, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
-import { PreferenceService } from '../../services/preference.service';
-import { ThemeType } from '../../models';
+import { StoreService } from '../../../services/store.service';
+import { PreferenceService } from '../../../services/preference.service';
+import { ThemeType } from '../../../models';
 
 @Component({
   selector: 'app-settings-modal',

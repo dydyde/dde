@@ -1,6 +1,6 @@
 import { Component, Output, EventEmitter, input, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MODAL_DATA, MODAL_REF } from '../../services/dynamic-modal.service';
+import { MODAL_DATA, MODAL_REF } from '../../../services/dynamic-modal.service';
 
 /**
  * 删除确认模态框数据接口

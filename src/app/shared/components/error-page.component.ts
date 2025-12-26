@@ -1,7 +1,7 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { GlobalErrorHandler } from '../services/global-error-handler.service';
+import { GlobalErrorHandler } from '../../../services/global-error-handler.service';
 
 /**
  * 致命错误信息接口

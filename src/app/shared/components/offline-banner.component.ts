@@ -1,6 +1,6 @@
 import { Component, inject, effect, ChangeDetectionStrategy, DestroyRef } from '@angular/core';
-import { SimpleSyncService } from '../app/core/services/simple-sync.service';
-import { ToastService } from '../services/toast.service';
+import { SimpleSyncService } from '../../core/services/simple-sync.service';
+import { ToastService } from '../../../services/toast.service';
 
 /**
  * 离线状态通知组件

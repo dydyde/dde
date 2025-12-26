@@ -16,7 +16,7 @@ import { ToastService } from '../services/toast.service';
 import { TabSyncService } from '../services/tab-sync.service';
 import { TextViewComponent } from '../app/features/text';
 import { FlowViewComponent } from '../app/features/flow';
-import { ErrorBoundaryComponent } from './error-boundary.component';
+import { ErrorBoundaryComponent } from '../app/shared/components/error-boundary.component';
 
 /**
  * 项目视图外壳组件
