@@ -14,6 +14,7 @@
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { FlowLinkService } from './flow-link.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { StoreService } from '../../../../services/store.service';
@@ -37,7 +38,7 @@ describe('FlowLinkService', () => {
     };
     
     mockStore = {
-      tasks: vi.fn().mockReturnValue([]),
+      tasks: signal([]),
       moveTaskToStage: vi.fn(),
       addCrossTreeConnection: vi.fn(),
     };
@@ -101,7 +102,7 @@ describe('FlowLinkService', () => {
 
     it('toggleLinkMode 应清除 linkSourceTask', () => {
       // 模拟已选择源任务的状态
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([
+      (mockStore.tasks as any).set([
         { id: 'task-1', title: '测试', stage: 1 }
       ]);
       
@@ -119,7 +120,7 @@ describe('FlowLinkService', () => {
 
   describe('handleLinkModeClick', () => {
     it('点击不存在的任务应返回 false', () => {
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([]);
+      (mockStore.tasks as any).set([]);
       
       const result = service.handleLinkModeClick('non-existent');
       expect(result).toBe(false);
@@ -127,7 +128,7 @@ describe('FlowLinkService', () => {
 
     it('第一次点击应设置源任务', () => {
       const task = { id: 'task-1', title: '测试', stage: 1 };
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([task]);
+      (mockStore.tasks as any).set([task]);
       
       service.handleLinkModeClick('task-1');
       expect(service.linkSourceTask()).toEqual(task);
@@ -135,7 +136,7 @@ describe('FlowLinkService', () => {
 
     it('点击同一个任务应显示警告并清除源任务', () => {
       const task = { id: 'task-1', title: '测试', stage: 1 };
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([task]);
+      (mockStore.tasks as any).set([task]);
       
       // 第一次点击设置源任务
       service.handleLinkModeClick('task-1');
@@ -150,7 +151,7 @@ describe('FlowLinkService', () => {
     it('点击不同任务应创建连接并退出连接模式', () => {
       const source = { id: 'task-1', title: '源任务', stage: 1 };
       const target = { id: 'task-2', title: '目标任务', stage: 2 };
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([source, target]);
+      (mockStore.tasks as any).set([source, target]);
       
       service.toggleLinkMode();
       service.handleLinkModeClick('task-1');
@@ -165,7 +166,7 @@ describe('FlowLinkService', () => {
     it('目标任务未分配阶段时应先分配阶段再创建连接', () => {
       const source = { id: 'task-1', title: '源任务', stage: 2 };
       const target = { id: 'task-2', title: '目标任务', stage: null };
-      (mockStore.tasks as ReturnType<typeof vi.fn>).mockReturnValue([source, target]);
+      (mockStore.tasks as any).set([source, target]);
       
       service.toggleLinkMode();
       service.handleLinkModeClick('task-1');

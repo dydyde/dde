@@ -14,6 +14,7 @@
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { FlowZoomService } from './flow-zoom.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { StoreService } from '../../../../services/store.service';
@@ -35,7 +36,7 @@ describe('FlowZoomService', () => {
     };
     
     mockStore = {
-      activeProjectId: vi.fn().mockReturnValue('project-1'),
+      activeProjectId: signal<string | null>('project-1'),
       updateViewState: vi.fn(),
       getViewState: vi.fn().mockReturnValue(null),
     };

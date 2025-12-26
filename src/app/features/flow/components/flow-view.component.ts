@@ -15,15 +15,13 @@ import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
 import { Task } from '../../../../models';
 import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../../../../config';
-import { 
-  FlowToolbarComponent, 
-  FlowPaletteComponent, 
-  FlowTaskDetailComponent,
-  FlowDeleteConfirmComponent,
-  FlowLinkTypeDialogComponent,
-  FlowConnectionEditorComponent,
-  FlowLinkDeleteHintComponent
-} from '.';
+import { FlowToolbarComponent } from './flow-toolbar.component';
+import { FlowPaletteComponent } from './flow-palette.component';
+import { FlowTaskDetailComponent } from './flow-task-detail.component';
+import { FlowDeleteConfirmComponent } from './flow-delete-confirm.component';
+import { FlowLinkTypeDialogComponent } from './flow-link-type-dialog.component';
+import { FlowConnectionEditorComponent } from './flow-connection-editor.component';
+import { FlowLinkDeleteHintComponent } from './flow-link-delete-hint.component';
 import { FlowCascadeAssignDialogComponent, CascadeAssignDialogData } from './flow-cascade-assign-dialog.component';
 import * as go from 'gojs';
 
