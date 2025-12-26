@@ -1,9 +1,9 @@
 import { Injectable, inject, ElementRef } from '@angular/core';
-import { StoreService } from './store.service';
-import { ToastService } from './toast.service';
-import { Task, Attachment } from '../models';
-import { isFailure, getErrorMessage } from '../utils/result';
-import { UI_CONFIG } from '../config/constants';
+import { StoreService } from '../../../../services/store.service';
+import { ToastService } from '../../../../services/toast.service';
+import { Task, Attachment } from '../../../../models';
+import { isFailure, getErrorMessage } from '../../../../utils/result';
+import { UI_CONFIG } from '../../../../config/constants';
 
 /**
  * FlowTaskOperationsService - 任务操作代理服务

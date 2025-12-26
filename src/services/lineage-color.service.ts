@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Task } from '../models';
-import { GoJSNodeData, GoJSLinkData } from './flow-diagram-config.service';
+import { GoJSNodeData, GoJSLinkData } from '../app/features/flow/services/flow-diagram-config.service';
 
 /**
  * 血缘关系数据结构

@@ -1,7 +1,7 @@
 import { Component, input, output, computed, inject, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../services/store.service';
-import { Task } from '../../models';
+import { StoreService } from '../../../../services/store.service';
+import { Task } from '../../../../models';
 
 /**
  * 流程图工具栏组件

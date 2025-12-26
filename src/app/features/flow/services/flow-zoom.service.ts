@@ -11,8 +11,8 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { LoggerService } from './logger.service';
-import { StoreService } from './store.service';
+import { LoggerService } from '../../../../services/logger.service';
+import { StoreService } from '../../../../services/store.service';
 import * as go from 'gojs';
 
 /**

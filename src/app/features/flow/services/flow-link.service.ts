@@ -1,8 +1,8 @@
 import { Injectable, inject, signal, NgZone, DestroyRef } from '@angular/core';
-import { StoreService } from './store.service';
-import { LoggerService } from './logger.service';
-import { ToastService } from './toast.service';
-import { Task } from '../models';
+import { StoreService } from '../../../../services/store.service';
+import { LoggerService } from '../../../../services/logger.service';
+import { ToastService } from '../../../../services/toast.service';
+import { Task } from '../../../../models';
 import { 
   LinkTypeDialogData, 
   ConnectionEditorData, 
@@ -10,8 +10,8 @@ import {
   PanelPosition,
   DragState,
   createInitialDragState
-} from '../models/flow-view-state';
-import { UI_CONFIG } from '../config/constants';
+} from '../../../../models/flow-view-state';
+import { UI_CONFIG } from '../../../../config/constants';
 
 /**
  * 连接类型

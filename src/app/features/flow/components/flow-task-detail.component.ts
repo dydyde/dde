@@ -1,9 +1,9 @@
 import { Component, input, output, signal, computed, inject, OnDestroy, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { StoreService } from '../../services/store.service';
-import { Task, Attachment } from '../../models';
-import { renderMarkdown } from '../../utils/markdown';
+import { StoreService } from '../../../../services/store.service';
+import { Task, Attachment } from '../../../../models';
+import { renderMarkdown } from '../../../../utils/markdown';
 
 /**
  * 任务详情面板组件

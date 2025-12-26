@@ -1,17 +1,17 @@
 import { Injectable, inject, signal, NgZone } from '@angular/core';
-import { StoreService } from './store.service';
-import { LoggerService } from './logger.service';
-import { ToastService } from './toast.service';
+import { StoreService } from '../../../../services/store.service';
+import { LoggerService } from '../../../../services/logger.service';
+import { ToastService } from '../../../../services/toast.service';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
 import { FlowLayoutService } from './flow-layout.service';
 import { FlowSelectionService } from './flow-selection.service';
 import { FlowZoomService } from './flow-zoom.service';
 import { FlowEventService } from './flow-event.service';
 import { FlowTemplateService } from './flow-template.service';
-import { MinimapMathService } from './minimap-math.service';
-import { Task } from '../models';
-import { environment } from '../environments/environment';
-import { UI_CONFIG } from '../config/constants';
+import { MinimapMathService } from '../../../../services/minimap-math.service';
+import { Task } from '../../../../models';
+import { environment } from '../../../../environments/environment';
+import { UI_CONFIG } from '../../../../config/constants';
 import * as go from 'gojs';
 import * as Sentry from '@sentry/angular';
 

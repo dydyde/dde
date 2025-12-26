@@ -1,9 +1,9 @@
 import { Injectable, inject, signal, NgZone } from '@angular/core';
-import { StoreService } from './store.service';
-import { LoggerService } from './logger.service';
-import { ToastService } from './toast.service';
-import { Task } from '../models';
-import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
+import { StoreService } from '../../../../services/store.service';
+import { LoggerService } from '../../../../services/logger.service';
+import { ToastService } from '../../../../services/toast.service';
+import { Task } from '../../../../models';
+import { GOJS_CONFIG, UI_CONFIG } from '../../../../config/constants';
 import * as go from 'gojs';
 
 /**

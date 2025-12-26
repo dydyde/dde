@@ -1,8 +1,8 @@
 import { Component, input, output, signal, ElementRef, ViewChild, computed, OnInit, OnDestroy, HostListener, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Task } from '../../models';
-import { renderMarkdown } from '../../utils/markdown';
+import { Task } from '../../../../models';
+import { renderMarkdown } from '../../../../utils/markdown';
 
 export interface ConnectionEditorData {
   sourceId: string;

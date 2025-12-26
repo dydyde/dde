@@ -17,10 +17,10 @@
  */
 
 import { Injectable, inject, NgZone } from '@angular/core';
-import { LoggerService } from './logger.service';
-import { StoreService } from './store.service';
+import { LoggerService } from '../../../../services/logger.service';
+import { StoreService } from '../../../../services/store.service';
 import { flowTemplateEventHandlers } from './flow-template-events';
-import { GOJS_CONFIG } from '../config/constants';
+import { GOJS_CONFIG } from '../../../../config/constants';
 import * as go from 'gojs';
 
 // ========== 自定义事件名称常量（供向后兼容） ==========

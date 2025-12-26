@@ -11,9 +11,9 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { LoggerService } from './logger.service';
-import { StoreService } from './store.service';
-import { GOJS_CONFIG, UI_CONFIG } from '../config/constants';
+import { LoggerService } from '../../../../services/logger.service';
+import { StoreService } from '../../../../services/store.service';
+import { GOJS_CONFIG, UI_CONFIG } from '../../../../config/constants';
 import * as go from 'gojs';
 
 /**

@@ -18,11 +18,11 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { GOJS_CONFIG } from '../config/constants';
+import { GOJS_CONFIG } from '../../../../config/constants';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
-import { StoreService } from './store.service';
-import { LoggerService } from './logger.service';
+import { StoreService } from '../../../../services/store.service';
+import { LoggerService } from '../../../../services/logger.service';
 import * as go from 'gojs';
 
 /**

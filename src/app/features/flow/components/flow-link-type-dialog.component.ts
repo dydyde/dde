@@ -1,6 +1,6 @@
 import { Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Task } from '../../models';
+import { Task } from '../../../../models';
 
 export interface LinkTypeDialogData {
   show: boolean;

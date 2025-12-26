@@ -1,9 +1,9 @@
 import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter, ChangeDetectionStrategy, Injector } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { StoreService } from '../services/store.service';
-import { ToastService } from '../services/toast.service';
-import { LoggerService } from '../services/logger.service';
+import { StoreService } from '../../../../services/store.service';
+import { ToastService } from '../../../../services/toast.service';
+import { LoggerService } from '../../../../services/logger.service';
 import { FlowDiagramService } from '../services/flow-diagram.service';
 import { FlowEventService } from '../services/flow-event.service';
 import { FlowZoomService } from '../services/flow-zoom.service';
@@ -13,8 +13,8 @@ import { FlowDragDropService, InsertPositionInfo } from '../services/flow-drag-d
 import { FlowTouchService } from '../services/flow-touch.service';
 import { FlowLinkService } from '../services/flow-link.service';
 import { FlowTaskOperationsService } from '../services/flow-task-operations.service';
-import { Task } from '../models';
-import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../config/constants';
+import { Task } from '../../../../models';
+import { UI_CONFIG, FLOW_VIEW_CONFIG } from '../../../../config/constants';
 import { 
   FlowToolbarComponent, 
   FlowPaletteComponent, 
@@ -23,8 +23,8 @@ import {
   FlowLinkTypeDialogComponent,
   FlowConnectionEditorComponent,
   FlowLinkDeleteHintComponent
-} from './flow';
-import { FlowCascadeAssignDialogComponent, CascadeAssignDialogData } from './flow/flow-cascade-assign-dialog.component';
+} from '.';
+import { FlowCascadeAssignDialogComponent, CascadeAssignDialogData } from './flow-cascade-assign-dialog.component';
 import * as go from 'gojs';
 
 /**

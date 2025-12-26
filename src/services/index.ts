@@ -63,18 +63,19 @@ export { AttachmentService } from './attachment.service';
 export { MigrationService } from './migration.service';
 export { LoggerService } from './logger.service';
 export { SearchService, type SearchResult, type ProjectSearchResult } from './search.service';
-export { FlowDiagramConfigService, type GoJSNodeData, type GoJSLinkData, type GoJSDiagramData } from './flow-diagram-config.service';
 
-// 流程图相关服务
-export { FlowDiagramService, type NodeClickCallback, type LinkClickCallback, type LinkDeleteCallback, type LinkGestureCallback, type LinkRelinkCallback, type SelectionMovedCallback } from './flow-diagram.service';
-export { FlowDragDropService, type InsertPositionInfo, type DropResultCallback } from './flow-drag-drop.service';
-export { FlowTouchService, type TouchDropCallback } from './flow-touch.service';
-export { FlowLinkService, type LinkType } from './flow-link.service';
-export { FlowTaskOperationsService } from './flow-task-operations.service';
-export { FlowSelectionService, type SelectedNodeInfo } from './flow-selection.service';
-export { FlowZoomService, type ViewState } from './flow-zoom.service';
-export { FlowLayoutService, type NodePosition, type LayoutOptions } from './flow-layout.service';
-export { FlowOverviewService, type OverviewOptions, type OverviewState } from './flow-overview.service';
+// 流程图相关服务 - 已迁移到 features/flow
+export { FlowDiagramConfigService, type GoJSNodeData, type GoJSLinkData, type GoJSDiagramData } from '../app/features/flow/services/flow-diagram-config.service';
+export { FlowDiagramService, type NodeClickCallback, type LinkClickCallback, type LinkDeleteCallback, type LinkGestureCallback, type LinkRelinkCallback, type SelectionMovedCallback } from '../app/features/flow/services/flow-diagram.service';
+export { FlowDragDropService, type InsertPositionInfo, type DropResultCallback } from '../app/features/flow/services/flow-drag-drop.service';
+export { FlowTouchService, type TouchDropCallback } from '../app/features/flow/services/flow-touch.service';
+export { FlowLinkService, type LinkType } from '../app/features/flow/services/flow-link.service';
+export { FlowTaskOperationsService } from '../app/features/flow/services/flow-task-operations.service';
+export { FlowSelectionService, type SelectedNodeInfo } from '../app/features/flow/services/flow-selection.service';
+export { FlowZoomService, type ViewState } from '../app/features/flow/services/flow-zoom.service';
+export { FlowLayoutService, type NodePosition, type LayoutOptions } from '../app/features/flow/services/flow-layout.service';
+export { FlowOverviewService, type OverviewOptions, type OverviewState } from '../app/features/flow/services/flow-overview.service';
+
 export { TaskTrashService, type DeletedTaskMeta, type DeleteResult, type RestoreResult, type TrashServiceCallbacks } from './task-trash.service';
 export { MinimapMathService, type WorldPoint, type MinimapPoint, type WorldBounds, type MinimapState, type DragSession, type RealTimeScaleResult, type VirtualBoundsResult } from './minimap-math.service';
 export { ReactiveMinimapService, type MinimapElements, type NodePosition as MinimapNodePosition, type MainCanvasViewport, type ReactiveDragSession, type MinimapTransform } from './reactive-minimap.service';

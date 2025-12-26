@@ -8,27 +8,13 @@
  * 禁止使用 visibility: hidden 隐藏 GoJS canvas（占用内存）
  */
 
-// 主视图组件
-export { FlowViewComponent } from '../../../components/flow-view.component';
+// 组件
+export * from './components';
 
-// 流程图子组件
-export { FlowPaletteComponent } from '../../../components/flow/flow-palette.component';
-export { FlowToolbarComponent } from '../../../components/flow/flow-toolbar.component';
-export { FlowTaskDetailComponent } from '../../../components/flow/flow-task-detail.component';
-export { FlowConnectionEditorComponent } from '../../../components/flow/flow-connection-editor.component';
-export { FlowDeleteConfirmComponent } from '../../../components/flow/flow-delete-confirm.component';
-export { FlowLinkDeleteHintComponent } from '../../../components/flow/flow-link-delete-hint.component';
-export { FlowLinkTypeDialogComponent } from '../../../components/flow/flow-link-type-dialog.component';
+// 服务
+export * from './services';
 
-// 流程图服务
-export { FlowDiagramService } from '../../../services/flow-diagram.service';
-export { FlowOverviewService } from '../../../services/flow-overview.service';
-export { FlowDragDropService } from '../../../services/flow-drag-drop.service';
-export { FlowTouchService } from '../../../services/flow-touch.service';
-export { FlowLinkService } from '../../../services/flow-link.service';
-export { FlowDebugService } from '../../../services/flow-debug.service';
-export { FlowDiagramConfigService } from '../../../services/flow-diagram-config.service';
-export { FlowTaskOperationsService } from '../../../services/flow-task-operations.service';
+// 其他相关服务（仍在 src/services/ 目录）
 export { LayoutService } from '../../../services/layout.service';
 export { LineageColorService } from '../../../services/lineage-color.service';
 export { MinimapMathService } from '../../../services/minimap-math.service';

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { LineageColorService, LineageNodeData, LineageLinkData } from './lineage-color.service';
 import { Task } from '../models';
-import { GoJSNodeData, GoJSLinkData } from './flow-diagram-config.service';
+import { GoJSNodeData, GoJSLinkData } from '../app/features/flow/services/flow-diagram-config.service';
 
 describe('LineageColorService', () => {
   let service: LineageColorService;

@@ -1,13 +1,8 @@
 /**
  * Flow components barrel export
  * 流程图相关组件导出
+ * 
+ * @deprecated 组件已迁移到 src/app/features/flow/components/
+ * 请从 '../app/features/flow' 导入
  */
-export { FlowToolbarComponent } from './flow-toolbar.component';
-export { FlowPaletteComponent } from './flow-palette.component';
-export { FlowTaskDetailComponent } from './flow-task-detail.component';
-export { FlowDeleteConfirmComponent } from './flow-delete-confirm.component';
-export { FlowLinkTypeDialogComponent, type LinkTypeDialogData } from './flow-link-type-dialog.component';
-export { FlowConnectionEditorComponent, type ConnectionEditorData, type ConnectionTasks } from './flow-connection-editor.component';
-export { FlowLinkDeleteHintComponent } from './flow-link-delete-hint.component';
-
-export type { LinkDeleteHint } from '../../models/flow-view-state';
+export * from '../../app/features/flow/components';

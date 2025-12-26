@@ -14,9 +14,9 @@
  */
 
 import { Injectable, inject, NgZone } from '@angular/core';
-import { LoggerService } from './logger.service';
+import { LoggerService } from '../../../../services/logger.service';
 import { FlowTemplateService } from './flow-template.service';
-import { MinimapMathService } from './minimap-math.service';
+import { MinimapMathService } from '../../../../services/minimap-math.service';
 import * as go from 'gojs';
 
 /**

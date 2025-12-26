@@ -1,10 +1,10 @@
 import { Injectable, inject, signal, NgZone } from '@angular/core';
-import { StoreService } from './store.service';
-import { LoggerService } from './logger.service';
+import { StoreService } from '../../../../services/store.service';
+import { LoggerService } from '../../../../services/logger.service';
 import { FlowDragDropService, InsertPositionInfo } from './flow-drag-drop.service';
-import { Task } from '../models';
-import { UnassignedTouchState, createInitialUnassignedTouchState } from '../models/flow-view-state';
-import { UI_CONFIG } from '../config/constants';
+import { Task } from '../../../../models';
+import { UnassignedTouchState, createInitialUnassignedTouchState } from '../../../../models/flow-view-state';
+import { UI_CONFIG } from '../../../../config/constants';
 import * as go from 'gojs';
 
 /**

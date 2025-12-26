@@ -1,7 +1,7 @@
 import { Component, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-import type { LinkDeleteHint } from '../../models/flow-view-state';
+import type { LinkDeleteHint } from '../../../../models/flow-view-state';
 
 /**
  * 移动端连接线删除提示组件
