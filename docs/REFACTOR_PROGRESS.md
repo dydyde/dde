@@ -55,7 +55,7 @@
 | **Phase 0** | 清理废弃/重复代码 | ✅ 完成 | 2h | 100% |
 | **Phase 1** | 巨型服务拆分 | ✅ 完成 | 6h | 100% |
 | **Phase 2** | 目录结构重组 | ✅ 完成 | 16h | 100% |
-| **Phase 3** | 配置文件拆分 | ⏳ 待开始 | 2h | 0% |
+| **Phase 3** | 配置文件拆分 | ✅ 完成 | 2h | 100% |
 | **Phase 4** | 类型安全增强 | ⏳ 待开始 | 4h | 0% |
 | **Phase 5** | 测试覆盖补充 | ⏳ 待开始 | 16h | 0% |
 
@@ -238,23 +238,31 @@ src/
 
 ## Phase 3: 配置文件拆分
 
-### 目标结构
+### 状态：✅ 完成
+
+### 最终结构
 
 ```
 src/config/
-├── index.ts           # 统一导出
-├── layout.config.ts   # LAYOUT_CONFIG
-├── sync.config.ts     # SYNC_CONFIG, SYNC_PERCEPTION_CONFIG, etc.
-├── ui.config.ts       # UI_CONFIG, GOJS_CONFIG, TOAST_CONFIG
-├── auth.config.ts     # AUTH_CONFIG, GUARD_CONFIG
-└── timeout.config.ts  # TIMEOUT_CONFIG, RETRY_POLICY
+├── index.ts              # 统一导出（新建）
+├── layout.config.ts      # LAYOUT_CONFIG, FLOATING_TREE_CONFIG, GOJS_CONFIG, LETTERS, SUPERSCRIPT_DIGITS
+├── sync.config.ts        # SYNC_CONFIG, SYNC_PERCEPTION_CONFIG, SYNC_MODE_CONFIG, REQUEST_THROTTLE_CONFIG, 
+│                         # SYNC_CHECKPOINT_CONFIG, CONFLICT_HISTORY_CONFIG, CACHE_CONFIG, OPTIMISTIC_CONFIG, QUEUE_CONFIG
+├── ui.config.ts          # UI_CONFIG, TOAST_CONFIG, SEARCH_CONFIG, DEEP_LINK_CONFIG, FLOW_VIEW_CONFIG
+├── auth.config.ts        # AUTH_CONFIG, GUARD_CONFIG
+├── timeout.config.ts     # TIMEOUT_CONFIG, TimeoutLevel, RETRY_POLICY
+├── attachment.config.ts  # ATTACHMENT_CONFIG, ATTACHMENT_CLEANUP_CONFIG
+├── task.config.ts        # TRASH_CONFIG, UNDO_CONFIG
+└── flow-styles.ts        # 保持不变
 ```
 
-**任务清单**:
-- [ ] 创建各配置文件
-- [ ] 从 `constants.ts` 迁移配置
-- [ ] 更新 `index.ts` 导出
-- [ ] 全局替换导入路径
+**完成任务**:
+- [x] 创建 7 个模块化配置文件
+- [x] 创建 index.ts 统一导出
+- [x] 删除原始 constants.ts (481 行)
+- [x] 批量更新所有导入路径 (`/constants` → 目录导入)
+- [x] TypeScript 编译验证通过
+- 📝 提交: 3710558
 
 ---
 
@@ -316,6 +324,23 @@ src/config/
 ---
 
 ## 变更日志
+
+### 2024-12-26 (Phase 3 完成)
+
+**Phase 3 配置文件拆分完成**:
+- ✅ 创建 7 个模块化配置文件:
+  - `layout.config.ts` - 布局/GoJS 配置
+  - `sync.config.ts` - 同步/离线/缓存配置
+  - `ui.config.ts` - UI/动画/搜索配置
+  - `auth.config.ts` - 认证/守卫配置
+  - `timeout.config.ts` - 超时/重试策略
+  - `attachment.config.ts` - 附件配置
+  - `task.config.ts` - 任务/回收站配置
+- ✅ 创建 `index.ts` 统一导出
+- ✅ 删除原始 `constants.ts` (481 行 → 7 个模块)
+- ✅ 批量更新 42 个文件的导入路径
+- ✅ TypeScript 编译通过
+- 📝 提交: 3710558
 
 ### 2024-12-26 (Phase 2 完成)
 
