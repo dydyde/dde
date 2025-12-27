@@ -418,9 +418,8 @@ export class FlowLinkService {
       targetTitle: targetTask.title
     });
     
-    // 先删除旧连接，再创建新连接
-    this.store.removeConnection(oldSourceId, oldTargetId);
-    this.store.addCrossTreeConnection(newSourceId, newTargetId);
+    // 使用原子操作：在一个撤销单元内删除旧连接并创建新连接
+    this.store.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
     
     const changedEndText = changedEnd === 'from' ? '起点' : '终点';
     this.toast.success(

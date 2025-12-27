@@ -572,6 +572,37 @@ export class StoreService {
     this.taskAdapter.updateTaskPositionWithRankSync(taskId, x, y);
   }
   
+  /**
+   * 更新任务位置（带撤销支持）
+   * 用于单个节点拖拽完成后的位置更新
+   */
+  updateTaskPositionWithUndo(taskId: string, x: number, y: number) {
+    this.taskAdapter.updateTaskPositionWithUndo(taskId, x, y);
+  }
+  
+  /**
+   * 开始位置拖拽批次
+   * 在拖拽开始时调用，记录初始状态用于撤销
+   */
+  beginPositionBatch() {
+    this.taskAdapter.beginPositionBatch();
+  }
+  
+  /**
+   * 结束位置拖拽批次
+   * 在拖拽结束时调用，将所有位置变更作为单个撤销单元记录
+   */
+  endPositionBatch() {
+    this.taskAdapter.endPositionBatch();
+  }
+  
+  /**
+   * 取消位置拖拽批次（不记录撤销）
+   */
+  cancelPositionBatch() {
+    this.taskAdapter.cancelPositionBatch();
+  }
+  
   getLastUpdateType(): 'content' | 'structure' | 'position' {
     return this.taskAdapter.getLastUpdateType();
   }
@@ -644,6 +675,19 @@ export class StoreService {
 
   removeConnection(sourceId: string, targetId: string) {
     this.taskAdapter.removeConnection(sourceId, targetId);
+  }
+
+  /**
+   * 重连跨树连接（原子操作）
+   * 在一个撤销单元内删除旧连接并创建新连接
+   */
+  relinkCrossTreeConnection(
+    oldSourceId: string,
+    oldTargetId: string,
+    newSourceId: string,
+    newTargetId: string
+  ) {
+    this.taskAdapter.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
   }
 
   /**

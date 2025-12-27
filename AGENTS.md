@@ -62,15 +62,25 @@
 - `src/services/` (主服务层：StoreService 门面、GoJS 服务、业务服务)
 - `src/utils/` (工具函数：result.ts, supabase-error.ts)
 
-## 4. 关键配置 (src/config/constants.ts)
+## 4. 关键配置 (src/config/)
 
+配置文件已拆分到独立模块：
+
+| 配置文件 | 主要常量 |
+|----------|----------|
+| `sync.config.ts` | SYNC_CONFIG, REQUEST_THROTTLE_CONFIG |
+| `layout.config.ts` | LAYOUT_CONFIG, FLOATING_TREE_CONFIG |
+| `timeout.config.ts` | TIMEOUT_CONFIG, RETRY_POLICY |
+| `ui.config.ts` | UI_CONFIG, TOAST_CONFIG |
+
+**核心配置值**：
 | 配置 | 值 | 说明 |
 |------|-----|------|
 | `SYNC_CONFIG.DEBOUNCE_DELAY` | 3000ms | 同步防抖延迟 |
 | `SYNC_CONFIG.CLOUD_LOAD_TIMEOUT` | 30000ms | 云端数据加载超时 |
 | `REQUEST_THROTTLE_CONFIG.MAX_CONCURRENT` | 4 | 最大并发请求数 |
 | `TIMEOUT_CONFIG.STANDARD` | 10000ms | 普通 API 超时 |
-| `ALGORITHM_CONFIG.MAX_TREE_DEPTH` | 500 | 树遍历最大深度 |
+| `FLOATING_TREE_CONFIG.MAX_SUBTREE_DEPTH` | 100 | 子树最大深度 |
 
 ## 5. 用户意图 (User Intent)
 用户希望获得一个**“打开即用”**的 PWA。

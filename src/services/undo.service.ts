@@ -54,6 +54,101 @@ export class UndoService {
   /** 防抖配置 */
   private readonly DEBOUNCE_DELAY = 800; // 800ms 内的连续编辑合并
   private readonly MERGE_WINDOW = 2000; // 2s 内同类型操作可合并
+  
+  /** 
+   * 批处理状态
+   * 用于将多个操作合并为单个撤销单元（如多选批量移动）
+   */
+  private isBatching = false;
+  private batchBeforeSnapshot: Partial<Project> | null = null;
+  private batchProjectId: string | null = null;
+  private batchProjectVersion: number | null = null;
+
+  /**
+   * 开始批处理模式
+   * 在此模式下，所有操作将被合并为单个撤销记录
+   * 用于多选批量移动等场景
+   * 
+   * @param project 当前项目（用于创建 before 快照）
+   */
+  beginBatch(project: Project): void {
+    if (this.isBatching) {
+      console.warn('[UndoService] 已在批处理模式，忽略重复调用');
+      return;
+    }
+    
+    this.isBatching = true;
+    this.batchBeforeSnapshot = this.createProjectSnapshot(project);
+    this.batchProjectId = project.id;
+    this.batchProjectVersion = project.version ?? 0;
+  }
+  
+  /**
+   * 结束批处理模式并提交撤销记录
+   * 
+   * @param project 当前项目（用于创建 after 快照）
+   */
+  endBatch(project: Project): void {
+    if (!this.isBatching) {
+      console.warn('[UndoService] 未在批处理模式，忽略调用');
+      return;
+    }
+    
+    this.isBatching = false;
+    
+    // 只有当快照存在且项目 ID 匹配时才记录
+    if (this.batchBeforeSnapshot && this.batchProjectId === project.id) {
+      const afterSnapshot = this.createProjectSnapshot(project);
+      
+      // 检查是否有实际变更（避免空撤销记录）
+      const beforeTasks = this.batchBeforeSnapshot.tasks as Array<{ id: string; x: number; y: number }> | undefined;
+      const afterTasks = afterSnapshot.tasks as Array<{ id: string; x: number; y: number }> | undefined;
+      
+      let hasChanges = false;
+      if (beforeTasks && afterTasks && beforeTasks.length === afterTasks.length) {
+        for (let i = 0; i < beforeTasks.length; i++) {
+          const before = beforeTasks[i];
+          const after = afterTasks.find(t => t.id === before.id);
+          if (after && (Math.abs(before.x - after.x) > 1 || Math.abs(before.y - after.y) > 1)) {
+            hasChanges = true;
+            break;
+          }
+        }
+      } else {
+        hasChanges = true; // 数量变化也算变更
+      }
+      
+      if (hasChanges) {
+        this.recordAction({
+          type: 'task-move',
+          projectId: this.batchProjectId,
+          data: { before: this.batchBeforeSnapshot, after: afterSnapshot }
+        }, this.batchProjectVersion ?? undefined);
+      }
+    }
+    
+    // 清理状态
+    this.batchBeforeSnapshot = null;
+    this.batchProjectId = null;
+    this.batchProjectVersion = null;
+  }
+  
+  /**
+   * 取消批处理（不记录撤销）
+   */
+  cancelBatch(): void {
+    this.isBatching = false;
+    this.batchBeforeSnapshot = null;
+    this.batchProjectId = null;
+    this.batchProjectVersion = null;
+  }
+  
+  /**
+   * 检查是否在批处理模式
+   */
+  get isBatchMode(): boolean {
+    return this.isBatching;
+  }
 
   /**
    * 记录一个操作（用于后续撤销）
@@ -62,6 +157,9 @@ export class UndoService {
    */
   recordAction(action: Omit<UndoAction, 'timestamp'>, projectVersion?: number): void {
     if (this.isUndoRedoing) return;
+    
+    // 批处理模式下跳过单独记录（由 endBatch 统一处理）
+    if (this.isBatching) return;
     
     // 检查是否应该与上一个操作合并
     const now = Date.now();

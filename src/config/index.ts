@@ -22,7 +22,8 @@ export {
   CONFLICT_HISTORY_CONFIG,
   CACHE_CONFIG,
   OPTIMISTIC_CONFIG,
-  QUEUE_CONFIG
+  QUEUE_CONFIG,
+  UNDO_SYNC_CONFIG
 } from './sync.config';
 
 // UI 配置

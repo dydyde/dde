@@ -41,6 +41,19 @@ export const SYNC_CONFIG = {
 } as const;
 
 /**
+ * 撤销操作同步配置
+ * 防止连续撤销产生同步风暴
+ */
+export const UNDO_SYNC_CONFIG = {
+  /** 撤销后同步延迟（毫秒）- 比正常操作稍长，允许用户连续撤销 */
+  UNDO_SYNC_DELAY: 1500,
+  /** 连续撤销检测窗口（毫秒）- 在此时间内的撤销被视为连续操作 */
+  CONSECUTIVE_UNDO_WINDOW: 500,
+  /** 连续撤销时延长的防抖窗口（毫秒）- 用户狂按 Ctrl+Z 时延长同步延迟 */
+  EXTENDED_DEBOUNCE_DELAY: 5000,
+} as const;
+
+/**
  * 同步感知配置
  * 借鉴思源笔记的多设备实时感知机制
  */

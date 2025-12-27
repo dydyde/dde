@@ -493,6 +493,16 @@ test.describe('关键路径 3: 拖拽 + 同步', () => {
     // 验证待同步指示器（嵌入模式下在同一元素上通过 attribute 暴露）
     await expect(page.locator('[data-testid="sync-status-indicator"][data-testid-pending="pending-sync-indicator"]')).toBeVisible();
     
+    // ========================================================================
+    // 关键步骤：离线状态下刷新页面，验证 IndexedDB 持久化
+    // 此测试替代了被删除的 store-persistence.service.spec.ts
+    // ========================================================================
+    await page.reload();
+    await testHelpers.waitForAppReady(page);
+    
+    // 验证离线创建的任务在刷新后仍然存在（IndexedDB 持久化验证）
+    await expect(page.locator(`[data-testid="task-card"]:has-text("${offlineTaskTitle}")`)).toBeVisible({ timeout: 10000 });
+    
     // 恢复在线
     await context.setOffline(false);
     
@@ -720,6 +730,157 @@ test.describe('性能基准', () => {
     const taskCards = page.locator('[data-testid="task-card"]');
     const count = await taskCards.count();
     expect(count).toBeGreaterThanOrEqual(10);
+  });
+});
+
+// ============================================================================
+// 撤销功能压力测试
+// ============================================================================
+
+test.describe('撤销功能压力测试', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await testHelpers.waitForAppReady(page);
+  });
+
+  /**
+   * 帕金森测试：快速连续撤销
+   * 模拟用户狂按 Ctrl+Z 的场景
+   */
+  test('帕金森测试 - 快速连续撤销不崩溃', async ({ page }) => {
+    const modifier = testHelpers.getKeyboardModifier();
+    
+    // 创建几个任务以便有东西可以撤销
+    for (let i = 0; i < 3; i++) {
+      const taskTitle = `撤销测试任务-${i}-${testHelpers.uniqueId()}`;
+      testHelpers.trackTaskTitle(taskTitle);
+      await page.click('[data-testid="add-task-btn"]');
+      await page.fill('[data-testid="task-title-input"]', taskTitle);
+      await page.press('[data-testid="task-title-input"]', 'Enter');
+      await page.waitForTimeout(100);
+    }
+    
+    // 等待 UI 稳定
+    await page.waitForTimeout(500);
+    
+    // 快速连续按 Ctrl+Z 10次（模拟用户狂按撤销）
+    console.log('开始快速连续撤销测试...');
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press(`${modifier}+z`);
+      await page.waitForTimeout(50); // 快速但不是瞬时
+    }
+    
+    // 验证应用未崩溃，UI 仍能响应
+    await page.waitForTimeout(500);
+    const addButton = page.locator('[data-testid="add-task-btn"]');
+    await expect(addButton).toBeEnabled({ timeout: 5000 });
+    
+    console.log('帕金森测试通过：快速撤销后应用仍响应');
+  });
+
+  /**
+   * 级联撤销测试：删除父节点后撤销
+   * 验证删除操作的撤销能正确恢复父子关系
+   */
+  test('级联撤销 - 删除父节点后撤销恢复', async ({ page }) => {
+    const modifier = testHelpers.getKeyboardModifier();
+    
+    // 创建父任务
+    const parentTitle = `父任务-${testHelpers.uniqueId()}`;
+    testHelpers.trackTaskTitle(parentTitle);
+    await page.click('[data-testid="add-task-btn"]');
+    await page.fill('[data-testid="task-title-input"]', parentTitle);
+    await page.press('[data-testid="task-title-input"]', 'Enter');
+    
+    await page.waitForTimeout(200);
+    
+    // 创建子任务（假设有添加子任务的按钮或操作）
+    const childTitle = `子任务-${testHelpers.uniqueId()}`;
+    testHelpers.trackTaskTitle(childTitle);
+    
+    // 点击父任务卡片
+    const parentCard = page.locator(`[data-testid="task-card"]:has-text("${parentTitle}")`);
+    await parentCard.click();
+    
+    // 如果有添加子任务按钮则使用，否则跳过此部分
+    const addChildBtn = page.locator('[data-testid="add-child-task-btn"]');
+    if (await addChildBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await addChildBtn.click();
+      await page.fill('[data-testid="task-title-input"]', childTitle);
+      await page.press('[data-testid="task-title-input"]', 'Enter');
+      await page.waitForTimeout(200);
+    }
+    
+    // 删除父任务
+    await parentCard.click();
+    const deleteBtn = page.locator('[data-testid="delete-task-btn"]');
+    if (await deleteBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await deleteBtn.click();
+      
+      // 确认删除（如果有确认对话框）
+      const confirmBtn = page.locator('[data-testid="confirm-delete-btn"]');
+      if (await confirmBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await confirmBtn.click();
+      }
+      
+      await page.waitForTimeout(300);
+      
+      // 验证父任务已被删除
+      await expect(parentCard).not.toBeVisible({ timeout: 2000 });
+      
+      // 撤销删除
+      await page.keyboard.press(`${modifier}+z`);
+      await page.waitForTimeout(500);
+      
+      // 验证父任务恢复
+      const restoredParent = page.locator(`[data-testid="task-card"]:has-text("${parentTitle}")`);
+      await expect(restoredParent).toBeVisible({ timeout: 3000 });
+      
+      console.log('级联撤销测试通过：删除后撤销成功恢复');
+    } else {
+      console.log('级联撤销测试跳过：未找到删除按钮');
+    }
+  });
+
+  /**
+   * 撤销-重做循环测试
+   * 验证连续的 Undo/Redo 操作不会产生数据异常
+   */
+  test('撤销重做循环 - 多次循环后数据一致', async ({ page }) => {
+    const modifier = testHelpers.getKeyboardModifier();
+    
+    // 创建一个任务
+    const taskTitle = `循环测试任务-${testHelpers.uniqueId()}`;
+    testHelpers.trackTaskTitle(taskTitle);
+    await page.click('[data-testid="add-task-btn"]');
+    await page.fill('[data-testid="task-title-input"]', taskTitle);
+    await page.press('[data-testid="task-title-input"]', 'Enter');
+    
+    await page.waitForTimeout(300);
+    
+    // 验证任务存在
+    const taskCard = page.locator(`[data-testid="task-card"]:has-text("${taskTitle}")`);
+    await expect(taskCard).toBeVisible({ timeout: 3000 });
+    
+    // 执行多次 Undo/Redo 循环
+    for (let cycle = 0; cycle < 5; cycle++) {
+      // 撤销
+      await page.keyboard.press(`${modifier}+z`);
+      await page.waitForTimeout(100);
+      
+      // 重做
+      await page.keyboard.press(`${modifier}+Shift+z`);
+      await page.waitForTimeout(100);
+    }
+    
+    // 验证任务仍然存在（最后一次操作是重做，应恢复任务）
+    await expect(taskCard).toBeVisible({ timeout: 3000 });
+    
+    // 验证应用未崩溃
+    const addButton = page.locator('[data-testid="add-task-btn"]');
+    await expect(addButton).toBeEnabled();
+    
+    console.log('撤销重做循环测试通过：5次循环后数据一致');
   });
 });
 

@@ -1507,6 +1507,41 @@ export class TaskOperationService {
   }
   
   /**
+   * 重连跨树连接（原子操作）
+   * 在一个撤销单元内删除旧连接并创建新连接
+   * 
+   * @param oldSourceId 原始起点节点 ID
+   * @param oldTargetId 原始终点节点 ID
+   * @param newSourceId 新的起点节点 ID
+   * @param newTargetId 新的终点节点 ID
+   */
+  relinkCrossTreeConnection(
+    oldSourceId: string,
+    oldTargetId: string,
+    newSourceId: string,
+    newTargetId: string
+  ): void {
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      connections: [
+        // 软删除旧连接
+        ...p.connections.map(c => 
+          (c.source === oldSourceId && c.target === oldTargetId)
+            ? { ...c, deletedAt: now }
+            : c
+        ),
+        // 添加新连接
+        { 
+          id: crypto.randomUUID(),
+          source: newSourceId, 
+          target: newTargetId 
+        }
+      ]
+    }));
+  }
+  
+  /**
    * 移除连接（使用软删除策略）
    * 设置 deletedAt 时间戳，让同步服务可以正确同步删除状态到其他设备
    */

@@ -740,18 +740,37 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     });
     
     this.eventService.onSelectionMoved((movedNodes) => {
-      movedNodes.forEach(node => {
-        if (node.isUnassigned) {
-          // 检测是否拖到连接线上
-          const diagramInstance = this.diagram.diagramInstance;
-          if (diagramInstance) {
-            const loc = new go.Point(node.x, node.y);
-            this.dragDrop.handleNodeMoved(node.key, loc, true, diagramInstance);
+      // 多节点移动时使用批处理模式，合并为单个撤销单元
+      const needsBatch = movedNodes.length > 1;
+      
+      if (needsBatch) {
+        this.store.beginPositionBatch();
+      }
+      
+      try {
+        movedNodes.forEach(node => {
+          if (node.isUnassigned) {
+            // 检测是否拖到连接线上
+            const diagramInstance = this.diagram.diagramInstance;
+            if (diagramInstance) {
+              const loc = new go.Point(node.x, node.y);
+              this.dragDrop.handleNodeMoved(node.key, loc, true, diagramInstance);
+            }
+          } else {
+            // 单节点：带撤销的位置更新；批量：普通更新（由 endBatch 统一记录）
+            if (needsBatch) {
+              this.store.updateTaskPositionWithRankSync(node.key, node.x, node.y);
+            } else {
+              // 单节点拖拽完成，带撤销记录
+              this.store.updateTaskPositionWithUndo(node.key, node.x, node.y);
+            }
           }
-        } else {
-          this.store.updateTaskPositionWithRankSync(node.key, node.x, node.y);
+        });
+      } finally {
+        if (needsBatch) {
+          this.store.endPositionBatch();
         }
-      });
+      }
     });
     
     this.eventService.onBackgroundClick(() => {

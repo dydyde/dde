@@ -132,6 +132,64 @@ export class TaskOperationAdapterService {
     this.taskOps.updateTaskPositionWithRankSync(taskId, x, y);
   }
   
+  /**
+   * 开始位置拖拽批次
+   * 在拖拽开始时调用，记录初始状态用于撤销
+   */
+  beginPositionBatch(): void {
+    const project = this.projectState.activeProject();
+    if (project) {
+      this.undoService.beginBatch(project);
+    }
+  }
+  
+  /**
+   * 结束位置拖拽批次
+   * 在拖拽结束时调用，将所有位置变更作为单个撤销单元记录
+   */
+  endPositionBatch(): void {
+    const project = this.projectState.activeProject();
+    if (project) {
+      this.undoService.endBatch(project);
+      // 触发同步
+      this.syncCoordinator.markLocalChanges('position');
+      this.syncCoordinator.schedulePersist();
+    }
+  }
+  
+  /**
+   * 取消位置拖拽批次（不记录撤销）
+   */
+  cancelPositionBatch(): void {
+    this.undoService.cancelBatch();
+  }
+  
+  /**
+   * 更新任务位置（带撤销支持）
+   * 用于单个节点拖拽完成后的位置更新
+   */
+  updateTaskPositionWithUndo(taskId: string, x: number, y: number): void {
+    this.lastUpdateType = 'position';
+    
+    // 使用 recordAndUpdate 模式记录撤销
+    const project = this.projectState.activeProject();
+    if (!project) return;
+    
+    const task = project.tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    // 只有位置真正改变时才记录
+    if (Math.abs(task.x - x) < 1 && Math.abs(task.y - y) < 1) return;
+    
+    const now = new Date().toISOString();
+    this.recordAndUpdate(p => ({
+      ...p,
+      tasks: p.tasks.map(t => 
+        t.id === taskId ? { ...t, x, y, updatedAt: now } : t
+      )
+    }));
+  }
+  
   // ========== 任务状态操作 ==========
   
   /**
@@ -415,6 +473,19 @@ export class TaskOperationAdapterService {
   
   removeConnection(sourceId: string, targetId: string): void {
     this.taskOps.removeConnection(sourceId, targetId);
+  }
+  
+  /**
+   * 重连跨树连接（原子操作）
+   * 在一个撤销单元内删除旧连接并创建新连接
+   */
+  relinkCrossTreeConnection(
+    oldSourceId: string,
+    oldTargetId: string,
+    newSourceId: string,
+    newTargetId: string
+  ): void {
+    this.taskOps.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
   }
   
   /**
