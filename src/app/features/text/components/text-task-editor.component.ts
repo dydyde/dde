@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener, effect, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../../../services/store.service';
@@ -36,10 +36,10 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           #titleInput
           data-title-input
           type="text"
-          [value]="task.title"
+          [value]="localTitle()"
           (input)="onTitleInput(titleInput.value)"
-          (focus)="onInputFocus()"
-          (blur)="onInputBlur()"
+          (focus)="onInputFocus('title')"
+          (blur)="onInputBlur('title')"
           (mousedown)="isSelecting = true"
           (mouseup)="isSelecting = false"
           class="w-full font-medium text-retro-dark border rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none touch-manipulation transition-colors"
@@ -74,17 +74,17 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (click)="togglePreview(); $event.stopPropagation()"
               class="w-full border border-retro-muted/20 rounded-lg bg-retro-muted/5 overflow-y-auto markdown-preview cursor-pointer hover:border-stone-300 transition-colors"
               [ngClass]="{'min-h-24 max-h-48 p-3 text-xs': !isMobile, 'min-h-28 max-h-40 p-2 text-[11px]': isMobile}"
-              [innerHTML]="task.content ? renderMarkdown(task.content) : '<span class=&quot;text-stone-400 italic&quot;>点击输入内容...</span>'"
+              [innerHTML]="localContent() ? renderMarkdown(localContent()) : '<span class=&quot;text-stone-400 italic&quot;>点击输入内容...</span>'"
               title="点击编辑">
             </div>
           } @else {
             <!-- Markdown 编辑 -->
             <textarea 
               #contentInput
-              [value]="task.content"
+              [value]="localContent()"
               (input)="onContentInput(contentInput.value)"
-              (focus)="onInputFocus()"
-              (blur)="onInputBlur()"
+              (focus)="onInputFocus('content')"
+              (blur)="onInputBlur('content')"
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
               class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-white resize-none touch-manipulation"
@@ -103,8 +103,8 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               #quickTodoInput
               type="text"
               (keydown.enter)="addQuickTodo(quickTodoInput)"
-              (focus)="onInputFocus()"
-              (blur)="onInputBlur()"
+              (focus)="onInputFocus('todo')"
+              (blur)="onInputBlur('todo')"
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
               class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
@@ -270,7 +270,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
     }
   `]
 })
-export class TextTaskEditorComponent {
+export class TextTaskEditorComponent implements OnDestroy {
   private readonly store = inject(StoreService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elementRef = inject(ElementRef);
@@ -295,6 +295,18 @@ export class TextTaskEditorComponent {
   readonly showAttachmentList = signal(false);
   readonly isUploading = signal(false);
   
+  // ========== Split-Brain 本地状态 ==========
+  /** 本地标题（与 Store 解耦，仅在非聚焦时同步） */
+  protected readonly localTitle = signal('');
+  /** 本地内容（与 Store 解耦，仅在非聚焦时同步） */
+  protected readonly localContent = signal('');
+  /** 标题输入框是否聚焦 */
+  private isTitleFocused = false;
+  /** 内容输入框是否聚焦 */
+  private isContentFocused = false;
+  /** 解锁延迟定时器 */
+  private unlockTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  
   /** 标记是否正在进行文本选择操作 */
   isSelecting = false;
   
@@ -302,6 +314,32 @@ export class TextTaskEditorComponent {
   private readonly maxAttachments = 5;
   /** 最大文件大小 10MB */
   private readonly maxFileSize = 10 * 1024 * 1024;
+  
+  constructor() {
+    // Split-Brain 核心逻辑：仅在输入框非聚焦时从 Store 同步到本地
+    // 这确保用户正在输入时，远程更新不会覆盖本地内容
+    effect(() => {
+      const task = this.task;
+      if (task) {
+        // 仅当标题输入框未聚焦时才同步标题
+        if (!this.isTitleFocused) {
+          this.localTitle.set(task.title || '');
+        }
+        // 仅当内容输入框未聚焦时才同步内容
+        if (!this.isContentFocused) {
+          this.localContent.set(task.content || '');
+        }
+      }
+    });
+  }
+  
+  ngOnDestroy(): void {
+    // 清理所有未完成的解锁定时器
+    for (const timer of this.unlockTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.unlockTimers.clear();
+  }
   
   /** 
    * 监听 document 点击事件
@@ -343,6 +381,9 @@ export class TextTaskEditorComponent {
   
   ngOnInit() {
     this.isPreview.set(this.initialPreview);
+    // 初始化本地状态
+    this.localTitle.set(this.task.title || '');
+    this.localContent.set(this.task.content || '');
   }
   
   togglePreview() {
@@ -365,23 +406,89 @@ export class TextTaskEditorComponent {
     return renderMarkdownSafe(content, this.sanitizer);
   }
   
-  onInputFocus() {
+  /**
+   * 输入框聚焦处理（Split-Brain 模式核心）
+   * 1. 标记全局编辑状态
+   * 2. 锁定对应字段（1小时，防止远程更新覆盖）
+   * 3. 标记本地聚焦状态，阻止 Store->Local 同步
+   */
+  onInputFocus(field: 'title' | 'content' | 'todo') {
     this.store.markEditing();
+    
+    if (field === 'title') {
+      this.isTitleFocused = true;
+      // 清除可能存在的解锁定时器
+      const existingTimer = this.unlockTimers.get('title');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('title');
+      }
+      // 锁定标题字段（1小时，由 blur 事件触发解锁）
+      this.store.lockTaskFields(this.task.id, ['title']);
+    } else if (field === 'content') {
+      this.isContentFocused = true;
+      const existingTimer = this.unlockTimers.get('content');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('content');
+      }
+      this.store.lockTaskFields(this.task.id, ['content']);
+    }
+    // todo 字段不需要锁定（不会被远程更新覆盖）
   }
   
-  onInputBlur() {
-    // 输入框失焦处理
-    // 延迟清除选择标记，确保点击事件已处理完毕
+  /**
+   * 输入框失焦处理（Split-Brain 模式核心）
+   * 1. 提交本地内容到 Store
+   * 2. 延迟 5 秒后解锁字段（等待同步完成，防止回声覆盖）
+   * 3. 延迟后重新启用 Store->Local 同步
+   */
+  onInputBlur(field: 'title' | 'content' | 'todo') {
+    // 延迟清除选择标记
     setTimeout(() => {
       this.isSelecting = false;
     }, 100);
+    
+    if (field === 'title') {
+      // 提交本地内容到 Store
+      this.store.updateTaskTitle(this.task.id, this.localTitle());
+      
+      // 延迟 5 秒后解锁（等待同步防抖 3s + 网络延迟 2s）
+      const timer = setTimeout(() => {
+        this.isTitleFocused = false;
+        this.store.unlockTaskFields(this.task.id, ['title']);
+        this.unlockTimers.delete('title');
+      }, 5000);
+      this.unlockTimers.set('title', timer);
+    } else if (field === 'content') {
+      this.store.updateTaskContent(this.task.id, this.localContent());
+      
+      const timer = setTimeout(() => {
+        this.isContentFocused = false;
+        this.store.unlockTaskFields(this.task.id, ['content']);
+        this.unlockTimers.delete('content');
+      }, 5000);
+      this.unlockTimers.set('content', timer);
+    }
   }
   
+  /**
+   * 标题输入处理
+   * 仅更新本地状态，blur 时才提交到 Store
+   */
   onTitleInput(value: string) {
+    this.localTitle.set(value);
+    // 同时更新 Store（保持乐观更新的即时反馈）
     this.store.updateTaskTitle(this.task.id, value);
   }
   
+  /**
+   * 内容输入处理
+   * 仅更新本地状态，blur 时才提交到 Store
+   */
   onContentInput(value: string) {
+    this.localContent.set(value);
+    // 同时更新 Store（保持乐观更新的即时反馈）
     this.store.updateTaskContent(this.task.id, value);
   }
   

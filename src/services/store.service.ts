@@ -51,6 +51,7 @@ import { RemoteChangeHandlerService } from './remote-change-handler.service';
 import { AttachmentService } from './attachment.service';
 import { LayoutService } from './layout.service';
 import { OptimisticStateService } from './optimistic-state.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { 
   Task, Project, ThemeType, Attachment 
 } from '../models';
@@ -81,6 +82,7 @@ export class StoreService {
   private attachmentService = inject(AttachmentService);
   private layoutService = inject(LayoutService);
   private optimisticState = inject(OptimisticStateService);
+  private changeTracker = inject(ChangeTrackerService);
   private destroyRef = inject(DestroyRef);
   
   /** 回收站清理定时器 */
@@ -546,6 +548,42 @@ export class StoreService {
   
   get isUserEditing(): boolean {
     return this.taskAdapter.isUserEditing;
+  }
+
+  // ========== 字段锁操作（Split-Brain 模式支持）==========
+  
+  /**
+   * 锁定任务的指定字段（用于 Split-Brain 输入模式）
+   * 当用户聚焦输入框时调用，防止远程更新覆盖正在输入的内容
+   * 
+   * @param taskId 任务 ID
+   * @param fields 要锁定的字段列表（如 ['title', 'content']）
+   * @param durationMs 锁定时长，默认 1 小时（文本输入场景）
+   */
+  lockTaskFields(taskId: string, fields: string[], durationMs?: number): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    
+    const duration = durationMs ?? ChangeTrackerService.TEXT_INPUT_LOCK_TIMEOUT_MS;
+    for (const field of fields) {
+      this.changeTracker.lockTaskField(taskId, projectId, field, duration);
+    }
+  }
+  
+  /**
+   * 解锁任务的指定字段
+   * 当用户完成输入（blur 事件）后延迟调用，等待同步完成
+   * 
+   * @param taskId 任务 ID
+   * @param fields 要解锁的字段列表
+   */
+  unlockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    
+    for (const field of fields) {
+      this.changeTracker.unlockTaskField(taskId, projectId, field);
+    }
   }
 
   updateTaskContent(taskId: string, newContent: string) {

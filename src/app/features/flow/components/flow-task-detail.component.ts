@@ -1,4 +1,4 @@
-import { Component, input, output, signal, computed, inject, OnDestroy, HostListener, ElementRef } from '@angular/core';
+import { Component, input, output, signal, computed, inject, OnDestroy, HostListener, ElementRef, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../../../../services/store.service';
@@ -187,13 +187,22 @@ import { renderMarkdown } from '../../../../utils/markdown';
               </div>
           } @else {
               <!-- 编辑模式 -->
-              <input data-testid="flow-task-title-input" type="text" [ngModel]="task.title" (ngModelChange)="titleChange.emit({ taskId: task.id, title: $event })"
+              <input data-testid="flow-task-title-input" type="text" 
+                  [ngModel]="localTitle()" 
+                  (ngModelChange)="onLocalTitleChange($event)"
+                  (focus)="onInputFocus('title')"
+                  (blur)="onInputBlur('title')"
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
                   class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
                   placeholder="任务标题">
               
-              <textarea [ngModel]="task.content" (ngModelChange)="contentChange.emit({ taskId: task.id, content: $event })" rows="4"
+              <textarea 
+                  [ngModel]="localContent()" 
+                  (ngModelChange)="onLocalContentChange($event)" 
+                  rows="4"
+                  (focus)="onInputFocus('content')"
+                  (blur)="onInputBlur('content')"
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
                   class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
@@ -301,14 +310,23 @@ import { renderMarkdown } from '../../../../utils/markdown';
         <!-- 编辑模式 -->
         <div class="space-y-1.5">
           <!-- 标题输入 -->
-          <input type="text" [ngModel]="task.title" (ngModelChange)="titleChange.emit({ taskId: task.id, title: $event })"
+          <input type="text" 
+            [ngModel]="localTitle()" 
+            (ngModelChange)="onLocalTitleChange($event)"
+            (focus)="onInputFocus('title')"
+            (blur)="onInputBlur('title')"
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
             class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
             placeholder="任务标题">
           
           <!-- 内容输入 -->
-          <textarea [ngModel]="task.content" (ngModelChange)="contentChange.emit({ taskId: task.id, content: $event })" rows="3"
+          <textarea 
+            [ngModel]="localContent()" 
+            (ngModelChange)="onLocalContentChange($event)" 
+            rows="3"
+            (focus)="onInputFocus('content')"
+            (blur)="onInputBlur('content')"
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
             class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono"
@@ -398,6 +416,18 @@ export class FlowTaskDetailComponent implements OnDestroy {
   readonly position = input<{ x: number; y: number }>({ x: -1, y: -1 });
   readonly drawerHeight = input<number>(35); // vh 单位
   
+  // ========== Split-Brain 本地状态 ==========
+  /** 本地标题（与 Store 解耦，仅在非聚焦时同步） */
+  protected readonly localTitle = signal('');
+  /** 本地内容（与 Store 解耦，仅在非聚焦时同步） */
+  protected readonly localContent = signal('');
+  /** 标题输入框是否聚焦 */
+  private isTitleFocused = false;
+  /** 内容输入框是否聚焦 */
+  private isContentFocused = false;
+  /** 解锁延迟定时器 */
+  private unlockTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  
   // 编辑模式状态（默认为预览模式）
   readonly isEditMode = signal(false);
   
@@ -446,6 +476,104 @@ export class FlowTaskDetailComponent implements OnDestroy {
   private isResizingDrawer = false;
   private drawerStartY = 0;
   private drawerStartHeight = 0;
+  
+  constructor() {
+    // Split-Brain 核心逻辑：仅在输入框非聚焦时从 Store 同步到本地
+    effect(() => {
+      const task = this.task();
+      if (task) {
+        // 仅当标题输入框未聚焦时才同步标题
+        if (!this.isTitleFocused) {
+          this.localTitle.set(task.title || '');
+        }
+        // 仅当内容输入框未聚焦时才同步内容
+        if (!this.isContentFocused) {
+          this.localContent.set(task.content || '');
+        }
+      }
+    });
+  }
+  
+  // ========== Split-Brain 输入处理 ==========
+  
+  /**
+   * 输入框聚焦处理
+   */
+  onInputFocus(field: 'title' | 'content') {
+    this.store.markEditing();
+    
+    const task = this.task();
+    if (!task) return;
+    
+    if (field === 'title') {
+      this.isTitleFocused = true;
+      const existingTimer = this.unlockTimers.get('title');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('title');
+      }
+      this.store.lockTaskFields(task.id, ['title']);
+    } else if (field === 'content') {
+      this.isContentFocused = true;
+      const existingTimer = this.unlockTimers.get('content');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('content');
+      }
+      this.store.lockTaskFields(task.id, ['content']);
+    }
+  }
+  
+  /**
+   * 输入框失焦处理
+   */
+  onInputBlur(field: 'title' | 'content') {
+    const task = this.task();
+    if (!task) return;
+    
+    if (field === 'title') {
+      // 提交并发射事件
+      this.titleChange.emit({ taskId: task.id, title: this.localTitle() });
+      
+      const timer = setTimeout(() => {
+        this.isTitleFocused = false;
+        this.store.unlockTaskFields(task.id, ['title']);
+        this.unlockTimers.delete('title');
+      }, 5000);
+      this.unlockTimers.set('title', timer);
+    } else if (field === 'content') {
+      this.contentChange.emit({ taskId: task.id, content: this.localContent() });
+      
+      const timer = setTimeout(() => {
+        this.isContentFocused = false;
+        this.store.unlockTaskFields(task.id, ['content']);
+        this.unlockTimers.delete('content');
+      }, 5000);
+      this.unlockTimers.set('content', timer);
+    }
+  }
+  
+  /**
+   * 本地标题变更（同时更新本地状态和发射事件）
+   */
+  onLocalTitleChange(value: string) {
+    this.localTitle.set(value);
+    const task = this.task();
+    if (task) {
+      this.titleChange.emit({ taskId: task.id, title: value });
+    }
+  }
+  
+  /**
+   * 本地内容变更（同时更新本地状态和发射事件）
+   */
+  onLocalContentChange(value: string) {
+    this.localContent.set(value);
+    const task = this.task();
+    if (task) {
+      this.contentChange.emit({ taskId: task.id, content: value });
+    }
+  }
   
   /**
    * 切换编辑模式（带节流保护，防止 Rage Click）
@@ -763,5 +891,11 @@ export class FlowTaskDetailComponent implements OnDestroy {
     // 重置拖动状态
     this.dragState.isDragging = false;
     this.isResizingDrawer = false;
+    
+    // 清理所有未完成的解锁定时器
+    for (const timer of this.unlockTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.unlockTimers.clear();
   }
 }

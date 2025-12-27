@@ -1,4 +1,4 @@
-import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener, ChangeDetectorRef } from '@angular/core';
+import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener, ChangeDetectorRef, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../../../services/store.service';
@@ -59,10 +59,10 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                       #titleInput
                       data-testid="task-title-input"
                       type="text"
-                      [value]="task.title"
+                      [value]="localTitle()"
                       (input)="onTitleInput(task.id, titleInput.value)"
-                      (focus)="onInputFocus(); switchToEditMode()"
-                      (blur)="onInputBlur()"
+                      (focus)="onInputFocus('title'); switchToEditMode()"
+                      (blur)="onInputBlur('title')"
                       (keydown.escape)="closeEditor()"
                       class="w-full text-xs font-medium text-stone-800 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal transition-colors"
                       [ngClass]="{
@@ -78,10 +78,10 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                         <!-- 编辑模式：文本框 -->
                         <textarea
                           #contentInput
-                          [value]="task.content"
+                          [value]="localContent()"
                           (input)="onContentInput(task.id, contentInput.value)"
-                          (focus)="onInputFocus()"
-                          (blur)="onInputBlur()"
+                          (focus)="onInputFocus('content')"
+                          (blur)="onInputBlur('content')"
                           (keydown.escape)="closeEditor()"
                           class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-white resize-none font-mono h-10"
                           placeholder="任务描述..."></textarea>
@@ -105,8 +105,8 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                           #quickTodoInput
                           type="text"
                           (keydown.enter)="addQuickTodo(task.id, quickTodoInput.value, quickTodoInput)"
-                          (focus)="onInputFocus()"
-                          (blur)="onInputBlur()"
+                          (focus)="onInputFocus('todo')"
+                          (blur)="onInputBlur('todo')"
                           class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[10px] py-0.5 px-1"
                           placeholder="待办，回车添加">
                         <button
@@ -173,7 +173,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
     }
   `]
 })
-export class TextUnassignedComponent {
+export class TextUnassignedComponent implements OnDestroy {
   readonly store = inject(StoreService);
   private readonly elementRef = inject(ElementRef);
   private readonly sanitizer = inject(DomSanitizer);
@@ -197,8 +197,46 @@ export class TextUnassignedComponent {
   /** 是否处于编辑模式（vs 预览模式） */
   readonly isEditMode = signal(false);
   
+  // ========== Split-Brain 本地状态 ==========
+  /** 本地标题 */
+  protected readonly localTitle = signal('');
+  /** 本地内容 */
+  protected readonly localContent = signal('');
+  /** 标题输入框是否聚焦 */
+  private isTitleFocused = false;
+  /** 内容输入框是否聚焦 */
+  private isContentFocused = false;
+  /** 解锁延迟定时器 */
+  private unlockTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  
   /** 标记是否正在打开新任务（防止立即被关闭） */
   private isOpening = false;
+  
+  constructor() {
+    // Split-Brain 核心逻辑：仅在非聚焦时从 Store 同步到本地
+    effect(() => {
+      const taskId = this.editingTaskId();
+      if (taskId) {
+        const tasks = this.store.unassignedTasks();
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          if (!this.isTitleFocused) {
+            this.localTitle.set(task.title || '');
+          }
+          if (!this.isContentFocused) {
+            this.localContent.set(task.content || '');
+          }
+        }
+      }
+    });
+  }
+  
+  ngOnDestroy(): void {
+    for (const timer of this.unlockTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.unlockTimers.clear();
+  }
   
   /** 监听 document 点击事件，当点击组件外部时切换回预览模式 */
   @HostListener('document:click', ['$event'])
@@ -244,6 +282,10 @@ export class TextUnassignedComponent {
     // 新建任务时直接进入编辑模式，查阅已有任务时默认预览模式
     this.isEditMode.set(isNewTask);
     
+    // 初始化本地状态
+    this.localTitle.set(task.title || '');
+    this.localContent.set(task.content || '');
+    
     // 使用微任务延迟重置 isOpening 标记
     // 确保当前事件循环中的所有同步代码（包括 document 点击处理器）都执行完毕
     queueMicrotask(() => {
@@ -259,19 +301,70 @@ export class TextUnassignedComponent {
     this.touchStart.emit({ event, task });
   }
   
-  onInputFocus() {
+  /**
+   * 输入框聚焦处理（Split-Brain 模式）
+   */
+  onInputFocus(field: 'title' | 'content' | 'todo') {
     this.store.markEditing();
+    
+    const taskId = this.editingTaskId();
+    if (!taskId) return;
+    
+    if (field === 'title') {
+      this.isTitleFocused = true;
+      const existingTimer = this.unlockTimers.get('title');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('title');
+      }
+      this.store.lockTaskFields(taskId, ['title']);
+    } else if (field === 'content') {
+      this.isContentFocused = true;
+      const existingTimer = this.unlockTimers.get('content');
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        this.unlockTimers.delete('content');
+      }
+      this.store.lockTaskFields(taskId, ['content']);
+    }
   }
   
-  onInputBlur() {
-    // 输入框失焦处理
+  /**
+   * 输入框失焦处理（Split-Brain 模式）
+   */
+  onInputBlur(field: 'title' | 'content' | 'todo') {
+    const taskId = this.editingTaskId();
+    if (!taskId) return;
+    
+    if (field === 'title') {
+      // 提交到 Store
+      this.store.updateTaskTitle(taskId, this.localTitle());
+      
+      const timer = setTimeout(() => {
+        this.isTitleFocused = false;
+        this.store.unlockTaskFields(taskId, ['title']);
+        this.unlockTimers.delete('title');
+      }, 5000);
+      this.unlockTimers.set('title', timer);
+    } else if (field === 'content') {
+      this.store.updateTaskContent(taskId, this.localContent());
+      
+      const timer = setTimeout(() => {
+        this.isContentFocused = false;
+        this.store.unlockTaskFields(taskId, ['content']);
+        this.unlockTimers.delete('content');
+      }, 5000);
+      this.unlockTimers.set('content', timer);
+    }
   }
   
   onTitleInput(taskId: string, value: string) {
+    this.localTitle.set(value);
     this.store.updateTaskTitle(taskId, value);
   }
   
   onContentInput(taskId: string, value: string) {
+    this.localContent.set(value);
     this.store.updateTaskContent(taskId, value);
   }
   
@@ -289,6 +382,16 @@ export class TextUnassignedComponent {
     this.editingTaskId.set(taskId);
     // 新建任务时直接进入编辑模式
     this.isEditMode.set(isNewTask && taskId !== null);
+    
+    // 初始化本地状态
+    if (taskId) {
+      const tasks = this.store.unassignedTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        this.localTitle.set(task.title || '');
+        this.localContent.set(task.content || '');
+      }
+    }
     
     // 强制变更检测并等待 DOM 更新
     this.cdr.detectChanges();

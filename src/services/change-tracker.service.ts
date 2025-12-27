@@ -753,17 +753,31 @@ export class ChangeTrackerService {
   // ========== 字段级操作锁 ==========
   
   /**
+   * 文本输入场景的字段锁超时时间（毫秒）
+   * 【关键设计】文本输入使用 1 小时超时，确保用户思考时不会被远程更新打断
+   * blur 事件是唯一的解锁触发器，时间锁只是防止死锁的兜底机制
+   */
+  static readonly TEXT_INPUT_LOCK_TIMEOUT_MS = 3600000; // 1 小时
+
+  /**
    * 锁定任务的特定字段
-   * 当用户开始操作（如点击状态复选框、开始拖拽）时调用
+   * 当用户开始操作（如点击状态复选框、开始拖拽、聚焦输入框）时调用
    * 
    * @param taskId 任务ID
    * @param projectId 项目ID  
-   * @param field 要锁定的字段名（如 'status', 'rank', 'stage'）
+   * @param field 要锁定的字段名（如 'status', 'rank', 'stage', 'title', 'content'）
+   * @param durationMs 锁定时长（毫秒），默认 30 秒，文本输入场景建议使用 TEXT_INPUT_LOCK_TIMEOUT_MS
    */
-  lockTaskField(taskId: string, projectId: string, field: string): void {
+  lockTaskField(taskId: string, projectId: string, field: string, durationMs?: number): void {
     const key = this.makeFieldLockKey(projectId, taskId, field);
-    this.fieldLocks.set(key, Date.now());
-    this.logger.debug('锁定任务字段', { taskId, projectId, field });
+    // 存储格式：高 32 位为锁定时间戳，低 32 位为超时时长
+    // 为简化实现，使用 Map 存储 {timestamp, duration} 对象
+    const lockData = {
+      timestamp: Date.now(),
+      duration: durationMs ?? ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS
+    };
+    this.fieldLocks.set(key, lockData as any); // 类型兼容性处理
+    this.logger.debug('锁定任务字段', { taskId, projectId, field, durationMs: lockData.duration });
   }
   
   /**
@@ -814,17 +828,23 @@ export class ChangeTrackerService {
    */
   isTaskFieldLocked(taskId: string, projectId: string, field: string): boolean {
     const key = this.makeFieldLockKey(projectId, taskId, field);
-    const lockTime = this.fieldLocks.get(key);
+    const lockData = this.fieldLocks.get(key) as any;
     
-    if (!lockTime) {
+    if (!lockData) {
       return false;
     }
     
+    // 支持新格式（带 duration）和旧格式（纯时间戳）的兼容
+    const timestamp = typeof lockData === 'number' ? lockData : lockData.timestamp;
+    const duration = typeof lockData === 'number' 
+      ? ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS 
+      : lockData.duration;
+    
     // 检查是否超时（防止死锁）
-    const elapsed = Date.now() - lockTime;
-    if (elapsed > ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS) {
+    const elapsed = Date.now() - timestamp;
+    if (elapsed > duration) {
       this.fieldLocks.delete(key);
-      this.logger.warn('字段锁超时自动解锁', { taskId, projectId, field, elapsed });
+      this.logger.warn('字段锁超时自动解锁', { taskId, projectId, field, elapsed, duration });
       return false;
     }
     
@@ -843,10 +863,16 @@ export class ChangeTrackerService {
     const lockedFields: string[] = [];
     const now = Date.now();
     
-    for (const [key, lockTime] of this.fieldLocks.entries()) {
+    for (const [key, lockData] of this.fieldLocks.entries()) {
       if (key.startsWith(prefix)) {
+        // 支持新格式（带 duration）和旧格式（纯时间戳）的兼容
+        const timestamp = typeof lockData === 'number' ? lockData : (lockData as any).timestamp;
+        const duration = typeof lockData === 'number' 
+          ? ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS 
+          : (lockData as any).duration;
+        
         // 检查超时
-        if (now - lockTime <= ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS) {
+        if (now - timestamp <= duration) {
           const field = key.substring(prefix.length);
           lockedFields.push(field);
         } else {
