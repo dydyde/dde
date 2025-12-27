@@ -2,7 +2,6 @@ import {
   Component, 
   inject, 
   signal, 
-  ViewChild, 
   OnInit, 
   OnDestroy,
   HostListener
@@ -14,9 +13,9 @@ import { takeUntil } from 'rxjs/operators';
 import { StoreService } from '../services/store.service';
 import { ToastService } from '../services/toast.service';
 import { TabSyncService } from '../services/tab-sync.service';
+import { FlowCommandService } from '../services/flow-command.service';
 import { TextViewComponent } from '../app/features/text';
 import { FlowViewComponent } from '../app/features/flow';
-import { ErrorBoundaryComponent } from '../app/shared/components/error-boundary.component';
 
 /**
  * 项目视图外壳组件
@@ -29,11 +28,16 @@ import { ErrorBoundaryComponent } from '../app/shared/components/error-boundary.
  * - 释放 GoJS canvas 占用的内存
  * - 避免僵尸模式下的 canvas 渲染问题
  * - 简化代码，无需手动 suspend/resume
+ * 
+ * 【懒加载策略】
+ * @defer 需要组件在 imports 中声明才能工作
+ * 代码分割依赖于：不使用 ViewChild 直接引用组件
+ * 通过 FlowCommandService 实现 Shell 与 FlowView 的解耦通信
  */
 @Component({
   selector: 'app-project-shell',
   standalone: true,
-  imports: [CommonModule, TextViewComponent, FlowViewComponent, ErrorBoundaryComponent],
+  imports: [CommonModule, TextViewComponent, FlowViewComponent],
   styles: [`
     :host {
       display: flex;
@@ -168,14 +172,24 @@ import { ErrorBoundaryComponent } from '../app/shared/components/error-boundary.
              }
           </div>
           
-          <app-error-boundary 
-            [title]="'文本视图加载失败'" 
-            [defaultMessage]="'您可以切换到流程图视图或刷新页面重试'"
-            [showRetry]="true"
-            [onRetry]="retryTextView.bind(this)"
-            [containerClass]="'compact'">
+          <!-- @defer 块用于懒加载视图组件 -->
+          @defer (on immediate) {
             <app-text-view class="flex-1 min-h-0 overflow-hidden" (focusFlowNode)="onFocusFlowNode($event)"></app-text-view>
-          </app-error-boundary>
+          } @placeholder {
+            <div class="flex-1 flex items-center justify-center text-stone-400">
+              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            </div>
+          } @error {
+            <div class="flex-1 flex flex-col items-center justify-center text-stone-500 p-4 gap-4">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <p class="text-sm text-center">文本视图加载失败</p>
+              <button (click)="reloadPage()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 transition-colors">
+                刷新页面
+              </button>
+            </div>
+          }
         </div>
 
         <!-- Content Resizer -->
@@ -206,22 +220,22 @@ import { ErrorBoundaryComponent } from '../app/shared/components/error-boundary.
                   </button>
               }
            </div>
-           @defer (on viewport; prefetch on idle; prefetch when store.activeView() === 'flow') {
-             <app-error-boundary 
-                [title]="'流程图加载失败'" 
-                [defaultMessage]="'您可以切换到文本视图或刷新页面重试'"
-                [showRetry]="true"
-                [onRetry]="retryFlowView.bind(this)"
-                [containerClass]="'compact'">
-                <app-flow-view #flowView class="flex-1 min-h-0 overflow-hidden" (goBackToText)="switchToText()"></app-flow-view>
-             </app-error-boundary>
+           <!-- @defer 块用于懒加载流程图组件 -->
+           @defer (on immediate) {
+             <app-flow-view class="flex-1 min-h-0 overflow-hidden relative" (goBackToText)="switchToText()"></app-flow-view>
            } @placeholder {
-             <div class="flex-1 flex items-center justify-center">
-               <div class="text-stone-400 text-sm">加载流程视图...</div>
+             <div class="flex-1 flex items-center justify-center text-stone-400">
+               <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
              </div>
-           } @loading (minimum 200ms) {
-             <div class="flex-1 flex items-center justify-center">
-               <div class="animate-pulse text-stone-400 text-sm">正在加载 GoJS...</div>
+           } @error {
+             <div class="flex-1 flex flex-col items-center justify-center text-stone-500 p-4 gap-4">
+               <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+               </svg>
+               <p class="text-sm text-center">流程图加载失败</p>
+               <button (click)="reloadPage()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 transition-colors">
+                 刷新页面
+               </button>
              </div>
            }
           </div>
@@ -248,10 +262,9 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   private router = inject(Router);
   private destroy$ = new Subject<void>();
   
-  // FlowViewComponent 通过 @defer 延迟加载，无静态导入
-  // ViewChild 会在 defer 块加载完成后自动绑定，加载前为 undefined
-  // 注意：由于是延迟加载，类型检查时无法获得强类型，使用 any
-  @ViewChild('flowView', { read: undefined }) flowView?: any;
+  // 使用 FlowCommandService 替代 ViewChild，实现真正的懒加载
+  // Shell 通过命令服务发布意图，FlowView 订阅并响应
+  private readonly flowCommand = inject(FlowCommandService);
   
   // UI 状态
   isFilterOpen = signal(false);
@@ -347,15 +360,15 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
       const task = tasks.find(t => t.id === taskId);
       const isLoading = this.store.isLoadingRemote?.() ?? (tasks.length === 0);
       
-      if (task && this.flowView) {
-        // 任务存在且 flowView 已初始化
-        // 切换到流程图视图
+      if (task) {
+        // 任务存在，通过命令服务发送居中请求
+        // FlowCommandService 会缓存命令直到 FlowView 就绪
         this.store.activeView.set('flow');
         
         // 等待图表渲染后定位
         this.deepLinkRetryTimer = setTimeout(() => {
           if (this.isDestroyed) return;
-          this.flowView?.centerOnNode(taskId, true);
+          this.flowCommand.centerOnNode(taskId, true);
           
           // 🔥 不再更新 URL - 避免触发路由导航销毁组件
           // 僵尸模式需要组件保持存活
@@ -452,8 +465,9 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   // ========== 流程图节点定位 ==========
   
   onFocusFlowNode(taskId: string) {
-    if (!this.store.isMobile() && this.flowView) {
-      this.flowView.centerOnNode(taskId, false);
+    if (!this.store.isMobile()) {
+      // 通过命令服务发送居中请求，无需检查 flowView 实例
+      this.flowCommand.centerOnNode(taskId, false);
     }
   }
   
@@ -562,19 +576,26 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   
   /**
    * 重试加载流程图视图
-   * FlowViewComponent 通过 @defer 延迟加载，需等待组件实例化
+   * FlowViewComponent 通过 @defer 延迟加载，通过命令服务发送重试命令
    */
   retryFlowView(): void {
     // 触发流程图重新初始化
     this.store.activeView.set('flow');
-    // flowView 通过 @defer 延迟加载，可能尚未初始化
-    // 使用 setTimeout 确保在下一个变更检测周期后访问
-    setTimeout(() => {
-      if (this.flowView && typeof this.flowView.retryInitDiagram === 'function') {
-        this.flowView.retryInitDiagram();
-      } else {
-        console.warn('[ProjectShell] FlowView 尚未加载完成，无法执行重试');
-      }
-    }, 0);
+    // 通过命令服务发送重试命令
+    // 命令会被缓存直到 FlowView 就绪
+    this.flowCommand.retryDiagram();
+  }
+  
+  /**
+   * 刷新页面 - 用于 @defer 加载失败时的恢复
+   * 清除可能导致问题的缓存并刷新
+   */
+  reloadPage(): void {
+    // 清除 Service Worker 缓存（如果有）
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+    }
+    // 强制刷新页面，绕过缓存
+    window.location.reload();
   }
 }

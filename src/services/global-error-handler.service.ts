@@ -102,7 +102,8 @@ export class GlobalErrorHandler implements ErrorHandler {
     // 模态框加载超时（已由 ModalLoaderService 处理，静默记录）
     { pattern: /模态框.*加载超时|modal.*load.*timeout/i, severity: ErrorSeverity.SILENT },
     // Chunk 加载错误（动态导入失败，由重试机制处理）
-    { pattern: /ChunkLoadError|Failed to fetch.*chunk|Loading chunk.*failed/i, severity: ErrorSeverity.SILENT },
+    // 包括：ChunkLoadError, Failed to fetch chunk, Failed to fetch dynamically imported module
+    { pattern: /ChunkLoadError|Failed to fetch.*chunk|Loading chunk.*failed|Failed to fetch dynamically imported module/i, severity: ErrorSeverity.SILENT },
     
     // === 提示级错误 ===
     // UUID 格式错误
@@ -161,9 +162,11 @@ export class GlobalErrorHandler implements ErrorHandler {
       severity: ErrorSeverity.FATAL,
       userMessage: '页面加载失败'
     },
-    // 关键模块加载失败
+    // 关键模块加载失败（排除可恢复的动态导入错误）
+    // 注意：动态导入失败（Failed to fetch dynamically imported module）应由 SILENT 规则处理，
+    // 这里只匹配真正的关键模块加载失败
     { 
-      pattern: /chunk.*fail|module.*fail|lazy.*load.*fail/i, 
+      pattern: /critical.*module.*fail|core.*module.*fail|bootstrap.*load.*fail/i, 
       severity: ErrorSeverity.FATAL,
       userMessage: '模块加载失败'
     },

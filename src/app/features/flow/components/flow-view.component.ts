@@ -1,9 +1,10 @@
-import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter, ChangeDetectionStrategy, Injector } from '@angular/core';
+import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter, ChangeDetectionStrategy, Injector, untracked } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StoreService } from '../../../../services/store.service';
 import { ToastService } from '../../../../services/toast.service';
 import { LoggerService } from '../../../../services/logger.service';
+import { FlowCommandService } from '../../../../services/flow-command.service';
 import { FlowDiagramService } from '../services/flow-diagram.service';
 import { FlowEventService } from '../services/flow-event.service';
 import { FlowZoomService } from '../services/flow-zoom.service';
@@ -64,6 +65,7 @@ import * as go from 'gojs';
       flex-direction: column;
       flex: 1;
       min-height: 0;
+      position: relative;
       background-color: #F5F2E9;
     }
   `],
@@ -366,6 +368,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   private readonly elementRef = inject(ElementRef);
   private readonly injector = inject(Injector);
   
+  // 命令服务（解耦与 ProjectShellComponent 的通信）
+  private readonly flowCommand = inject(FlowCommandService);
+  
   // 核心服务
   readonly diagram = inject(FlowDiagramService);
   private readonly eventService = inject(FlowEventService);
@@ -544,6 +549,33 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         this.diagram.selectNode(selectedId);
       }
     }, { injector: this.injector });
+    
+    // ========== 命令服务订阅 ==========
+    // 订阅居中到节点命令（来自 ProjectShellComponent）
+    effect(() => {
+      const cmd = this.flowCommand.centerNodeCommand();
+      if (cmd) {
+        // untracked 防止在此处读取其他信号时建立不必要的依赖
+        untracked(() => {
+          // 如果图表已就绪，立即执行
+          if (this.diagram.isInitialized) {
+            this.executeCenterOnNode(cmd.taskId, cmd.openDetail);
+            this.flowCommand.clearCenterCommand();
+          }
+          // 如果未就绪，命令已被 flowCommand 缓存，将在 ngAfterViewInit 后执行
+        });
+      }
+    }, { injector: this.injector });
+    
+    // 订阅重试初始化命令
+    effect(() => {
+      const count = this.flowCommand.retryDiagramCommand();
+      if (count > 0) {
+        untracked(() => {
+          this.retryInitDiagram();
+        });
+      }
+    }, { injector: this.injector });
   }
   
   /**
@@ -584,6 +616,18 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.scheduleTimer(() => {
       if (this.diagram.isInitialized) {
         this.diagram.updateDiagram(this.store.tasks());
+        
+        // 标记 View 已就绪
+        this.flowCommand.markViewReady();
+        
+        // 检查并执行待处理的命令
+        const pendingCmd = this.flowCommand.consumePendingCenterCommand();
+        if (pendingCmd) {
+          // 延迟执行，确保图表完全渲染
+          this.scheduleTimer(() => {
+            this.executeCenterOnNode(pendingCmd.taskId, pendingCmd.openDetail);
+          }, 100);
+        }
       }
     }, UI_CONFIG.MEDIUM_DELAY);
   }
@@ -591,6 +635,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy() {
     console.log('[FlowView] ngOnDestroy 被调用', new Error().stack);
     this.isDestroyed = true;
+    
+    // 标记 View 已销毁
+    this.flowCommand.markViewDestroyed();
 
     // 优先卸载 GoJS 监听 + 清理幽灵，避免残留 DOM/引用
     this.uninstallMobileDiagramDragGhostListeners();
@@ -986,7 +1033,23 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.toast.info('功能开发中', '云端保存功能即将推出');
   }
 
+  /**
+   * 居中到指定节点（公共 API，向后兼容）
+   * 可被模板或外部直接调用
+   */
   centerOnNode(taskId: string, openDetail: boolean = true): void {
+    this.executeCenterOnNode(taskId, openDetail);
+  }
+  
+  /**
+   * 执行居中到节点（内部实现）
+   * 供命令服务 effect 和公共方法调用
+   */
+  private executeCenterOnNode(taskId: string, openDetail: boolean): void {
+    if (!this.diagram.isInitialized) {
+      this.logger.warn('图表未初始化，无法居中到节点', { taskId });
+      return;
+    }
     this.zoomService.centerOnNode(taskId);
     this.selectedTaskId.set(taskId);
     if (openDetail) {

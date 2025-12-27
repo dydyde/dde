@@ -75,6 +75,7 @@ export { FlowSelectionService, type SelectedNodeInfo } from '../app/features/flo
 export { FlowZoomService, type ViewState } from '../app/features/flow/services/flow-zoom.service';
 export { FlowLayoutService, type NodePosition, type LayoutOptions } from '../app/features/flow/services/flow-layout.service';
 export { FlowOverviewService, type OverviewOptions, type OverviewState } from '../app/features/flow/services/flow-overview.service';
+export { FlowCommandService, FlowCommandType, type FlowCommand, type CenterNodePayload } from './flow-command.service';
 
 export { TaskTrashService, type DeletedTaskMeta, type DeleteResult, type RestoreResult, type TrashServiceCallbacks } from './task-trash.service';
 export { MinimapMathService, type WorldPoint, type MinimapPoint, type WorldBounds, type MinimapState, type DragSession, type RealTimeScaleResult, type VirtualBoundsResult } from './minimap-math.service';
