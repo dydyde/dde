@@ -168,6 +168,7 @@ export class FlowOverviewService {
         this.overview = $(go.Overview, container, {
           contentAlignment: go.Spot.Center,
           "animationManager.isEnabled": false,
+          "computePixelRatio": () => window.devicePixelRatio || 1,
           "initialViewportSpot": go.Spot.Center,
           "initialScale": options.initialScale ?? 0.15
         });

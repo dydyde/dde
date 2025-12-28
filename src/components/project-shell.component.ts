@@ -70,7 +70,7 @@ import { FlowViewComponent } from '../app/features/flow';
           
           <!-- Header for Text Column -->
           <div class="shrink-0 z-10"
-               [ngClass]="{'h-16 mx-6 mt-6': !store.isMobile(), 'mx-2 mt-2 mb-1': store.isMobile()}">
+               [ngClass]="{'h-6 mx-6 mt-4': !store.isMobile(), 'mx-2 mt-1 mb-1': store.isMobile()}">
              
              <!-- Desktop Layout -->
              @if (!store.isMobile()) {
@@ -130,7 +130,7 @@ import { FlowViewComponent } from '../app/features/flow';
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                    </button>
-                   <span class="font-bold text-stone-700 text-sm">文本</span>
+                   <span class="font-bold text-stone-700 text-base">文本</span>
                  </div>
                  
                  <div class="flex items-center gap-1 shrink-0">
@@ -210,8 +210,8 @@ import { FlowViewComponent } from '../app/features/flow';
              [class.w-full]="store.isMobile()"
              [class.z-10]="store.isMobile()">
            <div class="flex items-center justify-between shrink-0 z-10"
-                [ngClass]="{'h-14 mx-4 mt-4': !store.isMobile(), 'mx-2 mt-1.5 mb-0.5': store.isMobile()}">
-              <span class="text-stone-700" [ngClass]="{'text-base font-bold text-stone-800': !store.isMobile(), 'text-sm font-bold': store.isMobile()}">
+                [ngClass]="{'h-12 mx-4 mt-2': !store.isMobile(), 'mx-2 mt-1 mb-0.5': store.isMobile()}">
+              <span class="text-stone-700" [ngClass]="{'text-lg font-bold text-stone-800 tracking-tight': !store.isMobile(), 'text-base font-bold': store.isMobile()}">
                 @if (store.isMobile()) { 流程图 } @else { 流程视图 }
               </span>
               @if(store.isMobile()) {

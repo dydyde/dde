@@ -457,22 +457,13 @@ export class FlowDiagramService {
         container.style.position = 'relative';
         container.style.overflow = 'hidden';
         
-        // 🔧 修复"节点被困在小地图四分之一"问题
-        // 原因分析：
-        // 1. 当 devicePixelRatio > 1 时，GoJS 创建的 Canvas 物理尺寸是 CSS 尺寸的倍数
-        // 2. 但 Overview 的 viewportBounds 计算可能使用不一致的尺寸参考
-        // 3. 这导致节点只渲染在 1/(devicePixelRatio^2) 的区域内
-        //
-        // 解决方案：
-        // - 不设置 computePixelRatio，让 GoJS 使用默认值 1
-        // - 虽然在高 DPI 屏幕上可能略微模糊，但能确保坐标计算一致性
-        // - 小地图尺寸本身就很小（180x140 或 100x80），DPI 差异不明显
+        // 🔧 修复"小地图模糊"问题
+        // 之前为了解决"节点被困在小地图四分之一"问题而禁用了 computePixelRatio
+        // 现在重新启用并确保与主图一致，以支持高 DPI 屏幕
         this.overview = $(go.Overview, container, {
           contentAlignment: go.Spot.Center,
           "animationManager.isEnabled": false,
-          // 关键修复：移除 computePixelRatio 自定义，使用默认值 1
-          // 这可以避免 Canvas 物理尺寸与坐标计算的不匹配问题
-          // "computePixelRatio": () => pixelRatio, // 已移除
+          "computePixelRatio": () => window.devicePixelRatio || 1,
           "initialViewportSpot": go.Spot.Center,
           "initialScale": 0.15
         });
@@ -517,7 +508,7 @@ export class FlowDiagramService {
         
         const nodeCount = this.diagram.nodes.count;
         const linkCount = this.diagram.links.count;
-        this.logger.info(`Overview 初始化成功 - 尺寸: ${containerWidth}x${containerHeight}, devicePixelRatio: ${devicePixelRatio} (未应用于Overview), 节点数: ${nodeCount}, 连接数: ${linkCount}`);
+        this.logger.info(`Overview 初始化成功 - 尺寸: ${containerWidth}x${containerHeight}, devicePixelRatio: ${devicePixelRatio}, 节点数: ${nodeCount}, 连接数: ${linkCount}`);
         
         // 调试：检查 Canvas 实际尺寸与 Overview 边界
         setTimeout(() => {
