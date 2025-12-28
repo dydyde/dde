@@ -43,7 +43,9 @@ import { ToastService } from '../../../services/toast.service';
           
           <!-- 简短状态文字 -->
           <span class="text-stone-500 hidden sm:inline">
-            @if (isSyncing()) {
+            @if (isLoadingRemote()) {
+              后台同步...
+            } @else if (isSyncing()) {
               同步中...
             } @else if (deadLetterCount() > 0) {
               {{ deadLetterCount() }} 失败
@@ -96,7 +98,9 @@ import { ToastService } from '../../../services/toast.service';
             </div>
             <!-- 状态文字 -->
             <span class="text-[11px] text-stone-500">
-              @if (isSyncing()) {
+              @if (isLoadingRemote()) {
+                后台同步中...
+              } @else if (isSyncing()) {
                 同步中...
               } @else if (deadLetterCount() > 0) {
                 {{ deadLetterCount() }} 个同步失败
@@ -378,6 +382,12 @@ export class SyncStatusComponent {
   readonly syncError = computed(() => this.syncService.syncState().syncError);
   readonly offlineMode = computed(() => this.syncService.syncState().offlineMode);
   
+  /** 【新增】后台正在加载云端数据 */
+  readonly isLoadingRemote = this.syncCoordinator.isLoadingRemote;
+  
+  /** 【新增】综合同步状态：正在推送或正在拉取 */
+  readonly isAnySyncing = computed(() => this.isSyncing() || this.isLoadingRemote());
+  
   // 计算属性 - 是否有需要关注的问题（包括 offlineMode 连接中断状态和冲突）
   readonly hasIssues = computed(() => 
     this.deadLetterCount() > 0 || this.pendingCount() > 0 || !!this.syncError() || this.offlineMode() || this.conflictCount() > 0
@@ -389,6 +399,9 @@ export class SyncStatusComponent {
   
   /** 详细状态文本 */
   readonly detailedStatus = computed(() => {
+    if (this.isLoadingRemote()) {
+      return '后台同步中...';
+    }
     if (this.isSyncing()) {
       return '正在同步数据...';
     }

@@ -1773,15 +1773,40 @@ export class SimpleSyncService {
         { deduplicate: true, priority: 'high' }
       );
       
-      // 2. 串行加载每个项目的完整数据
-      // 这样通过限流服务自动控制并发数（默认 4 个）
-      // 避免一次性发起太多请求导致连接池耗尽
+      // 2. 【优化】使用 Promise.allSettled 配合限流服务实现有限并行
+      // RequestThrottleService 自动控制并发数（默认 4 个），避免连接池耗尽
+      // 使用 allSettled 确保部分失败不影响其他项目加载
+      
+      this.logger.debug('开始并行加载项目', { count: projectList.length });
+      
+      const loadPromises = projectList.map(row => 
+        this.loadFullProject(row.id, userId)
+      );
+      
+      const results = await Promise.allSettled(loadPromises);
+      
       const projects: Project[] = [];
-      for (const row of projectList) {
-        const project = await this.loadFullProject(row.id, userId);
-        if (project) {
-          projects.push(project);
+      let failedCount = 0;
+      
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'fulfilled' && result.value) {
+          projects.push(result.value);
+        } else if (result.status === 'rejected') {
+          failedCount++;
+          this.logger.warn('加载项目失败', { 
+            projectId: projectList[i]?.id,
+            error: result.reason 
+          });
         }
+      }
+      
+      if (failedCount > 0) {
+        this.logger.warn('部分项目加载失败', { 
+          total: projectList.length, 
+          failed: failedCount,
+          success: projects.length 
+        });
       }
       
       return projects;

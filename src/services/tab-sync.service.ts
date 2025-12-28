@@ -28,11 +28,13 @@ import { LoggerService } from './logger.service';
  * 跨标签页消息类型
  */
 interface TabMessage {
-  type: 'project-opened' | 'project-closed' | 'heartbeat';
+  type: 'project-opened' | 'project-closed' | 'heartbeat' | 'data-synced';
   tabId: string;
   projectId?: string;
   projectName?: string;
   timestamp: number;
+  /** 【新增】同步完成时的项目更新时间戳（用于 data-synced） */
+  projectUpdatedAt?: string;
 }
 
 /**
@@ -87,6 +89,9 @@ export class TabSyncService implements OnDestroy {
   
   /** 是否支持 BroadcastChannel */
   private readonly isSupported: boolean;
+  
+  /** 【新增】数据同步回调 - 当其他标签页完成同步时调用 */
+  private onDataSyncedCallback: ((projectId: string, updatedAt: string) => void) | null = null;
   
   constructor() {
     this.isSupported = typeof BroadcastChannel !== 'undefined';
@@ -173,6 +178,43 @@ export class TabSyncService implements OnDestroy {
     return count;
   }
   
+  /**
+   * 【新增】通知其他标签页：后台同步已完成，数据已更新
+   * 
+   * 来自高级顾问建议：
+   * - 当 Tab A 完成后台同步并写入 IndexedDB 时，广播 data-synced 消息
+   * - Tab B 收到后从 IndexedDB 刷新数据到内存，无需再发网络请求
+   * 
+   * @param projectId 同步完成的项目 ID
+   * @param updatedAt 项目最新的 updatedAt 时间戳
+   */
+  notifyDataSynced(projectId: string, updatedAt: string): void {
+    if (!this.isSupported || !this.channel) return;
+    
+    const message: TabMessage = {
+      type: 'data-synced',
+      tabId: this.tabId,
+      projectId,
+      projectUpdatedAt: updatedAt,
+      timestamp: Date.now(),
+    };
+    
+    this.channel.postMessage(message);
+    this.logger.debug('广播数据同步完成', { projectId, updatedAt });
+  }
+  
+  /**
+   * 【新增】设置数据同步回调
+   * 
+   * 当其他标签页完成后台同步时，会调用此回调
+   * 用于触发从 IndexedDB 刷新数据到内存
+   * 
+   * @param callback 回调函数 (projectId, updatedAt) => void
+   */
+  setOnDataSyncedCallback(callback: (projectId: string, updatedAt: string) => void): void {
+    this.onDataSyncedCallback = callback;
+  }
+  
   // ========== 私有方法 ==========
   
   private setupChannel(): void {
@@ -198,6 +240,9 @@ export class TabSyncService implements OnDestroy {
         break;
       case 'heartbeat':
         this.handleHeartbeat(message);
+        break;
+      case 'data-synced':
+        this.handleDataSynced(message);
         break;
     }
   }
@@ -227,6 +272,26 @@ export class TabSyncService implements OnDestroy {
     const existing = this.activeTabs.get(message.tabId);
     if (existing) {
       existing.lastSeen = message.timestamp;
+    }
+  }
+  
+  /**
+   * 【新增】处理其他标签页的数据同步完成通知
+   */
+  private handleDataSynced(message: TabMessage): void {
+    if (!message.projectId || !message.projectUpdatedAt) return;
+    
+    this.logger.debug('收到其他标签页的数据同步通知', {
+      fromTab: message.tabId,
+      projectId: message.projectId,
+      updatedAt: message.projectUpdatedAt
+    });
+    
+    // 如果当前标签页正在查看该项目，触发数据刷新
+    if (this.currentProjectId === message.projectId) {
+      if (this.onDataSyncedCallback) {
+        this.onDataSyncedCallback(message.projectId, message.projectUpdatedAt);
+      }
     }
   }
   

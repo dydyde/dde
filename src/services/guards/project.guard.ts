@@ -5,11 +5,70 @@ import { ToastService } from '../toast.service';
 import { GUARD_CONFIG } from '../../config';
 
 /**
- * 等待数据初始化完成
- * 使用响应式方式等待，避免低效的轮询
- * 包含超时保护和重试机制
- * @returns { loaded: true } 如果数据加载成功
- *          { loaded: false, reason: string } 如果超时或失败
+ * 【重构】本地优先的数据初始化检查
+ * 
+ * 新策略（来自高级顾问建议）：
+ * - Guard 的职责仅是"检查是否有足够数据来绘制 UI"
+ * - 不再等待云端同步完成
+ * - 如果有本地缓存，立即放行
+ * - 如果是首次安装（无缓存），也放行但标记 isFirstLoad
+ * - 后台同步由组件 ngOnInit 触发，不阻塞 UI
+ * 
+ * @returns { loaded: true } 总是返回 true（不再阻塞）
+ *          { isFirstLoad: boolean } 是否首次加载（无本地缓存）
+ */
+async function ensureDataAvailable(
+  store: StoreService, 
+  _toast: ToastService,
+  _maxWaitMs: number = GUARD_CONFIG.DATA_INIT_TIMEOUT
+): Promise<{ loaded: boolean; isFirstLoad: boolean }> {
+  const startTime = Date.now();
+  const checkInterval = 50; // 快速检查间隔
+  const maxQuickWait = 200; // 最多等待 200ms 让本地数据加载完成
+  
+  // 1. 快速检查：Store 中是否已有数据
+  if (store.projects().length > 0) {
+    return { loaded: true, isFirstLoad: false };
+  }
+  
+  // 2. 如果 Store 为空，等待本地缓存加载（最多 200ms）
+  // 这是为了等待 loadOfflineSnapshot() 完成
+  while (Date.now() - startTime < maxQuickWait) {
+    if (store.projects().length > 0) {
+      return { loaded: true, isFirstLoad: false };
+    }
+    await new Promise(resolve => setTimeout(resolve, checkInterval));
+  }
+  
+  // 3. 如果仍无数据，触发 loadProjects（会创建种子项目）
+  // 但不等待云端同步完成
+  if (store.projects().length === 0) {
+    const isLoadingRemote = store.isLoadingRemote();
+    
+    // 如果没有在加载，触发加载
+    if (!isLoadingRemote) {
+      // 不阻塞等待 - loadProjects 内部会先加载本地缓存/种子数据
+      store.loadProjects().catch(() => {
+        // 静默处理，loadProjects 内部已有兜底
+      });
+      
+      // 再等待一小段时间让种子数据生成
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // 如果还是没有数据，说明是首次加载或加载失败
+    // 但仍然放行，让用户看到 UI（可能是骨架屏或空状态）
+    if (store.projects().length === 0) {
+      return { loaded: true, isFirstLoad: true };
+    }
+  }
+  
+  return { loaded: true, isFirstLoad: false };
+}
+
+/**
+ * 【保留】传统等待函数（仅在特殊场景使用）
+ * 用于需要确保数据加载完成的场景（如深链接直接访问项目）
  */
 async function waitForDataInit(
   store: StoreService, 
@@ -32,7 +91,7 @@ async function waitForDataInit(
     }
 
     // 有时导航触发得比数据加载更早：此时 isLoadingRemote 仍为 false。
-    // 为避免误判“项目不存在”，主动触发一次加载（只触发一次）。
+    // 为避免误判"项目不存在"，主动触发一次加载（只触发一次）。
     if (!loadTriggered && !isLoadingRemote) {
       loadTriggered = true;
       try {
@@ -71,7 +130,11 @@ async function waitForDataInit(
 
 /**
  * 项目存在性守卫
- * 检查访问的项目是否存在于当前用户的项目列表中
+ * 
+ * 【重构】本地优先策略：
+ * - 优先使用本地缓存数据放行
+ * - 项目不存在时，等待云端同步（给深链接一个机会）
+ * - 超时后才认定项目不存在
  * 
  * 单用户场景：StoreService 加载的项目即为当前用户可访问的全部项目
  */
@@ -87,32 +150,48 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
     return true;
   }
   
-  // 等待数据初始化
-  const initResult = await waitForDataInit(store, toast);
+  // 【新策略】本地优先检查
+  const dataResult = await ensureDataAvailable(store, toast);
   
-  // 如果超时且仍在加载中，重定向到项目列表并显示具体原因
-  if (!initResult.loaded && store.isLoadingRemote()) {
-    toast.warning('加载时间较长', '网络响应较慢，请检查网络连接后重试');
+  // 快速检查项目是否存在于本地
+  let projects = store.projects();
+  let project = projects.find(p => p.id === projectId);
+  
+  if (project) {
+    // 项目存在于本地缓存，立即放行
+    return true;
+  }
+  
+  // 项目不在本地 - 这可能是：
+  // 1. 深链接访问（项目在云端但未同步）
+  // 2. 项目已被删除
+  // 3. 首次安装
+  
+  if (dataResult.isFirstLoad) {
+    // 首次安装，没有任何数据，重定向到项目列表
     void router.navigate(['/projects']);
     return false;
   }
   
-  // 检查项目是否存在
-  const projects = store.projects();
-  const project = projects.find(p => p.id === projectId);
-  
-  if (!project) {
-    // 项目确实不存在，重定向到项目列表并显示提示
-    toast.error('项目不存在', '请求的项目可能已被删除或您没有访问权限');
-    void router.navigate(['/projects']);
-    return false;
+  // 如果正在后台同步，等待同步完成后再检查一次
+  if (store.isLoadingRemote()) {
+    const waitResult = await waitForDataInit(store, toast, 5000); // 最多等 5 秒
+    
+    if (waitResult.loaded) {
+      // 重新检查项目是否存在
+      projects = store.projects();
+      project = projects.find(p => p.id === projectId);
+      
+      if (project) {
+        return true;
+      }
+    }
   }
   
-  // 权限检查：StoreService 只加载当前用户的项目
-  // 如果项目存在于列表中，说明用户有权限访问
-  // 单用户场景下无需额外权限检查
-  
-  return true;
+  // 项目确实不存在
+  toast.error('项目不存在', '请求的项目可能已被删除或您没有访问权限');
+  void router.navigate(['/projects']);
+  return false;
 };
 
 // projectAccessGuard 别名已移除

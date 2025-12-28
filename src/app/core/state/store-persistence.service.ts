@@ -358,6 +358,75 @@ export class StorePersistenceService {
   }
   
   /**
+   * 【新增】获取上次活动的项目 ID
+   * 
+   * 来自高级顾问建议：
+   * - 恢复用户上次打开的项目，提升体验
+   * - 如果该项目已被删除，自动回退到第一个可用项目
+   * 
+   * @param availableProjectIds 当前可用的项目 ID 列表
+   * @returns 有效的 activeProjectId 或 null
+   */
+  async getLastActiveProjectId(availableProjectIds: string[]): Promise<string | null> {
+    try {
+      const meta = await this.loadMeta();
+      const lastActiveId = meta?.activeProjectId;
+      
+      if (!lastActiveId) {
+        this.logger.debug('没有保存的 lastActiveProjectId');
+        return availableProjectIds[0] ?? null;
+      }
+      
+      // 检查该项目是否仍然存在
+      if (availableProjectIds.includes(lastActiveId)) {
+        this.logger.debug('恢复上次活动项目', { projectId: lastActiveId });
+        return lastActiveId;
+      }
+      
+      // 项目已被删除（可能在其他设备上）
+      this.logger.info('上次活动的项目已不存在，回退到第一个可用项目', { 
+        lastActiveId, 
+        availableCount: availableProjectIds.length 
+      });
+      return availableProjectIds[0] ?? null;
+    } catch (err) {
+      this.logger.error('获取 lastActiveProjectId 失败', err);
+      return availableProjectIds[0] ?? null;
+    }
+  }
+  
+  /**
+   * 【新增】保存当前活动项目 ID（立即保存，不防抖）
+   */
+  async saveActiveProjectId(projectId: string | null): Promise<void> {
+    if (this.isRestoring) return;
+    
+    try {
+      const db = await this.initDatabase();
+      const existingMeta = await this.getFromStore<StoreMeta>(db, DB_CONFIG.stores.meta, 'meta');
+      
+      const meta: StoreMeta = {
+        version: existingMeta?.version ?? STORAGE_VERSION,
+        lastSyncTime: existingMeta?.lastSyncTime ?? new Date().toISOString(),
+        activeProjectId: projectId
+      };
+      
+      const transaction = db.transaction(DB_CONFIG.stores.meta, 'readwrite');
+      const store = transaction.objectStore(DB_CONFIG.stores.meta);
+      store.put(meta, 'meta');
+      
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+      
+      this.logger.debug('activeProjectId 已保存', { projectId });
+    } catch (err) {
+      this.logger.error('保存 activeProjectId 失败', err);
+    }
+  }
+  
+  /**
    * 删除项目的本地缓存
    */
   async deleteProject(projectId: string): Promise<void> {

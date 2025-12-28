@@ -427,6 +427,26 @@ export class RemoteChangeHandlerService {
             // 直接查询 Supabase，不使用内存缓存，遵循 Single Source of Truth 原则
             const tombstoneIds = await this.syncCoordinator.getTombstoneIds(targetProjectId);
 
+            // 【关键优化】幂等检查 - 来自高级顾问建议
+            // 避免 REST 同步和 Realtime 事件的竞态问题
+            // 如果本地已有更新或同版本的数据，跳过处理
+            const localProject = this.projectState.projects().find(proj => proj.id === targetProjectId);
+            const existingLocalTask = localProject?.tasks.find(t => t.id === taskId);
+            
+            if (existingLocalTask && remoteTask.updatedAt && existingLocalTask.updatedAt) {
+              const localTime = new Date(existingLocalTask.updatedAt).getTime();
+              const remoteTime = new Date(remoteTask.updatedAt).getTime();
+              
+              if (remoteTime <= localTime) {
+                this.logger.debug('幂等检查：跳过过时或相同版本的远程更新', {
+                  taskId,
+                  localUpdatedAt: existingLocalTask.updatedAt,
+                  remoteUpdatedAt: remoteTask.updatedAt
+                });
+                return; // 提前退出，不执行后续的 updateProjects
+              }
+            }
+
             this.projectState.updateProjects(projects =>
               projects.map(p => {
                 if (p.id !== targetProjectId) return p;
