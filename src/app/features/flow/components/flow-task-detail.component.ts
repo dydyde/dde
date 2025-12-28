@@ -102,21 +102,6 @@ import { renderMarkdown } from '../../../../utils/markdown';
           @if (drawerHeight() >= 20) {
             <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
           }
-          <button (click)="store.isFlowDetailOpen.set(false)" 
-                  class="text-stone-400 hover:text-stone-600 transition-all"
-                  [class.p-0.5]="drawerHeight() >= 20"
-                  [class.p-0]="drawerHeight() < 20"
-                  [class.ml-auto]="drawerHeight() < 20">
-            <svg xmlns="http://www.w3.org/2000/svg" 
-                 class="transition-all"
-                 [class.h-4]="drawerHeight() >= 20"
-                 [class.w-4]="drawerHeight() >= 20"
-                 [class.h-3]="drawerHeight() < 20"
-                 [class.w-3]="drawerHeight() < 20"
-                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
         </div>
         
         <!-- 内容区域 - 更紧凑 -->
@@ -132,10 +117,18 @@ import { renderMarkdown } from '../../../../utils/markdown';
         </div>
         
         <!-- 拖动条 - 紧凑 -->
-        <div class="flex justify-center py-1 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
+        <div class="relative flex justify-center py-1 cursor-grab active:cursor-grabbing touch-none flex-shrink-0"
              (touchstart)="startDrawerResize($event)"
              (mousedown)="startDrawerResize($event)">
           <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
+          <button (click)="store.isFlowDetailOpen.set(false); $event.stopPropagation()" 
+                  (touchstart)="$event.stopPropagation()"
+                  (mousedown)="$event.stopPropagation()"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 transition-all pointer-events-auto">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="transition-all h-3 w-3">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
         </div>
       </div>
     }
@@ -813,7 +806,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       // 顶部抽屉：向下拖（正 deltaY）增大高度
       const deltaY = currentY - this.drawerStartY;
       const deltaVh = (deltaY / window.innerHeight) * 100;
-      const newHeight = Math.max(10, Math.min(70, this.drawerStartHeight + deltaVh));
+      const newHeight = Math.max(6.47, Math.min(70, this.drawerStartHeight + deltaVh));
       this.drawerHeightChange.emit(newHeight);
     };
     

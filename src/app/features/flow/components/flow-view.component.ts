@@ -584,6 +584,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   constructor() {
+    // 初始化抽屉高度：如果是移动端且详情面板已打开，则设为 4.27
+    if (this.store.isMobile() && this.store.isFlowDetailOpen()) {
+      this.drawerHeight.set(4.27);
+    }
+
     // 监听任务数据变化，使用 rAF 对齐渲染帧更新图表
     // 核心原则：眼睛看到的（UI）用 rAF，硬盘存的（Data）用 debounce
     effect(() => {
@@ -784,6 +789,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         this.selectionService.toggleNodeSelection(taskId);
       } else {
         this.selectedTaskId.set(taskId);
+        // 移动端：点击任务块时，调整抽屉高度到 22.63
+        if (this.store.isMobile()) {
+          this.drawerHeight.set(22.63);
+        }
         if (isDoubleClick) {
           this.store.isFlowDetailOpen.set(true);
         }
@@ -1151,6 +1160,10 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     }
     this.zoomService.centerOnNode(taskId);
     this.selectedTaskId.set(taskId);
+    // 移动端：居中到节点时，调整抽屉高度到 22.63
+    if (this.store.isMobile()) {
+      this.drawerHeight.set(22.63);
+    }
     if (openDetail) {
       this.store.isFlowDetailOpen.set(true);
     }

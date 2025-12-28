@@ -368,7 +368,7 @@ export class FlowOverviewService {
       return lerp(current, target, t);
     };
     
-    let baseScale = calculateBaseScale();
+    const baseScale = calculateBaseScale();
     this.lastOverviewScale = clampScale(baseScale);
     overview.scale = this.lastOverviewScale;
     

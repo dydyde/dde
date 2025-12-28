@@ -35,6 +35,7 @@ describe('UndoService', () => {
     id: 'test-project-1',
     name: '测试项目',
     description: '',
+    createdDate: now,
     tasks: [createTask({ id: 'task-1', title: '任务1' })],
     connections: [],
     ...overrides

@@ -67,6 +67,7 @@ describe('撤销功能集成测试', () => {
     id: 'test-project-1',
     name: '测试项目',
     description: '',
+    createdDate: now,
     tasks: [
       createTask({ id: 'task-1', title: '根任务1' }),
       createTask({ id: 'task-1a', title: '子任务1a', stage: 2, parentId: 'task-1', rank: 1500, x: 200, displayId: '1,a' }),

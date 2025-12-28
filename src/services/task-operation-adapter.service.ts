@@ -29,7 +29,7 @@
  * ✗ 任务 CRUD 逻辑 → TaskOperationService
  * ✗ 数据持久化 → SyncCoordinatorService
  */
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, Injector } from '@angular/core';
 import { TaskOperationService } from './task-operation.service';
 import { SyncCoordinatorService } from './sync-coordinator.service';
 import { ChangeTrackerService } from './change-tracker.service';
@@ -58,6 +58,7 @@ export class TaskOperationAdapterService {
   private toastService = inject(ToastService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('TaskOpsAdapter');
+  private readonly injector = inject(Injector);
   
   /** 上次更新类型 */
   private lastUpdateType: 'content' | 'structure' | 'position' = 'structure';
@@ -284,6 +285,22 @@ export class TaskOperationAdapterService {
     if (result.ok) {
       this.activeStructureSnapshot = snapshot.id;
       this.setupSyncResultHandler(snapshot.id);
+      
+      // 显示带撤回按钮的 Toast
+      this.toastService.success(
+        `已创建 "${title || '新任务'}"`,
+        undefined,
+        {
+          duration: 5000,
+          action: {
+            label: '撤销',
+            onClick: () => {
+              this.logger.info('用户撤回创建任务操作', { title });
+              this.performUndo();
+            }
+          }
+        }
+      );
     } else {
       // 操作本身失败，立即回滚
       this.optimisticState.rollbackSnapshot(snapshot.id);
@@ -300,13 +317,50 @@ export class TaskOperationAdapterService {
     
     this.activeStructureSnapshot = snapshot.id;
     this.setupSyncResultHandler(snapshot.id);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      `已创建 "${title || '新任务'}"`,
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回创建浮动任务操作', { title });
+            this.performUndo();
+          }
+        }
+      }
+    );
   }
   
   deleteTask(taskId: string): void {
+    // 获取任务信息用于 Toast 显示
+    const project = this.projectState.activeProject();
+    const task = project?.tasks.find(t => t.id === taskId);
+    const taskTitle = task?.title || '任务';
+    
     // 创建乐观更新快照
     const snapshot = this.optimisticState.createTaskSnapshot(taskId, '删除');
     
     this.taskOps.deleteTask(taskId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      `已删除 "${taskTitle}"`,
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回删除操作', { taskId });
+            this.performUndo();
+          }
+        }
+      }
+    );
     
     this.activeStructureSnapshot = snapshot.id;
     this.setupSyncResultHandler(snapshot.id);
@@ -334,6 +388,22 @@ export class TaskOperationAdapterService {
     const snapshot = this.optimisticState.createTaskSnapshot(explicitIds[0], '删除');
     
     const deletedCount = this.taskOps.deleteTasksBatch(explicitIds);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      `已删除 ${deletedCount} 个任务`,
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回批量删除操作', { deletedCount });
+            this.performUndo();
+          }
+        }
+      }
+    );
     
     this.activeStructureSnapshot = snapshot.id;
     this.setupSyncResultHandler(snapshot.id);
@@ -376,6 +446,23 @@ export class TaskOperationAdapterService {
     const result = this.taskOps.moveTaskToStage({ taskId, newStage, beforeTaskId, newParentId });
     
     if (result.ok) {
+      // 显示带撤回按钮的 Toast
+      const stageName = newStage === null ? '待分配区' : `阶段 ${newStage}`;
+      this.toastService.success(
+        `已移动到${stageName}`,
+        undefined,
+        {
+          duration: 5000,
+          action: {
+            label: '撤销',
+            onClick: () => {
+              this.logger.info('用户撤回移动操作', { taskId, newStage });
+              this.performUndo();
+            }
+          }
+        }
+      );
+      
       this.activeStructureSnapshot = snapshot.id;
       this.setupSyncResultHandler(snapshot.id);
     } else {
@@ -413,6 +500,22 @@ export class TaskOperationAdapterService {
     const result = this.taskOps.moveSubtreeToNewParent(taskId, newParentId);
     
     if (result.ok) {
+      // 显示带撤回按钮的 Toast
+      this.toastService.success(
+        '已移动子树',
+        undefined,
+        {
+          duration: 5000,
+          action: {
+            label: '撤销',
+            onClick: () => {
+              this.logger.info('用户撤回子树移动操作', { taskId, newParentId });
+              this.performUndo();
+            }
+          }
+        }
+      );
+      
       this.activeStructureSnapshot = snapshot.id;
       this.setupSyncResultHandler(snapshot.id);
     } else {
@@ -436,14 +539,53 @@ export class TaskOperationAdapterService {
    * 【浮动任务树方法】
    */
   detachTaskWithSubtree(taskId: string) {
-    return this.taskOps.detachTaskWithSubtree(taskId);
+    const result = this.taskOps.detachTaskWithSubtree(taskId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      '已移动到待分配区',
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回分离子树操作', { taskId });
+            this.performUndo();
+          }
+        }
+      }
+    );
+    
+    return result;
   }
   
   deleteTaskKeepChildren(taskId: string): void {
+    // 获取任务信息用于 Toast 显示
+    const project = this.projectState.activeProject();
+    const task = project?.tasks.find(t => t.id === taskId);
+    const taskTitle = task?.title || '任务';
+    
     // 创建乐观更新快照
     const snapshot = this.optimisticState.createTaskSnapshot(taskId, '删除');
     
     this.taskOps.deleteTaskKeepChildren(taskId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      `已删除 "${taskTitle}"（保留子任务）`,
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回保留子任务删除操作', { taskId });
+            this.performUndo();
+          }
+        }
+      }
+    );
     
     this.activeStructureSnapshot = snapshot.id;
     this.setupSyncResultHandler(snapshot.id);
@@ -495,10 +637,42 @@ export class TaskOperationAdapterService {
   
   addCrossTreeConnection(sourceId: string, targetId: string): void {
     this.taskOps.addCrossTreeConnection(sourceId, targetId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      '已添加关联',
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回添加连接操作', { sourceId, targetId });
+            this.performUndo();
+          }
+        }
+      }
+    );
   }
   
   removeConnection(sourceId: string, targetId: string): void {
     this.taskOps.removeConnection(sourceId, targetId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      '已删除关联',
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回删除连接操作', { sourceId, targetId });
+            this.performUndo();
+          }
+        }
+      }
+    );
   }
   
   /**
@@ -512,6 +686,22 @@ export class TaskOperationAdapterService {
     newTargetId: string
   ): void {
     this.taskOps.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
+    
+    // 显示带撤回按钮的 Toast
+    this.toastService.success(
+      '已重连关联',
+      undefined,
+      {
+        duration: 5000,
+        action: {
+          label: '撤销',
+          onClick: () => {
+            this.logger.info('用户撤回重连操作', { oldSourceId, oldTargetId, newSourceId, newTargetId });
+            this.performUndo();
+          }
+        }
+      }
+    );
   }
   
   /**
@@ -548,6 +738,79 @@ export class TaskOperationAdapterService {
   
   /** 更新锁：防止快照和更新之间的竞态条件 */
   private isUpdating = false;
+  
+  /**
+   * 获取 StoreService 实例（延迟注入避免循环依赖）
+   * 使用 injector 动态获取
+   */
+  private getStoreService(): any {
+    try {
+      // 使用 Angular Injector 动态获取 StoreService
+      // 延迟导入避免循环依赖（StoreService -> TaskOperationAdapterService -> StoreService）
+      const StoreService = this.injector.get('StoreService' as any);
+      return StoreService;
+    } catch (e) {
+      this.logger.warn('无法获取 StoreService（可能存在循环依赖）', e);
+      return null;
+    }
+  }
+  
+  /**
+   * 执行撤销操作（内部方法，用于 Toast 回调）
+   * 复制自 StoreService.undo()，避免循环依赖
+   */
+  performUndo(): void {
+    const activeProject = this.projectState.activeProject();
+    const currentVersion = activeProject?.version;
+    const result = this.undoService.undo(currentVersion);
+    
+    if (!result) {
+      this.logger.warn('没有可撤销的操作');
+      return;
+    }
+    
+    if (result === 'version-mismatch') {
+      this.toastService.warning('撤销失败', '远程数据已更新过多，无法撤销。');
+      if (activeProject) {
+        this.undoService.clearOutdatedHistory(activeProject.id, currentVersion ?? 0);
+      }
+      return;
+    }
+    
+    if (typeof result === 'object' && 'type' in result && result.type === 'version-mismatch-forceable') {
+      this.toastService.warning(
+        '撤销注意', 
+        `当前内容已被新修改改变 (${result.versionDiff} 个版本)，撤销可能会覆盖最新内容。`
+      );
+      const action = this.undoService.forceUndo();
+      if (action) {
+        this.applyProjectSnapshot(action.projectId, action.data.before);
+      }
+      return;
+    }
+    
+    const action = result;
+    this.applyProjectSnapshot(action.projectId, action.data.before);
+    this.logger.info('撤销操作成功', { projectId: action.projectId, type: action.type });
+  }
+  
+  /**
+   * 应用项目快照（内部方法）
+   */
+  private applyProjectSnapshot(projectId: string, snapshot: Partial<Project>): void {
+    this.projectState.updateProjects(projects => projects.map(p => {
+      if (p.id === projectId) {
+        return this.layoutService.rebalance({
+          ...p,
+          tasks: snapshot.tasks ?? p.tasks,
+          connections: snapshot.connections ?? p.connections
+        });
+      }
+      return p;
+    }));
+    this.syncCoordinator.markLocalChanges('structure');
+    this.syncCoordinator.schedulePersist();
+  }
   
   /**
    * 记录操作并更新项目（立即记录撤销历史）
