@@ -102,6 +102,8 @@ export interface ConnectionRowFromDB {
   project_id: string;
   source_id: string | null;
   target_id: string | null;
+  /** 联系块标题 */
+  title: string | null;
   description: string | null;
   deleted_at: string | null;
   created_at: string | null;
@@ -278,6 +280,7 @@ export function parseConnectionRow(row: ConnectionRowFromDB): Connection | null 
     id: row.id,
     source: row.source_id,
     target: row.target_id,
+    title: row.title ?? undefined,
     description: row.description ?? undefined,
     deletedAt: row.deleted_at,
   };
@@ -339,6 +342,7 @@ export function connectionToRow(conn: Connection, projectId: string): Omit<Conne
     project_id: projectId,
     source_id: conn.source,
     target_id: conn.target,
+    title: conn.title ?? null,
     description: conn.description ?? null,
     deleted_at: conn.deletedAt ?? null,
   };

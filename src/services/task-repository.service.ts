@@ -34,6 +34,8 @@ export interface ConnectionRow {
   project_id: string;
   source_id: string;
   target_id: string;
+  /** 联系块标题 */
+  title: string | null;
   description: string | null;
   deleted_at: string | null;
   created_at: string;
@@ -878,6 +880,7 @@ export class TaskRepositoryService {
       id: row.id,
       source: row.source_id,
       target: row.target_id,
+      title: row.title ?? undefined,
       description: row.description ?? undefined,
       deletedAt: row.deleted_at ?? undefined
     };

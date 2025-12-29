@@ -1081,6 +1081,7 @@ export class SimpleSyncService {
       id: row.id,
       source: row.source_id,
       target: row.target_id,
+      title: row.title ?? undefined,
       description: row.description || '',
       deletedAt: row.deleted_at ?? undefined
     };
@@ -1514,6 +1515,7 @@ export class SimpleSyncService {
         id: row.id,
         source: row.source_id,
         target: row.target_id,
+        title: row.title || undefined,
         description: row.description || '',
         deletedAt: row.deleted_at || null
       }));
