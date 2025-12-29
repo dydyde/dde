@@ -38,6 +38,10 @@ export const SYNC_CONFIG = {
   CIRCUIT_BREAKER_TIMEOUT: 2 * 60 * 1000,
   /** 断路器：半开状态重试次数 */
   CIRCUIT_BREAKER_HALF_OPEN_RETRIES: 3,
+  /** 重试队列最大大小（防止 localStorage 溢出）*/
+  MAX_RETRY_QUEUE_SIZE: 500,
+  /** 重试项最大年龄（毫秒，24 小时）*/
+  MAX_RETRY_ITEM_AGE: 24 * 60 * 60 * 1000,
 } as const;
 
 /**

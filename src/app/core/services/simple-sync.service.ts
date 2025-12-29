@@ -23,7 +23,7 @@ import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import { supabaseErrorToError } from '../../../utils/supabase-error';
-import { REQUEST_THROTTLE_CONFIG } from '../../../config';
+import { REQUEST_THROTTLE_CONFIG, SYNC_CONFIG } from '../../../config';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
 
@@ -152,6 +152,12 @@ export class SimpleSyncService {
   
   /** 重试间隔（毫秒） */
   private readonly RETRY_INTERVAL = 5000;
+  
+  /** 重试队列最大大小（防止 localStorage 溢出） */
+  private readonly MAX_RETRY_QUEUE_SIZE = SYNC_CONFIG.MAX_RETRY_QUEUE_SIZE;
+  
+  /** 重试项最大年龄（毫秒，24 小时） */
+  private readonly MAX_RETRY_ITEM_AGE = SYNC_CONFIG.MAX_RETRY_ITEM_AGE;
   
   /** 重试队列持久化 key */
   private readonly RETRY_QUEUE_STORAGE_KEY = 'nanoflow.retry-queue';
@@ -896,6 +902,7 @@ export class SimpleSyncService {
   /**
    * 从 localStorage 加载重试队列
    * 在构造函数中调用，恢复页面刷新前未完成的同步操作
+   * 【关键修复】清理无效的连接项，防止外键约束错误累积
    */
   private loadRetryQueueFromStorage(): void {
     if (typeof localStorage === 'undefined') return;
@@ -915,7 +922,35 @@ export class SimpleSyncService {
       
       // 恢复队列
       if (Array.isArray(parsed.items)) {
-        this.retryQueue = parsed.items;
+        // 【关键修复】清理超限的队列
+        let items = parsed.items;
+        if (items.length > this.MAX_RETRY_QUEUE_SIZE) {
+          this.logger.warn('重试队列超限，截断', {
+            original: items.length,
+            limit: this.MAX_RETRY_QUEUE_SIZE
+          });
+          items = items.slice(-this.MAX_RETRY_QUEUE_SIZE); // 保留最新的项
+          Sentry.captureMessage('重试队列加载时超限', {
+            level: 'warning',
+            tags: { originalSize: String(parsed.items.length) }
+          });
+        }
+        
+        // 【关键修复】清理过期的重试项（超过 24 小时）
+        const now = Date.now();
+        items = items.filter((item: RetryQueueItem) => {
+          if (now - item.createdAt > this.MAX_RETRY_ITEM_AGE) {
+            this.logger.debug('移除过期的重试项', {
+              type: item.type,
+              id: item.data.id,
+              age: Math.floor((now - item.createdAt) / 1000 / 60) + ' 分钟'
+            });
+            return false;
+          }
+          return true;
+        });
+        
+        this.retryQueue = items;
         this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
         this.logger.info(`从存储恢复 ${this.retryQueue.length} 个待同步项`);
       }
@@ -954,6 +989,7 @@ export class SimpleSyncService {
   
   /**
    * 添加到重试队列
+   * 【关键修复】添加队列大小限制，防止 localStorage 配额溢出
    */
   private addToRetryQueue(
     type: 'task' | 'project' | 'connection',
@@ -961,6 +997,19 @@ export class SimpleSyncService {
     data: any,
     projectId?: string
   ): void {
+    // 【关键修复】检查队列大小，超限时清理最老的项
+    if (this.retryQueue.length >= this.MAX_RETRY_QUEUE_SIZE) {
+      const removed = this.retryQueue.shift(); // 移除最老的项
+      this.logger.warn('重试队列已满，移除最老的项', {
+        removed: { type: removed?.type, id: removed?.data.id },
+        queueSize: this.retryQueue.length
+      });
+      Sentry.captureMessage('重试队列溢出', {
+        level: 'warning',
+        tags: { queueSize: String(this.retryQueue.length) }
+      });
+    }
+    
     const item: RetryQueueItem = {
       id: crypto.randomUUID(),
       type,
@@ -980,6 +1029,7 @@ export class SimpleSyncService {
   
   /**
    * 处理重试队列
+   * 【关键修复】按依赖顺序处理：项目 → 任务 → 连接，防止外键约束违反
    */
   private async processRetryQueue(): Promise<void> {
     if (this.state().isSyncing || !this.state().isOnline) return;
@@ -989,20 +1039,47 @@ export class SimpleSyncService {
     const itemsToProcess = [...this.retryQueue];
     this.retryQueue = [];
     
-    for (const item of itemsToProcess) {
+    // 【关键修复】按类型排序：project → task → connection
+    const sortedItems = itemsToProcess.sort((a, b) => {
+      const order = { project: 0, task: 1, connection: 2 };
+      return order[a.type] - order[b.type];
+    });
+    
+    // 【关键修复】追踪成功推送的任务 ID
+    const successfulTaskIds = new Set<string>();
+    
+    for (const item of sortedItems) {
       let success = false;
       
       try {
         if (item.type === 'task') {
           if (item.operation === 'upsert') {
             success = await this.pushTask(item.data as Task, item.projectId!);
+            if (success) {
+              successfulTaskIds.add(item.data.id);
+            }
           } else {
             success = await this.deleteTask(item.data.id, item.projectId!);
           }
         } else if (item.type === 'project') {
           success = await this.pushProject(item.data as Project);
         } else if (item.type === 'connection') {
-          success = await this.pushConnection(item.data as Connection, item.projectId!);
+          // 【关键修复】验证连接引用的任务是否存在
+          const conn = item.data as Connection;
+          if (!successfulTaskIds.has(conn.source) && !successfulTaskIds.has(conn.target)) {
+            this.logger.warn('跳过连接重试（引用的任务未在本批次成功）', {
+              connectionId: conn.id,
+              source: conn.source,
+              target: conn.target
+            });
+            // 仍然加回队列，等待下次重试
+            item.retryCount++;
+            if (item.retryCount < this.MAX_RETRIES) {
+              this.retryQueue.push(item);
+            }
+            continue;
+          }
+          success = await this.pushConnection(conn, item.projectId!);
         }
       } catch (e) {
         this.logger.error('重试失败', e);
@@ -1027,6 +1104,25 @@ export class SimpleSyncService {
       isSyncing: false,
       pendingCount: this.retryQueue.length
     }));
+  }
+  
+  /**
+   * 清理重试队列（公开方法，供紧急情况使用）
+   * 【关键修复】用于手动清理累积的无效重试项，防止 localStorage 溢出
+   */
+  clearRetryQueue(): void {
+    const count = this.retryQueue.length;
+    this.retryQueue = [];
+    this.saveRetryQueueToStorage();
+    this.state.update(s => ({ ...s, pendingCount: 0 }));
+    
+    this.logger.info(`已清理 ${count} 个重试项`);
+    this.toast.info(`已清理 ${count} 个待同步项`);
+    
+    Sentry.captureMessage('手动清理重试队列', {
+      level: 'info',
+      tags: { clearedCount: String(count) }
+    });
   }
   
   // ==================== 数据转换 ====================
@@ -1402,16 +1498,35 @@ export class SimpleSyncService {
       await this.pushProject(project);
       
       // 2. 批量保存任务（请求间延迟 100ms 防止速率限制）
+      // 【关键修复】收集成功推送的任务 ID，用于后续连接验证
+      const successfulTaskIds = new Set<string>();
       for (let i = 0; i < tasksToSync.length; i++) {
         if (i > 0) {
           await this.delay(100); // 防止连续请求触发 504/429
         }
-        await this.pushTask(tasksToSync[i], project.id);
+        const success = await this.pushTask(tasksToSync[i], project.id);
+        if (success) {
+          successfulTaskIds.add(tasksToSync[i].id);
+        }
       }
       
       // 3. 批量保存连接（请求间延迟 100ms 防止速率限制）
       // 【修复数据漂移】过滤软删除的连接，与远程查询逻辑保持一致
-      const connectionsToSync = project.connections.filter(conn => !conn.deletedAt);
+      // 【关键修复】过滤引用未同步成功任务的连接，防止外键约束违反
+      const connectionsToSync = project.connections.filter(conn => {
+        if (conn.deletedAt) return false;
+        if (!successfulTaskIds.has(conn.source) || !successfulTaskIds.has(conn.target)) {
+          this.logger.warn('跳过连接（引用的任务未同步成功）', {
+            connectionId: conn.id,
+            source: conn.source,
+            target: conn.target,
+            sourceExists: successfulTaskIds.has(conn.source),
+            targetExists: successfulTaskIds.has(conn.target)
+          });
+          return false;
+        }
+        return true;
+      });
       
       if (connectionsToSync.length !== project.connections.length) {
         this.logger.info('saveProjectToCloud: 过滤了软删除连接', {
