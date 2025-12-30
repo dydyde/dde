@@ -74,9 +74,10 @@ export class LocalStorageAdapter implements StorageAdapter {
       const serialized = JSON.stringify(value);
       localStorage.setItem(fullKey, serialized);
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 检测配额溢出
-      if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+      const err = e as { name?: string; code?: number; message?: string };
+      if (err?.name === 'QuotaExceededError' || err?.code === 22) {
         console.error(`[LocalStorageAdapter] Quota exceeded for ${key}`);
         throw new StorageQuotaError(`存储空间不足，无法保存 ${key}`);
       }
@@ -283,7 +284,7 @@ export class IndexedDBAdapter implements StorageAdapter {
  */
 @Injectable()
 export class MemoryStorageAdapter implements StorageAdapter {
-  private store = new Map<string, any>();
+  private store = new Map<string, unknown>();
   
   async get<T>(key: string): Promise<T | null> {
     return this.store.get(key) ?? null;
@@ -491,8 +492,9 @@ export class StorageAdapterService {
     await this.init();
     try {
       return await this.adapter!.get<T>(key);
-    } catch (e: any) {
-      this.state.update(s => ({ ...s, lastError: e?.message ?? String(e) }));
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      this.state.update(s => ({ ...s, lastError: err?.message ?? String(e) }));
       this.logger.error(`获取 ${key} 失败`, e);
       return null;
     }
@@ -510,8 +512,9 @@ export class StorageAdapterService {
         void this.updateStorageStats();
       }
       return result;
-    } catch (e: any) {
-      this.state.update(s => ({ ...s, lastError: e?.message ?? String(e) }));
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      this.state.update(s => ({ ...s, lastError: err?.message ?? String(e) }));
       
       if (e instanceof StorageQuotaError) {
         this.logger.error('存储配额已满', { key });
@@ -534,8 +537,9 @@ export class StorageAdapterService {
         void this.updateStorageStats();
       }
       return result;
-    } catch (e: any) {
-      this.state.update(s => ({ ...s, lastError: e?.message ?? String(e) }));
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      this.state.update(s => ({ ...s, lastError: err?.message ?? String(e) }));
       this.logger.error(`删除 ${key} 失败`, e);
       return false;
     }
@@ -552,8 +556,9 @@ export class StorageAdapterService {
         void this.updateStorageStats();
       }
       return result;
-    } catch (e: any) {
-      this.state.update(s => ({ ...s, lastError: e?.message ?? String(e) }));
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      this.state.update(s => ({ ...s, lastError: err?.message ?? String(e) }));
       this.logger.error('清空存储失败', e);
       return false;
     }

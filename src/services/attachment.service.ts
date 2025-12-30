@@ -339,17 +339,18 @@ export class AttachmentService {
       this.updateProgress(file.name, 100, 'completed');
       
       return { success: true, attachment };
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { name?: string; message?: string };
       // 检查是否为取消操作
-      if (e?.name === 'AbortError' || e?.message === 'Upload cancelled') {
+      if (err?.name === 'AbortError' || err?.message === 'Upload cancelled') {
         console.log(`Upload cancelled: ${file.name}`);
         this.updateProgress(file.name, 0, 'cancelled');
         return { success: false, cancelled: true, error: '上传已取消' };
       }
       
       console.error('File upload failed:', e);
-      this.updateProgress(file.name, 0, 'error', e?.message);
-      return { success: false, error: e?.message ?? '上传失败' };
+      this.updateProgress(file.name, 0, 'error', err?.message);
+      return { success: false, error: err?.message ?? '上传失败' };
     } finally {
       // 清理取消控制器
       this.uploadAbortControllers.delete(file.name);
@@ -489,9 +490,10 @@ export class AttachmentService {
       }
 
       return { success: true };
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       console.error('File deletion failed:', e);
-      return { success: false, error: e?.message ?? '删除失败' };
+      return { success: false, error: err?.message ?? '删除失败' };
     }
   }
 
@@ -524,8 +526,9 @@ export class AttachmentService {
         } else {
           deletedCount += batch.length;
         }
-      } catch (e: any) {
-        errors.push(`批次 ${Math.floor(i / batchSize) + 1}: ${e?.message ?? '删除失败'}`);
+      } catch (e: unknown) {
+        const err = e as { message?: string };
+        errors.push(`批次 ${Math.floor(i / batchSize) + 1}: ${err?.message ?? '删除失败'}`);
       }
     }
 

@@ -29,7 +29,8 @@ import {
   signal,
   computed,
   Injector,
-  DestroyRef
+  DestroyRef,
+  InjectionToken
 } from '@angular/core';
 import { DOCUMENT } from '@angular/common';
 import { Subscription } from 'rxjs';
@@ -229,7 +230,7 @@ export class DynamicModalService {
     const subscriptions: Subscription[] = [];
     
     // 监听组件的 close 事件（如果存在）
-    const instance = componentRef.instance as any;
+    const instance = componentRef.instance as { close?: { subscribe: (fn: (result: R) => void) => Subscription }; confirm?: { subscribe: (fn: (data: R) => void) => Subscription } };
     if (instance.close && typeof instance.close.subscribe === 'function') {
       const sub = instance.close.subscribe((result: R) => {
         closeModal(result);
@@ -238,8 +239,8 @@ export class DynamicModalService {
     }
     // 也支持 confirm/cancel 事件模式
     if (instance.confirm && typeof instance.confirm.subscribe === 'function') {
-      const sub = instance.confirm.subscribe((data: any) => {
-        closeModal(data as R);
+      const sub = instance.confirm.subscribe((data: R) => {
+        closeModal(data);
       });
       subscriptions.push(sub);
     }
@@ -362,13 +363,13 @@ export class DynamicModalService {
  * 注入令牌：模态框数据
  * 组件使用 inject(MODAL_DATA) 获取传入的数据
  */
-export const MODAL_DATA = Symbol('MODAL_DATA');
+export const MODAL_DATA = new InjectionToken<unknown>('MODAL_DATA');
 
 /**
  * 注入令牌：模态框引用
  * 组件使用 inject(MODAL_REF) 获取关闭模态框的能力
  */
-export const MODAL_REF = Symbol('MODAL_REF');
+export const MODAL_REF = new InjectionToken<{ close: (result?: unknown) => void }>('MODAL_REF');
 
 /**
  * 类型辅助：从组件类型推断数据类型

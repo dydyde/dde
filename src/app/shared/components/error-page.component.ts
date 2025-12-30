@@ -116,7 +116,7 @@ export class ErrorPageComponent implements OnInit {
     }
     
     // 也尝试从路由状态获取
-    const navState = this.router.getCurrentNavigation()?.extras?.state as any;
+    const navState = this.router.getCurrentNavigation()?.extras?.state as { errorMessage?: string; userMessage?: string } | undefined;
     if (navState?.errorMessage && !this.errorInfo) {
       this.errorInfo = {
         message: navState.errorMessage,

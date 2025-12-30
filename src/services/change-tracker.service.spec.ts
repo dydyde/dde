@@ -323,6 +323,121 @@ describe('ChangeTrackerService', () => {
       expect(report).toContain('无待同步变更');
     });
   });
+
+  describe('字段锁机制', () => {
+    const projectId = 'project-1';
+    const taskId = 'task-1';
+
+    it('应该正确锁定和解锁任务字段', () => {
+      // 初始状态：未锁定
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(false);
+
+      // 锁定
+      service.lockTaskField(taskId, projectId, 'status');
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(true);
+
+      // 解锁
+      service.unlockTaskField(taskId, projectId, 'status');
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(false);
+    });
+
+    it('应该隔离不同任务的字段锁', () => {
+      service.lockTaskField('task-1', projectId, 'title');
+      service.lockTaskField('task-2', projectId, 'content');
+
+      expect(service.isTaskFieldLocked('task-1', projectId, 'title')).toBe(true);
+      expect(service.isTaskFieldLocked('task-1', projectId, 'content')).toBe(false);
+      expect(service.isTaskFieldLocked('task-2', projectId, 'title')).toBe(false);
+      expect(service.isTaskFieldLocked('task-2', projectId, 'content')).toBe(true);
+    });
+
+    it('应该隔离不同项目的字段锁', () => {
+      service.lockTaskField(taskId, 'project-1', 'status');
+      service.lockTaskField(taskId, 'project-2', 'title');
+
+      expect(service.isTaskFieldLocked(taskId, 'project-1', 'status')).toBe(true);
+      expect(service.isTaskFieldLocked(taskId, 'project-1', 'title')).toBe(false);
+      expect(service.isTaskFieldLocked(taskId, 'project-2', 'status')).toBe(false);
+      expect(service.isTaskFieldLocked(taskId, 'project-2', 'title')).toBe(true);
+    });
+
+    it('应该支持自定义锁定时长', () => {
+      // 锁定 50ms
+      service.lockTaskField(taskId, projectId, 'status', 50);
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(true);
+    });
+
+    it('应该在超时后自动解锁', async () => {
+      // 锁定 10ms（非常短）
+      service.lockTaskField(taskId, projectId, 'status', 10);
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(true);
+
+      // 等待超时
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      // 超时后应该自动解锁
+      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(false);
+    });
+
+    it('应该正确获取被锁定的字段列表', () => {
+      service.lockTaskField(taskId, projectId, 'status');
+      service.lockTaskField(taskId, projectId, 'title');
+      service.lockTaskField(taskId, projectId, 'content');
+
+      const lockedFields = service.getLockedFields(taskId, projectId);
+      expect(lockedFields).toHaveLength(3);
+      expect(lockedFields).toContain('status');
+      expect(lockedFields).toContain('title');
+      expect(lockedFields).toContain('content');
+    });
+
+    it('应该正确解锁任务的所有字段', () => {
+      service.lockTaskField(taskId, projectId, 'status');
+      service.lockTaskField(taskId, projectId, 'title');
+      service.lockTaskField(taskId, projectId, 'content');
+
+      service.unlockAllTaskFields(taskId, projectId);
+
+      expect(service.getLockedFields(taskId, projectId)).toHaveLength(0);
+    });
+
+    it('解锁所有字段时不应影响其他任务的锁', () => {
+      service.lockTaskField('task-1', projectId, 'status');
+      service.lockTaskField('task-2', projectId, 'status');
+
+      service.unlockAllTaskFields('task-1', projectId);
+
+      expect(service.isTaskFieldLocked('task-1', projectId, 'status')).toBe(false);
+      expect(service.isTaskFieldLocked('task-2', projectId, 'status')).toBe(true);
+    });
+
+    it('getLockedFields 应该过滤掉超时的锁', async () => {
+      // 锁定两个字段，一个短超时，一个长超时
+      service.lockTaskField(taskId, projectId, 'status', 10); // 10ms
+      service.lockTaskField(taskId, projectId, 'title', 5000); // 5s
+
+      // 等待短超时过期
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      const lockedFields = service.getLockedFields(taskId, projectId);
+      expect(lockedFields).toHaveLength(1);
+      expect(lockedFields).toContain('title');
+      expect(lockedFields).not.toContain('status');
+    });
+
+    it('clearProjectFieldLocks 应该清除项目所有字段锁', () => {
+      service.lockTaskField('task-1', projectId, 'status');
+      service.lockTaskField('task-2', projectId, 'title');
+      service.lockTaskField('task-1', 'project-2', 'content');
+
+      service.clearProjectFieldLocks(projectId);
+
+      expect(service.isTaskFieldLocked('task-1', projectId, 'status')).toBe(false);
+      expect(service.isTaskFieldLocked('task-2', projectId, 'title')).toBe(false);
+      // 其他项目的锁不应受影响
+      expect(service.isTaskFieldLocked('task-1', 'project-2', 'content')).toBe(true);
+    });
+  });
 });
 
 function createMockTask(): Task {

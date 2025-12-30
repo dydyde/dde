@@ -15,12 +15,14 @@ import { CommonModule } from '@angular/common';
           placeholder="项目名称" 
           class="w-full border border-stone-200 p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-300 text-stone-700" 
           maxlength="50"
+          spellcheck="false"
           (keydown.enter)="onConfirm()">
         <textarea 
           #projDesc 
           placeholder="项目描述（可选）" 
           class="w-full border border-stone-200 p-3 rounded-lg mb-4 h-24 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 text-stone-600" 
-          maxlength="500"></textarea>
+          maxlength="500"
+          spellcheck="false"></textarea>
         <div class="flex justify-end gap-2">
           <button 
             (click)="close.emit()" 

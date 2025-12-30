@@ -269,7 +269,7 @@ export class StoreService {
     const project = this.projects().find(p => p.id === action.projectId);
     if (project) {
       const localVersion = project.version ?? 0;
-      const snapshotVersion = (action.data.before as any)?.version ?? 0;
+      const snapshotVersion = (action.data.before as { version?: number })?.version ?? 0;
       
       if (localVersion > snapshotVersion + 1) {
         this.toastService.warning('注意', '撤销可能会覆盖其他设备的更新');

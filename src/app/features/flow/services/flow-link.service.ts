@@ -762,7 +762,7 @@ export class FlowLinkService {
    * @param x 显示位置 X
    * @param y 显示位置 Y
    */
-  showLinkDeleteHint(linkData: any, x: number, y: number): void {
+  showLinkDeleteHint(linkData: go.ObjectData, x: number, y: number): void {
     // 注意：linkData 是连接线的数据对象，直接包含属性
     this.linkDeleteHint.set({
       link: { data: linkData }, // 包装成期望的格式
@@ -816,7 +816,7 @@ export class FlowLinkService {
   /**
    * 从右键菜单删除连接
    */
-  deleteLink(linkData: any): { fromKey: string; toKey: string; isCrossTree: boolean } | null {
+  deleteLink(linkData: go.ObjectData): { fromKey: string; toKey: string; isCrossTree: boolean } | null {
     const fromKey = linkData?.from;
     const toKey = linkData?.to;
     const isCrossTree = linkData?.isCrossTree;
@@ -838,7 +838,7 @@ export class FlowLinkService {
    * 处理 Alt+X 快捷键删除选中的跨树连接
    * @param selectedLinks 选中的连接线数据列表
    */
-  handleDeleteCrossTreeLinks(selectedLinks: any[]): void {
+  handleDeleteCrossTreeLinks(selectedLinks: go.ObjectData[]): void {
     selectedLinks.forEach(linkData => {
       if (linkData?.isCrossTree) {
         const fromKey = linkData.from;
@@ -881,7 +881,7 @@ export class FlowLinkService {
   /**
    * 内部删除连接线方法
    */
-  private deleteLinkInternal(link: any): { fromKey: string; toKey: string; isCrossTree: boolean } | null {
+  private deleteLinkInternal(link: { data: go.ObjectData }): { fromKey: string; toKey: string; isCrossTree: boolean } | null {
     const fromKey = link.data?.from;
     const toKey = link.data?.to;
     const isCrossTree = link.data?.isCrossTree;

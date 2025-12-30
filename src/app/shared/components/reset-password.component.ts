@@ -222,10 +222,11 @@ export class ResetPasswordComponent implements OnInit {
           this.isValid.set(false);
         }
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       console.error('Token verification failed:', e);
       this.isValid.set(false);
-      this.error.set(e?.message ?? '验证失败');
+      this.error.set(err?.message ?? '验证失败');
     } finally {
       this.isLoading.set(false);
     }
@@ -266,9 +267,10 @@ export class ResetPasswordComponent implements OnInit {
       setTimeout(() => {
         void this.router.navigate(['/projects']);
       }, 2000);
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       console.error('Password reset failed:', e);
-      this.error.set(e?.message ?? '密码重置失败，请重试');
+      this.error.set(err?.message ?? '密码重置失败，请重试');
     } finally {
       this.isSubmitting.set(false);
     }

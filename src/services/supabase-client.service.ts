@@ -64,7 +64,7 @@ export class SupabaseClientService {
           // 禁用 LockManager 锁机制，避免多标签页锁竞争错误
           // 提供一个 no-op 锁函数来绕过锁机制
           storageKey: `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`,
-          lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+          lock: async <T>(_name: string, _acquireTimeout: number, fn: () => Promise<T>): Promise<T> => {
             // 直接执行函数，不使用锁
             return await fn();
           },
@@ -79,12 +79,13 @@ export class SupabaseClientService {
         },
         global: {
           // 添加全局请求配置，设置超时和更好的错误处理
-          // ⚠️ 重要：此超时必须大于 RequestThrottleService 的最大超时（90s）+ 实际请求执行缓冲
+          // ⚠️ 重要：此超时必须大于 RequestThrottleService 的最大超时 + 实际请求执行缓冲
           // 否则请求在队列中等待时 AbortController 会提前触发，导致 "signal is aborted without reason" 错误
           // 参考：REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT = 90000ms
+          // 当前配置：120s = 90s队列等待 + 30s执行缓冲
           fetch: (url, options = {}) => {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 秒超时（90s 队列 + 30s 执行缓冲）
+            const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 秒超时（队列等待 + 执行）
             
             return fetch(url, {
               ...options,

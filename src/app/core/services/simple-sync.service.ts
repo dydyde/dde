@@ -23,7 +23,7 @@ import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import { supabaseErrorToError } from '../../../utils/supabase-error';
-import { REQUEST_THROTTLE_CONFIG, SYNC_CONFIG } from '../../../config';
+import { REQUEST_THROTTLE_CONFIG, SYNC_CONFIG, CIRCUIT_BREAKER_CONFIG } from '../../../config';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
 
@@ -170,6 +170,14 @@ export class SimpleSyncService {
   
   /** 立即重试的基础延迟（毫秒） */
   private readonly IMMEDIATE_RETRY_BASE_DELAY = 1000;
+  
+  // ==================== Circuit Breaker 状态 ====================
+  /** 熔断器状态：closed（正常）| open（熔断）| half-open（试探） */
+  private circuitState: 'closed' | 'open' | 'half-open' = 'closed';
+  /** 连续失败次数 */
+  private consecutiveFailures = 0;
+  /** 熔断器打开时间戳 */
+  private circuitOpenedAt = 0;
   
   /** Realtime 订阅通道 */
   private realtimeChannel: RealtimeChannel | null = null;
@@ -356,7 +364,7 @@ export class SimpleSyncService {
     maxRetries = this.IMMEDIATE_RETRY_MAX,
     baseDelay = this.IMMEDIATE_RETRY_BASE_DELAY
   ): Promise<T> {
-    let lastError: any;
+    let lastError: unknown;
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -386,6 +394,73 @@ export class SimpleSyncService {
     throw lastError;
   }
   
+  // ==================== Circuit Breaker ====================
+  
+  /**
+   * Circuit Breaker: 检查是否应该执行请求
+   * @returns true 如果可以执行请求，false 如果熔断中
+   */
+  private checkCircuitBreaker(): boolean {
+    if (this.circuitState === 'closed') {
+      return true;
+    }
+    
+    if (this.circuitState === 'open') {
+      const elapsed = Date.now() - this.circuitOpenedAt;
+      if (elapsed >= CIRCUIT_BREAKER_CONFIG.RECOVERY_TIME) {
+        // 转入半开状态，允许试探请求
+        this.circuitState = 'half-open';
+        this.logger.info('Circuit Breaker: 进入半开状态，尝试恢复');
+        return true;
+      }
+      // 仍在熔断期
+      return false;
+    }
+    
+    // half-open 状态：允许请求
+    return true;
+  }
+
+  /**
+   * Circuit Breaker: 记录请求成功
+   */
+  private recordCircuitSuccess(): void {
+    if (this.circuitState === 'half-open') {
+      // 半开状态下成功，关闭熔断器
+      this.circuitState = 'closed';
+      this.consecutiveFailures = 0;
+      this.logger.info('Circuit Breaker: 恢复正常');
+    } else {
+      this.consecutiveFailures = 0;
+    }
+  }
+
+  /**
+   * Circuit Breaker: 记录请求失败
+   */
+  private recordCircuitFailure(errorType: string): void {
+    // 只有特定错误类型触发熔断
+    if (!CIRCUIT_BREAKER_CONFIG.TRIGGER_ERROR_TYPES.includes(errorType)) {
+      return;
+    }
+    
+    this.consecutiveFailures++;
+    
+    if (this.circuitState === 'half-open') {
+      // 半开状态下失败，重新打开熔断器
+      this.circuitState = 'open';
+      this.circuitOpenedAt = Date.now();
+      this.logger.warn('Circuit Breaker: 半开状态失败，重新熔断');
+      return;
+    }
+    
+    if (this.consecutiveFailures >= CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD) {
+      this.circuitState = 'open';
+      this.circuitOpenedAt = Date.now();
+      this.logger.warn(`Circuit Breaker: 触发熔断，连续失败 ${this.consecutiveFailures} 次，暂停 ${CIRCUIT_BREAKER_CONFIG.RECOVERY_TIME / 1000} 秒`);
+    }
+  }
+  
   // ==================== 任务同步 ====================
   
   /**
@@ -402,6 +477,13 @@ export class SimpleSyncService {
    * - 如果任务已在 tombstones 中，跳过推送避免复活
    */
   async pushTask(task: Task, projectId: string): Promise<boolean> {
+    // Circuit Breaker 检查：如果熔断中，直接加入重试队列
+    if (!this.checkCircuitBreaker()) {
+      this.logger.debug('Circuit Breaker: 熔断中，跳过推送', { taskId: task.id });
+      this.addToRetryQueue('task', 'upsert', task, projectId);
+      return false;
+    }
+    
     const client = this.getSupabaseClient();
     if (!client) {
       this.addToRetryQueue('task', 'upsert', task, projectId);
@@ -451,13 +533,18 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 120秒超时，避免慢速网络超时
+        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 30秒超时，平衡用户体验
       );
       
+      // Circuit Breaker: 记录成功
+      this.recordCircuitSuccess();
       this.state.update(s => ({ ...s, lastSyncTime: nowISO() }));
       return true;
     } catch (e) {
       const enhanced = supabaseErrorToError(e);
+      
+      // Circuit Breaker: 记录失败
+      this.recordCircuitFailure(enhanced.errorType);
       
       // 根据错误类型选择日志级别
       if (enhanced.isRetryable) {
@@ -862,7 +949,7 @@ export class SimpleSyncService {
             if (error) throw supabaseErrorToError(error);
           });
         },
-        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 120秒超时，避免慢速网络超时
+        { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 30秒超时，平衡用户体验
       );
       
       return true;
@@ -994,7 +1081,7 @@ export class SimpleSyncService {
   private addToRetryQueue(
     type: 'task' | 'project' | 'connection',
     operation: 'upsert' | 'delete',
-    data: any,
+    data: Task | Project | Connection | { id: string },
     projectId?: string
   ): void {
     // 【关键修复】检查队列大小，超限时清理最老的项
@@ -1626,13 +1713,13 @@ export class SimpleSyncService {
       );
       
       // 转换连接数据，保留 deletedAt 字段
-      const connections = connectionsData.map((row: any) => ({
-        id: row.id,
-        source: row.source_id,
-        target: row.target_id,
-        title: row.title || undefined,
-        description: row.description || '',
-        deletedAt: row.deleted_at || null
+      const connections: Connection[] = connectionsData.map((row: Record<string, unknown>) => ({
+        id: String(row.id),
+        source: String(row.source_id),
+        target: String(row.target_id),
+        title: row.title ? String(row.title) : undefined,
+        description: String(row.description || ''),
+        deletedAt: row.deleted_at ? String(row.deleted_at) : null
       }));
       
       const project = this.rowToProject(projectData);

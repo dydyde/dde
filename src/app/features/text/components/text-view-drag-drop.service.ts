@@ -358,7 +358,6 @@ export class TextViewDragDropService {
   /** 切换到新阶段（处理阶段展开/折叠逻辑） */
   switchToStage(stageNumber: number): number | null {
     const prevStage = this.touchState.previousHoverStage;
-    const originalStage = this.touchState.originalStage;
     
     // 检查是否需要折叠之前的阶段
     let stageToCollapse: number | null = null;
@@ -585,9 +584,6 @@ export class TextViewDragDropService {
       hasGhost: !!this.touchState.dragGhost,
       stack: new Error().stack?.split('\n').slice(1, 5).join(' <- ')
     });
-    
-    // 保存当前 Ghost 的 ID，以便防御性清理时跳过它
-    const currentGhostId = this.touchState.dragGhost?.id;
     
     // 清理当前引用的幽灵元素
     if (this.touchState.dragGhost) {

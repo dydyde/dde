@@ -101,8 +101,8 @@ export const REQUEST_THROTTLE_CONFIG = {
   DEFAULT_TIMEOUT: 60000,
   /** 批量同步操作超时时间（毫秒）- 90 秒，给批量 push 操作更多时间 */
   BATCH_SYNC_TIMEOUT: 90000,
-  /** 单个操作超时时间（毫秒）- 120 秒，避免慢速网络或大数据操作超时 */
-  INDIVIDUAL_OPERATION_TIMEOUT: 120000,
+  /** 单个操作超时时间（毫秒）- 30 秒，平衡用户体验和慢速网络 */
+  INDIVIDUAL_OPERATION_TIMEOUT: 30000,
   /** 默认重试次数 */
   DEFAULT_RETRIES: 3,
   /** 重试基础延迟（毫秒）*/
@@ -113,6 +113,26 @@ export const REQUEST_THROTTLE_CONFIG = {
   DEDUPE_TTL: 5000,
   /** 请求队列最大长度 */
   MAX_QUEUE_SIZE: 100,
+} as const;
+
+/**
+ * Circuit Breaker 配置
+ * 防止在服务端持续故障时（如 504 Gateway Timeout）无效重试
+ * 
+ * 工作原理：
+ * - closed: 正常状态，允许所有请求
+ * - open: 熔断状态，拒绝所有请求，等待恢复时间
+ * - half-open: 半开状态，允许少量试探请求
+ */
+export const CIRCUIT_BREAKER_CONFIG = {
+  /** 触发熔断的连续失败次数 */
+  FAILURE_THRESHOLD: 3,
+  /** 熔断恢复时间（毫秒）- 30 秒 */
+  RECOVERY_TIME: 30000,
+  /** 半开状态允许的试探请求数 */
+  HALF_OPEN_REQUESTS: 1,
+  /** 触发熔断的错误类型（服务端超时/网关错误） */
+  TRIGGER_ERROR_TYPES: ['NetworkTimeoutError', 'GatewayError', 'ServiceUnavailableError'] as readonly string[],
 } as const;
 
 /**

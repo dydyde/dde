@@ -314,19 +314,20 @@ export function validateProject(project: Partial<Project>): ValidationResult {
 /**
  * 安全地解析和验证附件数据
  */
-export function sanitizeAttachment(attachment: any): Attachment {
+export function sanitizeAttachment(attachment: unknown): Attachment {
+  const att = attachment as Record<string, unknown>;
   const validTypes: AttachmentType[] = ['image', 'document', 'link', 'file'];
-  const type = validTypes.includes(attachment.type) ? attachment.type : 'file';
+  const type = validTypes.includes(att.type as AttachmentType) ? (att.type as AttachmentType) : 'file';
   
   return {
-    id: String(attachment.id || crypto.randomUUID()),
+    id: String(att.id || crypto.randomUUID()),
     type,
-    name: String(attachment.name || '未命名附件'),
-    url: String(attachment.url || ''),
-    thumbnailUrl: typeof attachment.thumbnailUrl === 'string' ? attachment.thumbnailUrl : undefined,
-    mimeType: typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined,
-    size: typeof attachment.size === 'number' && attachment.size >= 0 ? attachment.size : undefined,
-    createdAt: attachment.createdAt || nowISO()
+    name: String(att.name || '未命名附件'),
+    url: String(att.url || ''),
+    thumbnailUrl: typeof att.thumbnailUrl === 'string' ? att.thumbnailUrl : undefined,
+    mimeType: typeof att.mimeType === 'string' ? att.mimeType : undefined,
+    size: typeof att.size === 'number' && (att.size as number) >= 0 ? (att.size as number) : undefined,
+    createdAt: (att.createdAt as string) || nowISO()
   };
 }
 
@@ -336,7 +337,8 @@ export function sanitizeAttachment(attachment: any): Attachment {
  * 
  * 注意：此函数会静默修复无效数据，修复内容已在日志中记录
  */
-export function sanitizeTask(task: any): Task {
+export function sanitizeTask(rawTask: unknown): Task {
+  const task = rawTask as Record<string, unknown>;
   const fixes: string[] = [];
   
   // 解析附件
@@ -346,12 +348,15 @@ export function sanitizeTask(task: any): Task {
 
   // 解析标签
   const tags = Array.isArray(task.tags)
-    ? task.tags.filter((t: any) => typeof t === 'string' && t.length > 0)
+    ? (task.tags as unknown[]).filter((t: unknown) => typeof t === 'string' && (t as string).length > 0) as string[]
     : undefined;
 
   // 解析优先级
-  const validPriorities = ['low', 'medium', 'high', 'urgent'];
-  const priority = validPriorities.includes(task.priority) ? task.priority : undefined;
+  const validPriorities = ['low', 'medium', 'high', 'urgent'] as const;
+  const rawPriority = task.priority as string | undefined;
+  const priority = rawPriority && validPriorities.includes(rawPriority as 'low' | 'medium' | 'high' | 'urgent') 
+    ? (rawPriority as 'low' | 'medium' | 'high' | 'urgent') 
+    : undefined;
 
   // 解析截止日期
   let dueDate: string | null | undefined = undefined;
@@ -369,14 +374,15 @@ export function sanitizeTask(task: any): Task {
   if (!task.title || typeof task.title !== 'string') fixes.push('title');
   if (typeof task.rank !== 'number' || !Number.isFinite(task.rank)) fixes.push('rank');
   if (typeof task.order !== 'number' || !Number.isFinite(task.order)) fixes.push('order');
-  if (!['active', 'completed', 'archived'].includes(task.status)) fixes.push('status');
+  const rawStatus = task.status as string | undefined;
+  if (!rawStatus || !['active', 'completed', 'archived'].includes(rawStatus)) fixes.push('status');
   if (typeof task.x !== 'number' || !Number.isFinite(task.x)) fixes.push('x');
   if (typeof task.y !== 'number' || !Number.isFinite(task.y)) fixes.push('y');
   
   // 输出修复日志
   if (fixes.length > 0) {
     // 仅在开发模式输出修复日志，避免生产环境控制台噪音。
-    const isNgDevMode = Boolean((globalThis as any).ngDevMode);
+    const isNgDevMode = Boolean((globalThis as { ngDevMode?: boolean }).ngDevMode);
     if (isNgDevMode) {
       console.warn(`[sanitizeTask] 任务 ${task.id || 'unknown'} 的以下字段已修复:`, fixes.join(', '));
     }
@@ -393,7 +399,7 @@ export function sanitizeTask(task: any): Task {
     status: task.status === 'completed' ? 'completed' : (task.status === 'archived' ? 'archived' : 'active'),
     x: typeof task.x === 'number' && Number.isFinite(task.x) ? task.x : 0,
     y: typeof task.y === 'number' && Number.isFinite(task.y) ? task.y : 0,
-    createdDate: task.createdDate || nowISO(),
+    createdDate: (typeof task.createdDate === 'string' ? task.createdDate : undefined) || nowISO(),
     displayId: String(task.displayId || '?'),
     shortId: typeof task.shortId === 'string' ? task.shortId : undefined,
     hasIncompleteTask: Boolean(task.hasIncompleteTask),
@@ -408,9 +414,10 @@ export function sanitizeTask(task: any): Task {
 /**
  * 安全地解析和验证项目数据
  */
-export function sanitizeProject(project: any): Project {
+export function sanitizeProject(rawProject: unknown): Project {
+  const project = rawProject as Record<string, unknown>;
   const tasks: Task[] = Array.isArray(project.tasks)
-    ? project.tasks.map(sanitizeTask)
+    ? (project.tasks as unknown[]).map(sanitizeTask)
     : [];
 
   // 修复因 tombstone/软删除过滤等原因导致的结构断裂：
@@ -428,15 +435,21 @@ export function sanitizeProject(project: any): Project {
   });
 
   const connections: Connection[] = Array.isArray(project.connections)
-    ? project.connections
-        .filter((c: any) => c && c.source && c.target)
-        .map((c: any): Connection => ({
-          id: c.id ? String(c.id) : crypto.randomUUID(),
-          source: String(c.source),
-          target: String(c.target),
-          description: c.description ? String(c.description) : undefined,
-          deletedAt: c.deletedAt ? String(c.deletedAt) : undefined
-        }))
+    ? (project.connections as unknown[])
+        .filter((c: unknown) => {
+          const conn = c as Record<string, unknown>;
+          return conn && conn.source && conn.target;
+        })
+        .map((c: unknown): Connection => {
+          const conn = c as Record<string, unknown>;
+          return {
+            id: conn.id ? String(conn.id) : crypto.randomUUID(),
+            source: String(conn.source),
+            target: String(conn.target),
+            description: conn.description ? String(conn.description) : undefined,
+            deletedAt: conn.deletedAt ? String(conn.deletedAt) : undefined
+          };
+        })
         .filter((c: Connection) => taskIds.has(c.source) && taskIds.has(c.target) && c.source !== c.target)
     : [];
 
@@ -444,10 +457,10 @@ export function sanitizeProject(project: any): Project {
     id: String(project.id || crypto.randomUUID()),
     name: String(project.name || '未命名项目'),
     description: String(project.description || ''),
-    createdDate: project.createdDate || nowISO(),
+    createdDate: (typeof project.createdDate === 'string' ? project.createdDate : undefined) || nowISO(),
     tasks: fixedTasks,
     connections,
-    updatedAt: project.updatedAt || nowISO(),
+    updatedAt: (typeof project.updatedAt === 'string' ? project.updatedAt : undefined) || nowISO(),
     version: typeof project.version === 'number' ? project.version : 0
   };
 }

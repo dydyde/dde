@@ -3,6 +3,7 @@ import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { LayoutService } from './layout.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { Project, Task } from '../models';
 import {
   Result, OperationError, ErrorCodes, success, failure
@@ -54,6 +55,7 @@ export class ConflictResolutionService {
   private syncService = inject(SimpleSyncService);
   private layoutService = inject(LayoutService);
   private toast = inject(ToastService);
+  private changeTracker = inject(ChangeTrackerService);
   private readonly loggerService = inject(LoggerService);
   private logger = this.loggerService.category('ConflictResolution');
 
@@ -332,8 +334,8 @@ export class ConflictResolutionService {
         continue;
       }
       
-      // 双方都有的任务，执行字段级合并
-      const { mergedTask, hasConflict } = this.mergeTaskFields(localTask, remoteTask);
+      // 双方都有的任务，执行字段级合并（传入 projectId 用于字段锁检查）
+      const { mergedTask, hasConflict } = this.mergeTaskFields(localTask, remoteTask, local.id);
       
       if (hasConflict) {
         conflictCount++;
@@ -400,8 +402,16 @@ export class ConflictResolutionService {
    * 字段级任务合并
    * 对每个字段单独判断，使用更新时间更晚的版本
    * 如果两个版本的更新时间相同，优先使用本地版本
+   * 
+   * 【关键修复】字段锁检查
+   * 如果某个字段被锁定（用户正在编辑），则始终使用本地版本
+   * 这防止了在状态切换后同步导致的状态回滚问题
+   * 
+   * @param local 本地任务
+   * @param remote 远程任务
+   * @param projectId 项目 ID（用于字段锁检查）
    */
-  private mergeTaskFields(local: Task, remote: Task): { mergedTask: Task; hasConflict: boolean } {
+  private mergeTaskFields(local: Task, remote: Task, projectId: string): { mergedTask: Task; hasConflict: boolean } {
     const localTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
     const remoteTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
     
@@ -414,37 +424,73 @@ export class ConflictResolutionService {
     // 字段级合并：检查每个可编辑字段
     const mergedTask: Task = { ...baseTask };
     
+    // 【关键】检查字段锁：获取当前被锁定的字段
+    const lockedFields = this.changeTracker.getLockedFields(local.id, projectId);
+    const isFieldLocked = (field: string) => lockedFields.includes(field);
+    
     // 标题：如果不同，检测是否是有意义的编辑
     if (local.title !== remote.title) {
       hasConflict = true;
-      // 使用较长的标题（更可能是编辑后的）或更新时间较新的
-      mergedTask.title = remoteTime > localTime ? remote.title : local.title;
+      // 【字段锁检查】如果 title 被锁定，始终使用本地版本
+      if (isFieldLocked('title')) {
+        mergedTask.title = local.title;
+        this.logger.debug('mergeTaskFields: title 被锁定，使用本地版本', { taskId: local.id });
+      } else {
+        mergedTask.title = remoteTime > localTime ? remote.title : local.title;
+      }
     }
     
     // 内容：如果不同，尝试合并或使用较新版本
     if (local.content !== remote.content) {
       hasConflict = true;
-      // 对于内容，尝试智能合并（如果两边都有添加）
-      const mergedContent = this.mergeTextContent(local.content, remote.content, localTime, remoteTime);
-      mergedTask.content = mergedContent;
+      // 【字段锁检查】如果 content 被锁定，始终使用本地版本
+      if (isFieldLocked('content')) {
+        mergedTask.content = local.content;
+        this.logger.debug('mergeTaskFields: content 被锁定，使用本地版本', { taskId: local.id });
+      } else {
+        // 对于内容，尝试智能合并（如果两边都有添加）
+        const mergedContent = this.mergeTextContent(local.content, remote.content, localTime, remoteTime);
+        mergedTask.content = mergedContent;
+      }
     }
     
     // 状态：如果不同，使用更新时间较新的
     if (local.status !== remote.status) {
       hasConflict = true;
-      mergedTask.status = remoteTime > localTime ? remote.status : local.status;
+      // 【字段锁检查】如果 status 被锁定，始终使用本地版本
+      // 这是防止状态回滚的关键修复
+      if (isFieldLocked('status')) {
+        mergedTask.status = local.status;
+        this.logger.debug('mergeTaskFields: status 被锁定，使用本地版本', { 
+          taskId: local.id, 
+          localStatus: local.status,
+          remoteStatus: remote.status 
+        });
+      } else {
+        mergedTask.status = remoteTime > localTime ? remote.status : local.status;
+      }
     }
     
     // 优先级：如果不同，使用更新时间较新的
     if (local.priority !== remote.priority) {
       hasConflict = true;
-      mergedTask.priority = remoteTime > localTime ? remote.priority : local.priority;
+      // 【字段锁检查】
+      if (isFieldLocked('priority')) {
+        mergedTask.priority = local.priority;
+      } else {
+        mergedTask.priority = remoteTime > localTime ? remote.priority : local.priority;
+      }
     }
     
     // 截止日期：如果不同，使用更新时间较新的
     if (local.dueDate !== remote.dueDate) {
       hasConflict = true;
-      mergedTask.dueDate = remoteTime > localTime ? remote.dueDate : local.dueDate;
+      // 【字段锁检查】
+      if (isFieldLocked('dueDate')) {
+        mergedTask.dueDate = local.dueDate;
+      } else {
+        mergedTask.dueDate = remoteTime > localTime ? remote.dueDate : local.dueDate;
+      }
     }
     
     // 标签：智能合并两边的标签

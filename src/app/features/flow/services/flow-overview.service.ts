@@ -298,7 +298,7 @@ export class FlowOverviewService {
    */
   setFixedBounds(bounds: go.Rect | null): void {
     if (!this.overview) return;
-    (this.overview as any).fixedBounds = bounds ?? new go.Rect(NaN, NaN, NaN, NaN);
+    this.overview.fixedBounds = bounds ?? new go.Rect(NaN, NaN, NaN, NaN);
   }
 
   // ========== 私有方法 ==========
@@ -356,18 +356,9 @@ export class FlowOverviewService {
       return Math.max(1e-4, Math.min(0.5, scale));
     };
     
-    const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-    
-    const SCALE_LERP_FACTOR_SHRINK = 0.45;
-    const SCALE_LERP_FACTOR_GROW = 0.18;
-    
-    const smartLerp = (current: number, target: number): number => {
-      if (current / target > 2 || target / current > 2) {
-        return target;
-      }
-      const t = target < current ? SCALE_LERP_FACTOR_SHRINK : SCALE_LERP_FACTOR_GROW;
-      return lerp(current, target, t);
-    };
+    // lerp 用于平滑过渡（当前未使用，保留备用）
+    const _lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+    void _lerp; // 避免 unused 警告
     
     const baseScale = calculateBaseScale();
     this.lastOverviewScale = clampScale(baseScale);
@@ -407,7 +398,7 @@ export class FlowOverviewService {
     // 简化版 - 核心交互逻辑保留在 FlowDiagramService 过渡
     // TODO: 后续迭代将完整的指针事件处理迁移至此
     
-    const handlePointerDown = (e: PointerEvent) => {
+    const handlePointerDown = (_e: PointerEvent) => {
       this.isOverviewInteracting = true;
       this.overviewInteractionLastApplyAt = Date.now();
     };

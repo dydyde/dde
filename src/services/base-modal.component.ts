@@ -61,8 +61,8 @@ export abstract class BaseModalComponent<TData = unknown, TResult = void> implem
   constructor() {
     // 尝试注入动态模态框数据
     try {
-      this.injectedData = inject(MODAL_DATA as any, { optional: true }) as TData;
-      this.modalRef = inject(MODAL_REF as any, { optional: true });
+      this.injectedData = inject(MODAL_DATA, { optional: true }) as TData;
+      this.modalRef = inject(MODAL_REF, { optional: true });
     } catch {
       // 非动态模式，忽略注入错误
     }

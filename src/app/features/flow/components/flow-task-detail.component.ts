@@ -188,6 +188,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                   (blur)="onInputBlur('title')"
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
+                  spellcheck="false"
                   class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
                   placeholder="任务标题">
               
@@ -199,6 +200,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                   (blur)="onInputBlur('content')"
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
+                  spellcheck="false"
                   class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
                   placeholder="输入内容（支持 Markdown）..."></textarea>
           }
@@ -311,6 +313,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
             (blur)="onInputBlur('title')"
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
+            spellcheck="false"
             class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
             placeholder="任务标题">
           
@@ -323,6 +326,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
             (blur)="onInputBlur('content')"
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
+            spellcheck="false"
             class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono"
             placeholder="任务内容（支持 Markdown）..."></textarea>
           
@@ -333,6 +337,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
               #quickTodoInput
               type="text"
               (keydown.enter)="addQuickTodo(task.id, quickTodoInput)"
+              spellcheck="false"
               class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[10px] py-0.5 px-1"
               placeholder="待办，回车添加...">
             <button
@@ -538,7 +543,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
         this.isTitleFocused = false;
         this.store.unlockTaskFields(task.id, ['title']);
         this.unlockTimers.delete('title');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('title', timer);
     } else if (field === 'content') {
       this.contentChange.emit({ taskId: task.id, content: this.localContent() });
@@ -547,7 +552,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
         this.isContentFocused = false;
         this.store.unlockTaskFields(task.id, ['content']);
         this.unlockTimers.delete('content');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('content', timer);
     }
   }
@@ -872,7 +877,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
     const scrollableParent = target.closest('.overflow-y-auto') as HTMLElement;
     if (scrollableParent) {
       // 记录初始滚动位置
-      (scrollableParent as any)._touchStartScrollTop = scrollableParent.scrollTop;
+      scrollableParent.dataset['touchStartScrollTop'] = String(scrollableParent.scrollTop);
     }
   }
 
@@ -886,7 +891,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       const clientHeight = scrollableParent.clientHeight;
       
       // 获取触摸移动的方向
-      const touchStartScrollTop = (scrollableParent as any)._touchStartScrollTop || 0;
+      const touchStartScrollTop = Number(scrollableParent.dataset['touchStartScrollTop']) || 0;
       const _touch = event.touches[0];
       
       // 阻止在顶部继续向下拉或在底部继续向上拉
@@ -897,7 +902,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       }
       
       // 更新滚动位置记录
-      (scrollableParent as any)._touchStartScrollTop = scrollTop;
+      scrollableParent.dataset['touchStartScrollTop'] = String(scrollTop);
     }
   }
 

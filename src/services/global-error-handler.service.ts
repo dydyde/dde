@@ -320,7 +320,7 @@ export class GlobalErrorHandler implements ErrorHandler {
     }
     if (error && typeof error === 'object') {
       // 处理 HTTP 错误响应
-      const errObj = error as any;
+      const errObj = error as { message?: string; error?: { message?: string }; statusText?: string };
       if (errObj.message) return String(errObj.message);
       if (errObj.error?.message) return String(errObj.error.message);
       if (errObj.statusText) return String(errObj.statusText);
@@ -466,16 +466,16 @@ export class GlobalErrorHandler implements ErrorHandler {
  * }
  */
 export function CatchError(severity: ErrorSeverity = ErrorSeverity.NOTIFY, customMessage?: string) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+  return function (_target: unknown, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
     
-    descriptor.value = async function (...args: any[]) {
+    descriptor.value = async function (this: { globalErrorHandler?: GlobalErrorHandler }, ...args: unknown[]) {
       try {
         return await originalMethod.apply(this, args);
       } catch (error) {
         // 获取 GlobalErrorHandler 实例
         // 注意：这需要在 Angular 上下文中使用
-        const errorHandler = (this as any).globalErrorHandler as GlobalErrorHandler | undefined;
+        const errorHandler = this.globalErrorHandler;
         if (errorHandler) {
           errorHandler.reportError(error, severity, customMessage);
         } else {

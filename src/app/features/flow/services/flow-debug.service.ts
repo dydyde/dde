@@ -1,4 +1,39 @@
 import { Injectable } from '@angular/core';
+import * as go from 'gojs';
+
+/** 连接线信息接口 */
+interface LinkInfo {
+  key: string;
+  from: string;
+  to: string;
+  fromPortId: string;
+  toPortId: string;
+  fromSpot: string;
+  toSpot: string;
+  hasGetLinkPoint: boolean;
+  routing: go.Routing;
+  curve: go.Curve;
+}
+
+/** 调试工具窗口接口 */
+interface FlowDebugWindow {
+  inspectLinks: () => void;
+  fixAllLinks: () => void;
+  inspectNodePorts: () => void;
+  test: () => void;
+  diagram: go.Diagram;
+  overview?: go.Overview;
+  enableMinimapDebug?: () => void;
+  disableMinimapDebug?: () => void;
+  inspectMinimap?: () => void;
+}
+
+/** 扩展 Window 接口 */
+declare global {
+  interface Window {
+    flowDebug?: FlowDebugWindow;
+  }
+}
 
 /**
  * 流程图调试服务
@@ -12,7 +47,7 @@ export class FlowDebugService {
   /**
    * 检查所有连接线的配置
    */
-  inspectLinks(diagram: any): void {
+  inspectLinks(diagram: go.Diagram | null): void {
     if (!diagram) {
       console.error('❌ diagram 对象不存在');
       return;
@@ -20,14 +55,15 @@ export class FlowDebugService {
     
     console.log('========== 连接线检查 ==========');
     
-    const links: any[] = [];
+    const links: LinkInfo[] = [];
     let problemCount = 0;
     
-    diagram.links.each((link: any) => {
-      const info = {
-        key: link.data.key,
-        from: link.data.from,
-        to: link.data.to,
+    diagram.links.each((link: go.Link) => {
+      const data = link.data as go.ObjectData;
+      const info: LinkInfo = {
+        key: data.key as string,
+        from: data.from as string,
+        to: data.to as string,
         fromPortId: link.fromPortId,
         toPortId: link.toPortId,
         fromSpot: link.fromSpot.toString(),
@@ -72,7 +108,7 @@ export class FlowDebugService {
   /**
    * 修复所有连接线，使用主端口
    */
-  fixAllLinks(diagram: any): void {
+  fixAllLinks(diagram: go.Diagram | null): void {
     if (!diagram) {
       console.error('❌ diagram 对象不存在');
       return;
@@ -83,13 +119,14 @@ export class FlowDebugService {
     diagram.startTransaction('修复连接线端口');
     
     let fixedCount = 0;
-    diagram.links.each((link: any) => {
+    diagram.links.each((link: go.Link) => {
       let needsFix = false;
+      const data = link.data as go.ObjectData;
       
       // 检查数据层
-      if (link.data.fromPortId !== "" || link.data.toPortId !== "") {
-        diagram.model.setDataProperty(link.data, 'fromPortId', '');
-        diagram.model.setDataProperty(link.data, 'toPortId', '');
+      if (data.fromPortId !== "" || data.toPortId !== "") {
+        diagram.model.setDataProperty(data, 'fromPortId', '');
+        diagram.model.setDataProperty(data, 'toPortId', '');
         needsFix = true;
       }
       
@@ -104,7 +141,7 @@ export class FlowDebugService {
       if (needsFix) {
         link.invalidateRoute();
         fixedCount++;
-        console.log(`✅ 修复连接线: ${link.data.key}`);
+        console.log(`✅ 修复连接线: ${data.key}`);
       }
     });
     
@@ -122,7 +159,7 @@ export class FlowDebugService {
   /**
    * 检查节点端口配置
    */
-  inspectNodePorts(diagram: any): void {
+  inspectNodePorts(diagram: go.Diagram | null): void {
     if (!diagram) {
       console.error('❌ diagram 对象不存在');
       return;
@@ -135,7 +172,8 @@ export class FlowDebugService {
     }
     
     console.log('========== 节点端口检查 ==========');
-    console.log('节点 key:', firstNode.data.key);
+    const nodeData = firstNode.data as go.ObjectData;
+    console.log('节点 key:', nodeData.key);
     
     // 检查主端口
     const mainPort = firstNode.findPort("");
@@ -229,8 +267,8 @@ export class FlowDebugService {
   /**
    * 导出到全局对象（便于在控制台调试）
    */
-  exposeToWindow(diagram: any): void {
-    (window as any).flowDebug = {
+  exposeToWindow(diagram: go.Diagram): void {
+    window.flowDebug = {
       inspectLinks: () => this.inspectLinks(diagram),
       fixAllLinks: () => this.fixAllLinks(diagram),
       inspectNodePorts: () => this.inspectNodePorts(diagram),
@@ -258,9 +296,9 @@ export class FlowDebugService {
    * - isViewportOutside: 视口是否超出内容边界
    * - box.actualBounds: 视口框在小地图中的实际位置
    */
-  enableMinimapDebug(overview?: any, diagram?: any): void {
+  enableMinimapDebug(overview?: go.Overview | null, diagram?: go.Diagram | null): void {
     // 启用 Overview 调试日志
-    (globalThis as any).__NF_OVERVIEW_DEBUG = true;
+    (globalThis as { __NF_OVERVIEW_DEBUG?: boolean }).__NF_OVERVIEW_DEBUG = true;
     
     console.log('========== 小地图调试模式已启用 ==========');
     console.log('调试日志将在 Overview 更新时输出（每 1000ms 最多一次）');
@@ -282,7 +320,7 @@ export class FlowDebugService {
    * 禁用小地图调试模式
    */
   disableMinimapDebug(): void {
-    (globalThis as any).__NF_OVERVIEW_DEBUG = false;
+    (globalThis as { __NF_OVERVIEW_DEBUG?: boolean }).__NF_OVERVIEW_DEBUG = false;
     console.log('小地图调试模式已禁用');
   }
 
@@ -290,7 +328,7 @@ export class FlowDebugService {
    * 检查小地图当前状态
    * 输出关键诊断信息
    */
-  inspectMinimap(overview?: any, diagram?: any): void {
+  inspectMinimap(overview?: go.Overview | null, diagram?: go.Diagram | null): void {
     console.log('========== 小地图状态检查 ==========');
     
     if (!overview || !diagram) {
@@ -369,14 +407,14 @@ export class FlowDebugService {
   /**
    * 扩展 exposeToWindow，添加小地图调试功能
    */
-  exposeToWindowWithMinimap(diagram: any, overview?: any): void {
-    (window as any).flowDebug = {
+  exposeToWindowWithMinimap(diagram: go.Diagram, overview?: go.Overview | null): void {
+    window.flowDebug = {
       inspectLinks: () => this.inspectLinks(diagram),
       fixAllLinks: () => this.fixAllLinks(diagram),
       inspectNodePorts: () => this.inspectNodePorts(diagram),
       test: () => this.showTestInstructions(),
       diagram: diagram,
-      overview: overview,
+      overview: overview ?? undefined,
       // 小地图调试
       enableMinimapDebug: () => this.enableMinimapDebug(overview, diagram),
       disableMinimapDebug: () => this.disableMinimapDebug(),

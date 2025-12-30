@@ -94,7 +94,7 @@ export class AuthService {
         if (controller) controller.abort();
       }, SESSION_TIMEOUT);
       
-      let sessionResult: { data: { session: any } | null; error: any };
+      let sessionResult: { data: { session: { user?: { id: string; email?: string | null } } | null } | null; error: { message: string; status?: number; name?: string } | null };
       
       try {
         // 创建一个带超时的 Promise
@@ -156,20 +156,21 @@ export class AuthService {
       
       console.log('[Auth] ========== 无会话，未登录 ==========');
       return { userId: null, email: null };
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
       console.error('[Auth] ========== checkSession 异常 ==========');
       console.error('[Auth] 异常详情:', {
-        message: e?.message,
-        stack: e?.stack?.split('\n').slice(0, 3).join('\n'),
-        isTimeout: e?.message?.includes('超时')
+        message: err?.message,
+        stack: err?.stack?.split('\n').slice(0, 3).join('\n'),
+        isTimeout: err?.message?.includes('超时')
       });
       
       // 超时不是致命错误，只是记录并继续
-      const isTimeout = e?.message?.includes('超时');
+      const isTimeout = err?.message?.includes('超时');
       if (!isTimeout) {
         this.authState.update(s => ({
           ...s,
-          error: e?.message ?? String(e)
+          error: err?.message ?? String(e)
         }));
       }
       
@@ -200,13 +201,14 @@ export class AuthService {
     this.devAutoLoginAttempted = true;
     
     // 检查是否配置了开发环境自动登录
-    const devAutoLogin = (environment as any).devAutoLogin;
+    const envWithDevLogin = environment as { devAutoLogin?: { email: string; password: string }; production?: boolean };
+    const devAutoLogin = envWithDevLogin.devAutoLogin;
     if (!devAutoLogin || !devAutoLogin.email || !devAutoLogin.password) {
       return null;
     }
     
     // 仅在非生产环境启用
-    if ((environment as any).production) {
+    if (envWithDevLogin.production) {
       console.warn('⚠️ devAutoLogin 不应在生产环境使用，已忽略');
       return null;
     }
@@ -273,8 +275,9 @@ export class AuthService {
       }));
       
       return success({ userId, email: userEmail ?? undefined });
-    } catch (e: any) {
-      const errorMsg = humanizeErrorMessage(e?.message ?? String(e));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      const errorMsg = humanizeErrorMessage(err?.message ?? String(e));
       this.authState.update(s => ({ ...s, error: errorMsg }));
       return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {
@@ -331,8 +334,9 @@ export class AuthService {
       }
       
       return success({});
-    } catch (e: any) {
-      const errorMsg = humanizeErrorMessage(e?.message ?? String(e));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      const errorMsg = humanizeErrorMessage(err?.message ?? String(e));
       this.authState.update(s => ({ ...s, error: errorMsg }));
       return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {
@@ -363,8 +367,9 @@ export class AuthService {
       }
       
       return success(undefined);
-    } catch (e: any) {
-      const errorMsg = humanizeErrorMessage(e?.message ?? String(e));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      const errorMsg = humanizeErrorMessage(err?.message ?? String(e));
       this.authState.update(s => ({ ...s, error: errorMsg }));
       return failure(ErrorCodes.UNKNOWN, errorMsg);
     } finally {

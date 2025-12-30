@@ -1194,7 +1194,7 @@ export class SyncCoordinatorService {
     // - 只做本地快照（上面已做），不再反复触发云端保存与冲突弹窗；
     // - 让用户在合适时机进入冲突解决流程。
     const existingConflict = this.conflictData();
-    if (this.hasConflict() && existingConflict && (existingConflict as any).projectId === project.id) {
+    if (this.hasConflict() && existingConflict && (existingConflict as { projectId?: string }).projectId === project.id) {
       this.logger.info('存在未解决冲突，跳过云端持久化', { projectId: project.id });
       return;
     }

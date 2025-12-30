@@ -115,8 +115,8 @@ export class DeleteConfirmModalComponent {
   constructor() {
     // 尝试注入动态模态框数据
     try {
-      this.injectedData = inject(MODAL_DATA as any, { optional: true }) as DeleteConfirmData | null;
-      this.modalRef = inject(MODAL_REF as any, { optional: true });
+      this.injectedData = inject(MODAL_DATA, { optional: true }) as DeleteConfirmData | null;
+      this.modalRef = inject(MODAL_REF, { optional: true });
       this.isDynamicMode = !!this.modalRef;
     } catch {
       // 非动态模式

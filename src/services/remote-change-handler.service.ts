@@ -19,7 +19,7 @@ import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
 import { LoggerService } from './logger.service';
 import { ChangeTrackerService } from './change-tracker.service';
-import { Project } from '../models';
+import { Project, Task } from '../models';
 
 /**
  * 远程项目变更载荷
@@ -540,11 +540,11 @@ export class RemoteChangeHandlerService {
                     }
 
                     if (dirtyFields.size > 0) {
-                      const merged: any = { ...remoteTask };
+                      const merged: Record<string, unknown> = { ...remoteTask };
                       for (const field of dirtyFields) {
                         if (field in localTask) {
-                          merged[field] = (localTask as any)[field];
-                          this.logger.debug('保护本地字段值', { taskId, field, localValue: (localTask as any)[field] });
+                          merged[field] = localTask[field as keyof Task];
+                          this.logger.debug('保护本地字段值', { taskId, field, localValue: localTask[field as keyof Task] });
                         }
                       }
                       // 【关键修复】deletedAt 优先级：任一方删除则删除
@@ -557,7 +557,7 @@ export class RemoteChangeHandlerService {
                           remoteDeletedAt: remoteTask.deletedAt 
                         });
                       }
-                      mergedTask = merged as any;
+                      mergedTask = merged as unknown as Task;
                     }
                   }
                   

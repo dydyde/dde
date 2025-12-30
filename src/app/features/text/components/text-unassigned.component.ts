@@ -64,6 +64,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                       (focus)="onInputFocus('title'); switchToEditMode()"
                       (blur)="onInputBlur('title')"
                       (keydown.escape)="closeEditor()"
+                      spellcheck="false"
                       class="w-full text-xs font-medium text-stone-800 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal transition-colors"
                       [ngClass]="{
                         'bg-white border border-stone-200': isEditMode(),
@@ -83,6 +84,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                           (focus)="onInputFocus('content')"
                           (blur)="onInputBlur('content')"
                           (keydown.escape)="closeEditor()"
+                          spellcheck="false"
                           class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-white resize-none font-mono h-10"
                           placeholder="任务描述..."></textarea>
                       } @else {
@@ -107,6 +109,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                           (keydown.enter)="addQuickTodo(task.id, quickTodoInput.value, quickTodoInput)"
                           (focus)="onInputFocus('todo')"
                           (blur)="onInputBlur('todo')"
+                          spellcheck="false"
                           class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[10px] py-0.5 px-1"
                           placeholder="待办，回车添加">
                         <button
@@ -344,7 +347,7 @@ export class TextUnassignedComponent implements OnDestroy {
         this.isTitleFocused = false;
         this.store.unlockTaskFields(taskId, ['title']);
         this.unlockTimers.delete('title');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('title', timer);
     } else if (field === 'content') {
       this.store.updateTaskContent(taskId, this.localContent());
@@ -353,7 +356,7 @@ export class TextUnassignedComponent implements OnDestroy {
         this.isContentFocused = false;
         this.store.unlockTaskFields(taskId, ['content']);
         this.unlockTimers.delete('content');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('content', timer);
     }
   }

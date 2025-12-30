@@ -237,7 +237,7 @@ export class TaskTrashService {
       return { restoredTaskIds: new Set(), restoredConnectionIds: [] };
     }
     
-    const savedConnections = (mainTask as any).deletedConnections || [];
+    const savedConnections = (mainTask.deletedConnections) || [];
     
     const idsToRestore = new Set<string>();
     const stack = [taskId];
@@ -253,8 +253,8 @@ export class TaskTrashService {
     this.recordAndUpdate(p => {
       const restoredTasks = p.tasks.map(t => {
         if (idsToRestore.has(t.id)) {
-          const meta = (t as any).deletedMeta as DeletedTaskMeta | undefined;
-          const { deletedConnections: _deletedConnections, deletedMeta: _deletedMeta, ...rest } = t as any;
+          const meta = t.deletedMeta as DeletedTaskMeta | undefined;
+          const { deletedConnections: _deletedConnections, deletedMeta: _deletedMeta, ...rest } = t;
           if (meta) {
             return {
               ...rest,

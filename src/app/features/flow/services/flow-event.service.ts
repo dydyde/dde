@@ -505,7 +505,7 @@ export class FlowEventService {
     }
   }
   
-  emitLinkClick(linkData: any, x: number, y: number, isDoubleClick?: boolean): void {
+  emitLinkClick(linkData: GoJSLinkData, x: number, y: number, isDoubleClick?: boolean): void {
     if (this.linkClickCallback) {
       this.zone.run(() => {
         this.linkClickCallback!(linkData, x, y, isDoubleClick);
@@ -513,7 +513,7 @@ export class FlowEventService {
     }
   }
   
-  emitLinkDelete(linkData: any): void {
+  emitLinkDelete(linkData: GoJSLinkData): void {
     if (this.linkDeleteCallback) {
       this.zone.run(() => {
         this.linkDeleteCallback!(linkData);
@@ -526,7 +526,7 @@ export class FlowEventService {
     relinkInfo: LinkRelinkInfo,
     x: number,
     y: number,
-    gojsLink: any
+    gojsLink: go.Link
   ): void {
     if (this.linkRelinkCallback) {
       this.zone.run(() => {
@@ -535,7 +535,7 @@ export class FlowEventService {
     }
   }
   
-  emitLinkGesture(sourceId: string, targetId: string, x: number, y: number, link: any): void {
+  emitLinkGesture(sourceId: string, targetId: string, x: number, y: number, link: go.Link): void {
     if (this.linkGestureCallback) {
       this.zone.run(() => {
         this.linkGestureCallback!(sourceId, targetId, x, y, link);
@@ -566,7 +566,7 @@ export class FlowEventService {
    */
   addTrackedListener(
     name: go.DiagramEventName | string,
-    handler: (e: any) => void
+    handler: (e: go.DiagramEvent) => void
   ): void {
     if (!this.diagram) return;
     this.diagram.addDiagramListener(name as go.DiagramEventName, handler);

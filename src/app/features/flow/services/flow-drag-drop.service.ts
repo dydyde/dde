@@ -183,13 +183,14 @@ export class FlowDragDropService {
     }
     
     // 检测节点附近
-    let closestNode: go.Node | null = null;
+    let closestNode = null as go.Node | null;
     let closestDistance = Infinity;
     let insertPosition: string = 'after';
     
     diagram.nodes.each((node: go.Node) => {
       // 跳过待分配节点
-      if ((node.data as any)?.isUnassigned || (node.data as any)?.stage === null) {
+      const nodeData = node.data as go.ObjectData;
+      if (nodeData?.isUnassigned || nodeData?.stage === null) {
         return;
       }
       
@@ -215,7 +216,8 @@ export class FlowDragDropService {
     
     if (!closestNode) return {};
     
-    const nodeId = ((closestNode as any).data as any).key;
+    const closestNodeData = closestNode.data as go.ObjectData;
+    const nodeId = closestNodeData.key as string;
     
     if (insertPosition === 'child') {
       return { parentId: nodeId };
@@ -295,15 +297,16 @@ export class FlowDragDropService {
     diagram: go.Diagram
   ): { sourceId: string; targetId: string } | null {
     const linkThreshold = 50;
-    let closestLink: any = null;
+    let closestLink = null as go.Link | null;
     let closestDistance = Infinity;
     
     diagram.links.each((link: go.Link) => {
       // 只处理父子连接线（非跨树连接）
-      if ((link.data as any)?.isCrossTree) return;
+      const linkData = link.data as go.ObjectData;
+      if (linkData?.isCrossTree) return;
       
       // 确保连接线有有效数据
-      if (!(link.data as any)?.from || !(link.data as any)?.to) return;
+      if (!linkData?.from || !linkData?.to) return;
       
       // 计算点到连接线的距离
       const distance = this.pointToLinkDistance(loc, link);
@@ -315,7 +318,8 @@ export class FlowDragDropService {
     });
     
     if (closestLink && closestLink.data) {
-      const data = closestLink.data;
+      const data = closestLink.data as go.ObjectData & { from?: string; to?: string };
+      if (!data.from || !data.to) return null;
       this.logger.info('检测到靠近连接线', {
         from: data.from,
         to: data.to,

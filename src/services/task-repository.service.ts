@@ -23,7 +23,7 @@ export interface TaskRow {
   priority: 'low' | 'medium' | 'high' | 'urgent' | null;
   due_date: string | null;
   tags: string[];
-  attachments: any[];
+  attachments: Attachment[];
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -199,16 +199,17 @@ export class TaskRepositoryService {
   async saveTask(projectId: string, task: Task): Promise<{ success: boolean; error?: string }> {
     if (!this.supabase.isConfigured) return { success: true };
 
-    const taskRow = this.mapTaskToRow(projectId, task) as any;
+    const taskRow = this.mapTaskToRow(projectId, task);
+    const rowToUpsert: Record<string, unknown> = { ...taskRow };
     // tombstone-wins：不允许通过“缺省同步”清空 deleted_at。
     // 恢复任务应走显式 restore（增量变更会携带 changedFields=deletedAt）。
     if ((task.deletedAt ?? null) === null) {
-      delete taskRow.deleted_at;
+      delete rowToUpsert.deleted_at;
     }
 
     const { error } = await this.supabase.client()
       .from('tasks')
-      .upsert(taskRow, { onConflict: 'id' });
+      .upsert(rowToUpsert, { onConflict: 'id' });
 
     if (error) {
       console.error('Failed to save task:', error);
@@ -228,11 +229,12 @@ export class TaskRepositoryService {
     if (tasks.length === 0) return { success: true };
 
     const taskRows = tasks.map(task => {
-      const row = this.mapTaskToRow(projectId, task) as any;
+      const row = this.mapTaskToRow(projectId, task);
+      const rowToUpsert: Record<string, unknown> = { ...row };
       if ((task.deletedAt ?? null) === null) {
-        delete row.deleted_at;
+        delete rowToUpsert.deleted_at;
       }
-      return row;
+      return rowToUpsert;
     });
 
     // 对于大批量任务，分批处理以避免超时和单次失败影响所有数据
@@ -367,7 +369,7 @@ export class TaskRepositoryService {
   async updateTaskField(
     taskId: string, 
     field: keyof TaskRow, 
-    value: any
+    value: TaskRow[keyof TaskRow]
   ): Promise<{ success: boolean; error?: string }> {
     if (!this.supabase.isConfigured) return { success: true };
 
@@ -411,7 +413,7 @@ export class TaskRepositoryService {
    */
   async addAttachment(
     taskId: string, 
-    attachment: any
+    attachment: Attachment
   ): Promise<{ success: boolean; error?: string }> {
     if (!this.supabase.isConfigured) return { success: true };
 
@@ -436,7 +438,7 @@ export class TaskRepositoryService {
    */
   private async addAttachmentFallback(
     taskId: string, 
-    attachment: any
+    attachment: Attachment
   ): Promise<{ success: boolean; error?: string }> {
     const { data, error: fetchError } = await this.supabase.client()
       .from('tasks')
@@ -515,7 +517,7 @@ export class TaskRepositoryService {
 
     const currentAttachments = data?.attachments || [];
     const newAttachments = currentAttachments.filter(
-      (a: any) => a.id !== attachmentId
+      (a: Attachment) => a.id !== attachmentId
     );
 
     const { error } = await this.supabase.client()
@@ -593,8 +595,9 @@ export class TaskRepositoryService {
       let existingConnections: Connection[] = [];
       try {
         existingConnections = await this.loadConnections(projectId);
-      } catch (loadError: any) {
-        console.warn('加载现有连接失败，尝试全量插入:', loadError.message);
+      } catch (loadError: unknown) {
+        const err = loadError as Error | undefined;
+        console.warn('加载现有连接失败，尝试全量插入:', err?.message);
         // 如果加载失败，回退到全量 upsert
         return this.syncConnectionsFallback(projectId, connections);
       }
@@ -719,9 +722,10 @@ export class TaskRepositoryService {
       
       // console.log(`连接同步完成: 删除 ${toDelete.length}, 新增 ${toInsert.length}, 更新 ${toUpdate.length}, 错误 ${errors.length}`);
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error | undefined;
       console.error('Connection sync failed:', error);
-      return { success: false, error: error.message || String(error) };
+      return { success: false, error: err?.message || String(error) };
     }
   }
 
@@ -978,7 +982,8 @@ export class TaskRepositoryService {
     // 3. 批量更新任务
     if (tasksToUpdate.length > 0) {
       const updateRows = tasksToUpdate.map(task => {
-        const row = this.mapTaskToRow(projectId, task) as any;
+        const row = this.mapTaskToRow(projectId, task);
+        const rowToUpdate: Record<string, unknown> = { ...row };
         const changedFields = taskUpdateFieldsById?.[task.id] ?? [];
 
         // tombstone-wins：
@@ -986,10 +991,10 @@ export class TaskRepositoryService {
         // - 且当前 task.deletedAt 为 null
         // 则不发送 deleted_at 字段，避免把远端已存在的 deleted_at 覆盖回 null（导致复活）。
         if ((task.deletedAt ?? null) === null && !changedFields.includes('deletedAt')) {
-          delete row.deleted_at;
+          delete rowToUpdate.deleted_at;
         }
 
-        return row;
+        return rowToUpdate;
       });
       
       for (let i = 0; i < updateRows.length; i += BATCH_SIZE) {

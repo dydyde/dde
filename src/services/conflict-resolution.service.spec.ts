@@ -17,6 +17,7 @@ import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { LayoutService } from './layout.service';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
+import { ChangeTrackerService } from './change-tracker.service';
 import { Project, Task, Connection } from '../models';
 
 // ========== 模拟依赖服务 ==========
@@ -60,6 +61,15 @@ const mockLoggerCategory = {
 
 const mockLoggerService = {
   category: vi.fn(() => mockLoggerCategory),
+};
+
+// 模拟 ChangeTrackerService
+const mockChangeTrackerService = {
+  getLockedFields: vi.fn().mockReturnValue([]),
+  lockTaskField: vi.fn(),
+  unlockTaskField: vi.fn(),
+  clearProjectFieldLocks: vi.fn(),
+  isTaskFieldLocked: vi.fn().mockReturnValue(false),
 };
 
 // ========== 辅助函数 ==========
@@ -124,6 +134,7 @@ describe('ConflictResolutionService', () => {
         { provide: LayoutService, useValue: mockLayoutService },
         { provide: ToastService, useValue: mockToastService },
         { provide: LoggerService, useValue: mockLoggerService },
+        { provide: ChangeTrackerService, useValue: mockChangeTrackerService },
       ],
     });
 
@@ -538,6 +549,92 @@ describe('ConflictResolutionService', () => {
 
       const result3 = service.smartMerge(localProject3, remoteProject3, new Set());
       expect(result3.project.tasks[0].deletedAt).toBe(earlierTime);
+    });
+
+    it('被锁定的 status 字段应该始终使用本地版本', () => {
+      // 模拟 status 字段被锁定（用户正在操作）
+      mockChangeTrackerService.getLockedFields.mockReturnValue(['status']);
+      
+      const localProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          status: 'completed',  // 本地：已完成
+          updatedAt: new Date('2024-01-01').toISOString(),  // 本地时间更早
+        })],
+      });
+      const remoteProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          status: 'active',  // 远程：进行中
+          updatedAt: new Date('2024-01-02').toISOString(),  // 远程时间更新
+        })],
+      });
+
+      const result = service.smartMerge(localProject, remoteProject, new Set());
+
+      // 即使远程时间更新，也应该使用本地的 status（因为被锁定）
+      expect(result.project.tasks[0].status).toBe('completed');
+      
+      // 恢复默认行为
+      mockChangeTrackerService.getLockedFields.mockReturnValue([]);
+    });
+
+    it('被锁定的 title 字段应该始终使用本地版本', () => {
+      mockChangeTrackerService.getLockedFields.mockReturnValue(['title']);
+      
+      const localProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          title: 'Local Title',
+          updatedAt: new Date('2024-01-01').toISOString(),
+        })],
+      });
+      const remoteProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          title: 'Remote Title',
+          updatedAt: new Date('2024-01-02').toISOString(),
+        })],
+      });
+
+      const result = service.smartMerge(localProject, remoteProject, new Set());
+
+      expect(result.project.tasks[0].title).toBe('Local Title');
+      
+      mockChangeTrackerService.getLockedFields.mockReturnValue([]);
+    });
+
+    it('未锁定的字段应该使用 LWW 策略', () => {
+      mockChangeTrackerService.getLockedFields.mockReturnValue([]);
+      
+      const localProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          status: 'active',
+          title: 'Local Title',
+          updatedAt: new Date('2024-01-01').toISOString(),  // 本地时间更早
+        })],
+      });
+      const remoteProject = createTestProject({
+        id: 'proj-1',
+        tasks: [createTestTask({
+          id: 'task-1',
+          status: 'completed',
+          title: 'Remote Title',
+          updatedAt: new Date('2024-01-02').toISOString(),  // 远程时间更新
+        })],
+      });
+
+      const result = service.smartMerge(localProject, remoteProject, new Set());
+
+      // 未锁定，应该使用更新时间较新的远程版本
+      expect(result.project.tasks[0].status).toBe('completed');
+      expect(result.project.tasks[0].title).toBe('Remote Title');
     });
   });
 

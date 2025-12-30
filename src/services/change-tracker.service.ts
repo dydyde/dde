@@ -78,14 +78,22 @@ export interface ProjectChangeSummary {
 }
 
 /**
+ * 字段锁定数据
+ */
+export interface FieldLockData {
+  timestamp: number;
+  duration: number;
+}
+
+/**
  * 任务字段变更
  */
 export interface TaskFieldChange {
   taskId: string;
   projectId: string;
   field: string;
-  oldValue: any;
-  newValue: any;
+  oldValue: unknown;
+  newValue: unknown;
 }
 
 @Injectable({
@@ -110,7 +118,7 @@ export class ChangeTrackerService {
    * Key: `${projectId}:${taskId}:${field}`
    * Value: 锁定时间戳（用于超时自动解锁）
    */
-  private fieldLocks = new Map<string, number>();
+  private fieldLocks = new Map<string, number | FieldLockData>();
   
   /** 
    * 字段锁超时时间（毫秒）- 防止死锁
@@ -776,7 +784,7 @@ export class ChangeTrackerService {
       timestamp: Date.now(),
       duration: durationMs ?? ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS
     };
-    this.fieldLocks.set(key, lockData as any); // 类型兼容性处理
+    this.fieldLocks.set(key, lockData);
     this.logger.debug('锁定任务字段', { taskId, projectId, field, durationMs: lockData.duration });
   }
   
@@ -828,7 +836,7 @@ export class ChangeTrackerService {
    */
   isTaskFieldLocked(taskId: string, projectId: string, field: string): boolean {
     const key = this.makeFieldLockKey(projectId, taskId, field);
-    const lockData = this.fieldLocks.get(key) as any;
+    const lockData = this.fieldLocks.get(key) as FieldLockData | number | undefined;
     
     if (!lockData) {
       return false;
@@ -866,10 +874,10 @@ export class ChangeTrackerService {
     for (const [key, lockData] of this.fieldLocks.entries()) {
       if (key.startsWith(prefix)) {
         // 支持新格式（带 duration）和旧格式（纯时间戳）的兼容
-        const timestamp = typeof lockData === 'number' ? lockData : (lockData as any).timestamp;
+        const timestamp = typeof lockData === 'number' ? lockData : (lockData as FieldLockData).timestamp;
         const duration = typeof lockData === 'number' 
           ? ChangeTrackerService.FIELD_LOCK_TIMEOUT_MS 
-          : (lockData as any).duration;
+          : (lockData as FieldLockData).duration;
         
         // 检查超时
         if (now - timestamp <= duration) {

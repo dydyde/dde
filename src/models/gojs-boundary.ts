@@ -234,7 +234,7 @@ export interface GojsSelectionData {
 /**
  * 从 GoJS Diagram 提取选择数据
  */
-export function extractSelectionData(diagram: any): GojsSelectionData {
+export function extractSelectionData(diagram: go.Diagram): GojsSelectionData {
   const selectedNodeIds: string[] = [];
   const selectedLinkKeys: string[] = [];
   
@@ -244,7 +244,7 @@ export function extractSelectionData(diagram: any): GojsSelectionData {
       const part = iterator.value;
       if (part.data?.key) {
         // 判断是节点还是连接线
-        if (part.fromNode !== undefined) {
+        if (part instanceof go.Link) {
           // 是连接线
           selectedLinkKeys.push(part.data.key);
         } else {

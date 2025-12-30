@@ -2,7 +2,7 @@ import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy
 import { CommonModule, DatePipe } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../../../services/store.service';
-import { Task } from '../../../../models';
+import { Task, Connection } from '../../../../models';
 import { renderMarkdownSafe } from '../../../../utils/markdown';
 import { TextTaskEditorComponent } from './text-task-editor.component';
 
@@ -92,7 +92,7 @@ export class TextTaskCardComponent implements OnChanges {
   @Input() isDragging = false;
   @Input() userId: string | null = null;
   @Input() projectId: string | null = null;
-  @Input() connections: any = null;
+  @Input() connections: Connection[] | null = null;
   @Input() stageNumber = 0;
   
   ngOnChanges(changes: SimpleChanges) {

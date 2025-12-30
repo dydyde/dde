@@ -4,7 +4,7 @@ import { DomSanitizer } from '@angular/platform-browser';
 import { StoreService } from '../../../../services/store.service';
 import { AttachmentService } from '../../../../services/attachment.service';
 import { ToastService } from '../../../../services/toast.service';
-import { Task, Attachment } from '../../../../models';
+import { Task, Attachment, Connection } from '../../../../models';
 import { renderMarkdownSafe } from '../../../../utils/markdown';
 import { TextTaskConnectionsComponent } from './text-task-connections.component';
 
@@ -42,6 +42,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           (blur)="onInputBlur('title')"
           (mousedown)="isSelecting = true"
           (mouseup)="isSelecting = false"
+          spellcheck="false"
           class="w-full font-medium text-retro-dark border rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none touch-manipulation transition-colors"
           [ngClass]="{
             'text-sm p-2': !isMobile, 
@@ -87,6 +88,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (blur)="onInputBlur('content')"
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
+              spellcheck="false"
               class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-white resize-none touch-manipulation"
               [ngClass]="{'h-24 text-xs p-2 pr-14': !isMobile, 'h-28 text-[11px] p-2 pr-14': isMobile}"
               placeholder="输入 Markdown 内容..."></textarea>
@@ -107,6 +109,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (blur)="onInputBlur('todo')"
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
+              spellcheck="false"
               class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
               [ngClass]="{'text-xs py-1.5 px-2': !isMobile, 'text-[11px] py-1 px-1.5': isMobile}"
               placeholder="输入待办内容，按回车添加...">
@@ -281,7 +284,7 @@ export class TextTaskEditorComponent implements OnDestroy {
   @Input() isMobile = false;
   @Input() userId: string | null = null;
   @Input() projectId: string | null = null;
-  @Input() connections: any = null;
+  @Input() connections: Connection[] | null = null;
   @Input() initialPreview = true;
   
   @Output() addSibling = new EventEmitter<void>();
@@ -453,12 +456,12 @@ export class TextTaskEditorComponent implements OnDestroy {
       // 提交本地内容到 Store
       this.store.updateTaskTitle(this.task.id, this.localTitle());
       
-      // 延迟 5 秒后解锁（等待同步防抖 3s + 网络延迟 2s）
+      // 延迟 10 秒后解锁（等待同步防抖 3s + 网络延迟 + 额外缓冲）
       const timer = setTimeout(() => {
         this.isTitleFocused = false;
         this.store.unlockTaskFields(this.task.id, ['title']);
         this.unlockTimers.delete('title');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('title', timer);
     } else if (field === 'content') {
       this.store.updateTaskContent(this.task.id, this.localContent());
@@ -467,7 +470,7 @@ export class TextTaskEditorComponent implements OnDestroy {
         this.isContentFocused = false;
         this.store.unlockTaskFields(this.task.id, ['content']);
         this.unlockTimers.delete('content');
-      }, 5000);
+      }, 10000);
       this.unlockTimers.set('content', timer);
     }
   }

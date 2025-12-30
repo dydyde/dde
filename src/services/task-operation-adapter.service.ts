@@ -29,7 +29,7 @@
  * ✗ 任务 CRUD 逻辑 → TaskOperationService
  * ✗ 数据持久化 → SyncCoordinatorService
  */
-import { Injectable, inject, Injector } from '@angular/core';
+import { Injectable, inject, Injector, Type } from '@angular/core';
 import { TaskOperationService } from './task-operation.service';
 import { SyncCoordinatorService } from './sync-coordinator.service';
 import { ChangeTrackerService } from './change-tracker.service';
@@ -743,11 +743,11 @@ export class TaskOperationAdapterService {
    * 获取 StoreService 实例（延迟注入避免循环依赖）
    * 使用 injector 动态获取
    */
-  private getStoreService(): any {
+  private getStoreService(): { undo: () => void } | null {
     try {
       // 使用 Angular Injector 动态获取 StoreService
       // 延迟导入避免循环依赖（StoreService -> TaskOperationAdapterService -> StoreService）
-      const StoreService = this.injector.get('StoreService' as any);
+      const StoreService = this.injector.get('StoreService' as unknown as Type<{ undo: () => void }>);
       return StoreService;
     } catch (e) {
       this.logger.warn('无法获取 StoreService（可能存在循环依赖）', e);

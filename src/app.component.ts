@@ -310,7 +310,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.setupRouteSync();
     
     // 标记应用已加载完成，用于隐藏初始加载指示器
-    (window as any).__NANOFLOW_READY__ = true;
+    (window as unknown as { __NANOFLOW_READY__?: boolean }).__NANOFLOW_READY__ = true;
     // console.log('[NanoFlow] ✅ ngOnInit 完成，应用已就绪');
     
     // 🔍 调试：输出关键状态
@@ -678,17 +678,18 @@ export class AppComponent implements OnInit, OnDestroy {
       }
       
       console.log('[Bootstrap] ========== 启动成功 ==========');
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 只有会话检查失败才算启动失败
+      const err = e as Error | undefined;
       console.error('[Bootstrap] ========== 启动失败 ==========');
       console.error('[Bootstrap] 错误详情:', {
-        message: e?.message,
-        stack: e?.stack,
-        name: e?.name,
-        cause: e?.cause
+        message: err?.message,
+        stack: err?.stack,
+        name: err?.name,
+        cause: err?.cause
       });
       
-      const errorMsg = humanizeErrorMessage(e?.message ?? String(e));
+      const errorMsg = humanizeErrorMessage(err?.message ?? String(e));
       console.error('[Bootstrap] 转换后的用户消息:', errorMsg);
       
       this.bootstrapFailed.set(true);
@@ -756,8 +757,9 @@ export class AppComponent implements OnInit, OnDestroy {
       if (returnUrl && returnUrl !== '/') {
         void this.router.navigateByUrl(returnUrl);
       }
-    } catch (e: any) {
-      this.authError.set(humanizeErrorMessage(e?.message ?? String(e)));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      this.authError.set(humanizeErrorMessage(err?.message ?? String(e)));
     } finally {
       this.isAuthLoading.set(false);
       this.isCheckingSession.set(false);
@@ -803,8 +805,9 @@ export class AppComponent implements OnInit, OnDestroy {
         this.modal.closeByType('login', { success: true, userId: this.auth.currentUserId() ?? undefined });
         this.isSignupMode.set(false);
       }
-    } catch (e: any) {
-      this.authError.set(humanizeErrorMessage(e?.message ?? String(e)));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      this.authError.set(humanizeErrorMessage(err?.message ?? String(e)));
     } finally {
       this.isAuthLoading.set(false);
     }
@@ -831,8 +834,9 @@ export class AppComponent implements OnInit, OnDestroy {
         throw new Error(getErrorMessage(result.error));
       }
       this.resetPasswordSent.set(true);
-    } catch (e: any) {
-      this.authError.set(humanizeErrorMessage(e?.message ?? String(e)));
+    } catch (e: unknown) {
+      const err = e as Error | undefined;
+      this.authError.set(humanizeErrorMessage(err?.message ?? String(e)));
     } finally {
       this.isAuthLoading.set(false);
     }

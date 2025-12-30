@@ -44,7 +44,7 @@ const RETRYABLE_ERROR_TYPES = new Set([
  * @param error - Supabase 错误对象或标准 Error
  * @returns 增强的 Error 实例，包含 isRetryable 和 errorType 属性
  */
-export function supabaseErrorToError(error: any): EnhancedError {
+export function supabaseErrorToError(error: unknown): EnhancedError {
   if (error instanceof Error) {
     const enhanced = error as EnhancedError;
     const lowerMsg = enhanced.message.toLowerCase();
@@ -82,8 +82,9 @@ export function supabaseErrorToError(error: any): EnhancedError {
   }
   
   // 识别网络相关错误
-  const code = error?.code || error?.status;
-  let message = error?.message;
+  const errObj = error as { code?: string | number; status?: string | number; message?: string; details?: string };
+  const code = errObj?.code || errObj?.status;
+  let message = errObj?.message;
   let errorType = 'SupabaseError';
   
   // HTTP 状态码判断（优先级最高，因为最可靠）
@@ -142,8 +143,8 @@ export function supabaseErrorToError(error: any): EnhancedError {
   
   // 保留原始错误信息
   err.code = code;
-  err.details = error?.details;
-  err.hint = error?.hint;
+  err.details = errObj?.details;
+  err.hint = (error as { hint?: string })?.hint;
   err.isRetryable = RETRYABLE_ERROR_TYPES.has(errorType);
   err.errorType = errorType;
   
@@ -156,7 +157,7 @@ export function supabaseErrorToError(error: any): EnhancedError {
  * @param error - 错误对象
  * @returns 是否可重试
  */
-export function isRetryableError(error: any): boolean {
+export function isRetryableError(error: unknown): boolean {
   if (!error) return false;
   
   const enhanced = supabaseErrorToError(error);
@@ -169,7 +170,7 @@ export function isRetryableError(error: any): boolean {
  * @param error - 错误对象
  * @returns 用户友好的错误消息
  */
-export function getFriendlyErrorMessage(error: any): string {
+export function getFriendlyErrorMessage(error: unknown): string {
   const enhanced = supabaseErrorToError(error);
   
   // 对于可重试的错误，提供简洁的提示

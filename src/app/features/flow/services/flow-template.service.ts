@@ -25,6 +25,50 @@ import { StoreService } from '../../../../services/store.service';
 import { LoggerService } from '../../../../services/logger.service';
 import * as go from 'gojs';
 
+// ========== GoJS 扩展类型定义 ==========
+
+/** GoJS 事件回调类型 */
+type GojsClickHandler = (e: go.InputEvent, obj: go.GraphObject | null) => void;
+type GojsShapeBuilder = go.Shape;
+
+/** GoJS Node 扩展属性（类型定义不完整的属性） */
+interface GojsNodeExt {
+  data?: go.ObjectData;
+  findObject?: (name: string) => go.GraphObject | null;
+}
+
+/** GoJS GraphObject 扩展属性 */
+interface GojsGraphObjectExt {
+  part?: go.Part | null;
+}
+
+/** GoJS LinkingTool 扩展属性 */
+interface GojsLinkingToolExt {
+  originalFromPort?: go.GraphObject | string | null;
+  originalToPort?: go.GraphObject | string | null;
+  originalFromNode?: go.Node | null;
+  _tempMainPort?: go.GraphObject | null;
+  _originNode?: go.Node | null;
+  _savedFromLinkable?: boolean;
+  _savedToLinkable?: boolean;
+  startPort?: go.GraphObject | string | null;
+  fromPort?: go.GraphObject | string | null;
+  fromNode?: go.Node | null;
+}
+
+/** GoJS RelinkingTool 扩展属性 */
+interface GojsRelinkingToolExt {
+  originalFromPort?: go.GraphObject | string | null;
+  originalToPort?: go.GraphObject | string | null;
+  adornedLink?: go.Link | null;
+  adornedObject?: go.Link | null;
+  originalLink?: go.Link | null;
+  isForwards?: boolean;
+}
+
+/** GoJS 模板构建器函数类型 - 使用 typeof go.GraphObject.make */
+type GojsMake = typeof go.GraphObject.make;
+
 /**
  * 节点端口配置
  */
@@ -236,7 +280,7 @@ export class FlowTemplateService {
      * 创建边缘连接手柄
      * 使用 any 类型避免 GoJS 泛型类型不兼容问题
      */
-    const makePort = (name: string, spot: go.Spot): any => {
+    const makePort = (name: string, spot: go.Spot): GojsShapeBuilder => {
       return $(go.Shape, "Circle", {
         fill: "transparent",
         stroke: null,
@@ -251,14 +295,14 @@ export class FlowTemplateService {
         toSpot: go.Spot.None,
         isActionable: false,
         cursor: "crosshair",
-        mouseEnter: (e: any, port: any) => {
-          if (e.diagram.isReadOnly) return;
-          port.fill = "#4A8C8C";
-          port.stroke = "#44403C";
+        mouseEnter: (e: go.InputEvent, obj: go.GraphObject, _prev: go.GraphObject | null) => {
+          if (e.diagram?.isReadOnly) return;
+          (obj as go.Shape).fill = "#4A8C8C";
+          (obj as go.Shape).stroke = "#44403C";
         },
-        mouseLeave: (_e: any, port: any) => {
-          port.fill = "transparent";
-          port.stroke = null;
+        mouseLeave: (_e: go.InputEvent, obj: go.GraphObject, _next: go.GraphObject | null) => {
+          (obj as go.Shape).fill = "transparent";
+          (obj as go.Shape).stroke = null;
         }
       });
     };
@@ -274,46 +318,48 @@ export class FlowTemplateService {
         fromLinkableDuplicates: false,
         toLinkableDuplicates: true,
         // 事件代理：通过全局事件总线发送信号
-        click: (e: any, node: any) => {
-          if (e.diagram.lastInput.dragging) return;
-          if (e.diagram.lastInput.clickCount >= 2) return;
+        click: ((e: go.InputEvent, node: go.GraphObject) => {
+          // dragging 不是 go.InputEvent 的标准属性，使用 isTouchDevice + 检查 DraggingTool
+          const diagram = e.diagram;
+          if (diagram?.toolManager?.draggingTool?.isActive) return;
+          if (e.diagram?.lastInput.clickCount >= 2) return;
           if (e.handled) return; // 已由 ClickSelectingTool 处理
           
           // 支持多选：检测 Shift/Ctrl/Cmd 键或框选模式
-          const input = e as go.InputEvent;
-          const lastInput = e.diagram.lastInput as go.InputEvent;
-          const domEvent = (input as any)?.event as (MouseEvent | PointerEvent | KeyboardEvent | undefined);
+          const input = e;
+          const lastInput = e.diagram?.lastInput as go.InputEvent;
+          const domEvent = (input as go.InputEvent & { event?: MouseEvent | PointerEvent | KeyboardEvent })?.event;
 
           const shift = Boolean(input?.shift || lastInput?.shift || domEvent?.shiftKey);
-          const ctrl = Boolean(input?.control || lastInput?.control || (domEvent as any)?.ctrlKey);
-          const meta = Boolean(input?.meta || lastInput?.meta || (domEvent as any)?.metaKey); // Mac 的 Cmd 键
+          const ctrl = Boolean(input?.control || lastInput?.control || (domEvent as MouseEvent | undefined)?.ctrlKey);
+          const meta = Boolean(input?.meta || lastInput?.meta || (domEvent as MouseEvent | undefined)?.metaKey); // Mac 的 Cmd 键
           const isSelectModifierPressed = shift || ctrl || meta;
           
           // 框选模式（移动端切换）
-          const dragSelectTool = e.diagram.toolManager.dragSelectingTool;
+          const dragSelectTool = e.diagram?.toolManager.dragSelectingTool;
           const isSelectModeActive = Boolean(dragSelectTool && dragSelectTool.isEnabled);
 
           console.log('[FlowTemplate] 节点点击事件', {
             isSelectModeActive,
             dragSelectToolEnabled: dragSelectTool?.isEnabled,
-            nodeSelected: node.isSelected,
-            nodeKey: node.key
+            nodeSelected: (node as go.Node).isSelected,
+            nodeKey: (node as go.Node).key
           });
 
           // 移动端框选模式：点击节点立即切换选中状态
           if (isSelectModeActive) {
-            console.log('[FlowTemplate] 框选模式激活 - 切换节点选中状态', { from: node.isSelected, to: !node.isSelected });
+            console.log('[FlowTemplate] 框选模式激活 - 切换节点选中状态', { from: (node as go.Node).isSelected, to: !(node as go.Node).isSelected });
             e.handled = true;
             // 在事务中切换选中状态
-            e.diagram.startTransaction('toggle-selection');
-            node.isSelected = !node.isSelected;
-            e.diagram.commitTransaction('toggle-selection');
+            e.diagram?.startTransaction('toggle-selection');
+            (node as go.Node).isSelected = !(node as go.Node).isSelected;
+            e.diagram?.commitTransaction('toggle-selection');
             // 手动触发 ChangedSelection 事件
-            e.diagram.raiseDiagramEvent('ChangedSelection');
+            e.diagram?.raiseDiagramEvent('ChangedSelection');
             console.log('[FlowTemplate] 选中状态已更新', { 
-              nodeKey: node.key, 
-              isSelected: node.isSelected,
-              totalSelected: e.diagram.selection.count
+              nodeKey: (node as go.Node).key, 
+              isSelected: (node as go.Node).isSelected,
+              totalSelected: e.diagram?.selection.count
             });
             return;
           }
@@ -325,12 +371,12 @@ export class FlowTemplateService {
           }
 
           // 普通点击：调用事件处理器（单选逻辑由事件服务处理）
-          flowTemplateEventHandlers.onNodeClick?.(node);
-        },
-        doubleClick: (e: any, node: any) => {
+          flowTemplateEventHandlers.onNodeClick?.(node as go.Node);
+        }) as GojsClickHandler,
+        doubleClick: ((e: go.InputEvent, node: go.GraphObject) => {
           e.handled = true;
-          flowTemplateEventHandlers.onNodeDoubleClick?.(node);
-        }
+          flowTemplateEventHandlers.onNodeDoubleClick?.(node as go.Node);
+        }) as GojsClickHandler
       },
       new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
       
@@ -356,9 +402,9 @@ export class FlowTemplateService {
           isPanelMain: true
         },
         new go.Binding("fill", "color"),
-        new go.Binding("stroke", "", (data: any, obj: go.GraphObject) => {
-          if ((obj.part as go.Node)?.isSelected) return data.selectedBorderColor || "#4A8C8C";
-          return data.borderColor || "#78716C";
+        new go.Binding("stroke", "", (data: go.ObjectData, obj: go.GraphObject) => {
+          if ((obj.part as go.Node)?.isSelected) return (data as { selectedBorderColor?: string }).selectedBorderColor || "#4A8C8C";
+          return (data as { borderColor?: string }).borderColor || "#78716C";
         }).ofObject(),
         new go.Binding("strokeWidth", "borderWidth")),
         
@@ -431,24 +477,24 @@ export class FlowTemplateService {
         relinkableTo: true,
         reshapable: true,
         resegmentable: false,
-        // 事件代理：桌面端连接线点击（使用 any 类型避免类型兼容问题）
+        // 事件代理：桌面端连接线点击
         click: isMobile
           ? () => { /* 移动端空处理器 */ }
-          : (e: any, link: any) => {
+          : ((e: go.InputEvent, link: go.GraphObject) => {
               if (e.handled) return;
               e.handled = true;
-              flowTemplateEventHandlers.onLinkClick?.(link);
-            },
+              flowTemplateEventHandlers.onLinkClick?.(link as go.Link);
+            }) as GojsClickHandler,
         contextMenu: $(go.Adornment, "Vertical",
           $("ContextMenuButton",
             $(go.TextBlock, "删除连接", { margin: 5 }),
             {
-              click: (e: any, obj: any) => {
-                const link = obj.part?.adornedPart;
-                if (link?.data) {
-                  flowTemplateEventHandlers.onLinkDeleteRequest?.(link);
+              click: ((e: go.InputEvent, obj: go.GraphObject) => {
+                const link = (obj.part as go.Adornment)?.adornedPart;
+                if ((link as go.Link)?.data) {
+                  flowTemplateEventHandlers.onLinkDeleteRequest?.(link as go.Link);
                 }
-              }
+              }) as GojsClickHandler
             }
           )
         )
@@ -475,16 +521,18 @@ export class FlowTemplateService {
       // 策略1: 从连接线的 fromNode/toNode 获取
       if (from) {
         if (this.fromNode) {
-          const hasData = !!(this.fromNode as any).data;
-          const hasBody = !!(this.fromNode as any).findObject?.('BODY');
+          const nodeExt = this.fromNode as go.Node & GojsNodeExt;
+          const hasData = !!nodeExt.data;
+          const hasBody = !!nodeExt.findObject?.('BODY');
           if (hasData || hasBody) {
             actualNode = this.fromNode;
           }
         }
       } else {
         if (this.toNode) {
-          const hasData = !!(this.toNode as any).data;
-          const hasBody = !!(this.toNode as any).findObject?.('BODY');
+          const nodeExt = this.toNode as go.Node & GojsNodeExt;
+          const hasData = !!nodeExt.data;
+          const hasBody = !!nodeExt.findObject?.('BODY');
           if (hasData || hasBody) {
             actualNode = this.toNode;
           }
@@ -493,20 +541,25 @@ export class FlowTemplateService {
       
       // 策略2: 使用传入的 node 参数
       if (!actualNode && node instanceof go.Node) {
-        const hasData = !!(node as any).data;
-        const hasBody = !!(node as any).findObject?.('BODY');
+        const nodeExt = node as go.Node & GojsNodeExt;
+        const hasData = !!nodeExt.data;
+        const hasBody = !!nodeExt.findObject?.('BODY');
         if (hasData || hasBody) {
           actualNode = node;
         }
       }
       
       // 策略3: 从 port.part 获取
-      if (!actualNode && port && (port as any).part instanceof go.Node) {
-        const partNode = (port as any).part;
-        const hasData = !!(partNode as any).data;
-        const hasBody = !!(partNode as any).findObject?.('BODY');
-        if (hasData || hasBody) {
-          actualNode = partNode;
+      if (!actualNode && port) {
+        const portExt = port as go.GraphObject & GojsGraphObjectExt;
+        if (portExt.part instanceof go.Node) {
+          const partNode = portExt.part;
+          const nodeExt = partNode as go.Node & GojsNodeExt;
+          const hasData = !!nodeExt.data;
+          const hasBody = !!nodeExt.findObject?.('BODY');
+          if (hasData || hasBody) {
+            actualNode = partNode;
+          }
         }
       }
       
@@ -516,21 +569,23 @@ export class FlowTemplateService {
         const relinkingTool = this.diagram.toolManager.relinkingTool;
         
         if (linkingTool.isActive) {
+          const linkToolExt = linkingTool as go.LinkingTool & GojsLinkingToolExt;
           const originalPort = from 
-            ? ((linkingTool as any).originalFromPort || (linkingTool as any)._tempMainPort)
-            : (linkingTool as any).originalToPort;
+            ? (linkToolExt.originalFromPort || linkToolExt._tempMainPort)
+            : linkToolExt.originalToPort;
           
           if (typeof originalPort === 'string') {
             actualNode = this.diagram.findNodeForKey(originalPort);
-          } else if (originalPort && originalPort.part instanceof go.Node) {
-            actualNode = originalPort.part;
+          } else if (originalPort && (originalPort as go.GraphObject).part instanceof go.Node) {
+            actualNode = (originalPort as go.GraphObject).part as go.Node;
           }
         }
         
         if (!actualNode && relinkingTool.isActive) {
-          let adornedLink = (relinkingTool as any).adornedLink || 
-                           (relinkingTool as any).adornedObject ||
-                           (relinkingTool as any).originalLink;
+          const relinkToolExt = relinkingTool as go.RelinkingTool & GojsRelinkingToolExt;
+          let adornedLink = relinkToolExt.adornedLink || 
+                           relinkToolExt.adornedObject ||
+                           relinkToolExt.originalLink;
           
           if (!adornedLink && this.diagram.selection) {
             this.diagram.selection.each((part: go.Part) => {
@@ -541,8 +596,8 @@ export class FlowTemplateService {
           }
           
           if (adornedLink instanceof go.Link) {
-            const isRelinkingFrom = (relinkingTool as any).isForwards === false;
-            const isRelinkingTo = (relinkingTool as any).isForwards === true;
+            const isRelinkingFrom = relinkToolExt.isForwards === false;
+            const isRelinkingTo = relinkToolExt.isForwards === true;
             
             if (from) {
               if (!isRelinkingFrom) {
@@ -581,7 +636,7 @@ export class FlowTemplateService {
     diagram: go.Diagram,
     allowedPortIds: string[],
     freeAngleLinkPoint: go.Link['getLinkPoint'],
-    $: any
+    $: GojsMake
   ): void {
     const linkingTool = diagram.toolManager.linkingTool;
     
@@ -593,13 +648,16 @@ export class FlowTemplateService {
       if (!dia) return false;
       const input = dia.lastInput;
       if (!input) return false;
-      const port = dia.findObjectAt(input.documentPoint, (obj: any) => {
-        if (obj && typeof obj.portId === "string" && obj.portId.length > 0 && allowedPortIds.includes(obj.portId)) {
-          return obj;
+      const port = dia.findObjectAt(input.documentPoint, (obj: go.GraphObject | null) => {
+        if (obj && typeof (obj as go.GraphObject & { portId?: string }).portId === "string") {
+          const portId = (obj as go.GraphObject & { portId: string }).portId;
+          if (portId.length > 0 && allowedPortIds.includes(portId)) {
+            return obj;
+          }
         }
         return null;
-      }, null) as any;
-      if (!port) return false;
+      }, null) as go.GraphObject & { portId?: string } | null;
+      if (!port || !port.portId) return false;
       return allowedPortIds.includes(port.portId);
     };
     
@@ -608,39 +666,40 @@ export class FlowTemplateService {
     linkingTool.doActivate = function() {
       originalDoActivate.call(this);
       
-      const startPort = (this as any).startPort 
-        || (this as any).originalFromPort 
-        || (this as any).fromPort;
+      const toolExt = this as go.LinkingTool & GojsLinkingToolExt;
+      const startPort = toolExt.startPort 
+        || toolExt.originalFromPort 
+        || toolExt.fromPort;
       
-      let edgePortObj: any = null;
+      let edgePortObj: (go.GraphObject & { portId?: string }) | null = null;
       
-      if (startPort && typeof startPort === 'object' && startPort.portId) {
-        edgePortObj = startPort;
+      if (startPort && typeof startPort === 'object' && (startPort as go.GraphObject & { portId?: string }).portId) {
+        edgePortObj = startPort as go.GraphObject & { portId?: string };
       } else if (startPort && typeof startPort === 'string' && allowedPortIds.includes(startPort)) {
-        const originalNode = (this as any).originalFromNode || (this as any).fromNode;
+        const originalNode = toolExt.originalFromNode || toolExt.fromNode;
         if (originalNode instanceof go.Node) {
-          edgePortObj = originalNode.findPort(startPort);
+          edgePortObj = originalNode.findPort(startPort) as (go.GraphObject & { portId?: string }) | null;
         }
       }
       
-      if (edgePortObj && allowedPortIds.includes(edgePortObj.portId)) {
+      if (edgePortObj && edgePortObj.portId && allowedPortIds.includes(edgePortObj.portId)) {
         const node = edgePortObj.part;
         if (node instanceof go.Node) {
-          (this as any)._originNode = node;
+          toolExt._originNode = node;
           const mainPort = node.findPort("");
           if (mainPort) {
-            (this as any)._tempMainPort = mainPort;
-            (this as any)._savedFromLinkable = mainPort.fromLinkable;
-            (this as any)._savedToLinkable = mainPort.toLinkable;
+            toolExt._tempMainPort = mainPort;
+            toolExt._savedFromLinkable = mainPort.fromLinkable ?? false;
+            toolExt._savedToLinkable = mainPort.toLinkable ?? false;
             
             mainPort.fromLinkable = true;
             
-            (this as any).startPort = mainPort;
-            (this as any).originalFromPort = mainPort;
-            (this as any).fromPort = mainPort;
+            toolExt.startPort = mainPort;
+            toolExt.originalFromPort = mainPort;
+            toolExt.fromPort = mainPort;
             
             if (this.temporaryLink) {
-              (this.temporaryLink as any).fromNode = node;
+              (this.temporaryLink as go.Link & { fromNode?: go.Node }).fromNode = node;
               this.temporaryLink.fromPortId = "";
               this.temporaryLink.fromSpot = go.Spot.AllSides;
               this.temporaryLink.toSpot = go.Spot.AllSides;
@@ -654,13 +713,14 @@ export class FlowTemplateService {
     // 恢复主节点端口状态
     const originalDoDeactivate = linkingTool.doDeactivate;
     linkingTool.doDeactivate = function() {
-      const mainPort = (this as any)._tempMainPort;
+      const toolExt = this as go.LinkingTool & GojsLinkingToolExt;
+      const mainPort = toolExt._tempMainPort;
       if (mainPort) {
-        mainPort.fromLinkable = (this as any)._savedFromLinkable;
-        mainPort.toLinkable = (this as any)._savedToLinkable;
-        (this as any)._tempMainPort = null;
+        (mainPort as go.GraphObject).fromLinkable = toolExt._savedFromLinkable ?? false;
+        (mainPort as go.GraphObject).toLinkable = toolExt._savedToLinkable ?? false;
+        toolExt._tempMainPort = null;
       }
-      (this as any)._originNode = null;
+      toolExt._originNode = null;
       originalDoDeactivate.call(this);
     };
     
@@ -697,10 +757,10 @@ export class FlowTemplateService {
         segmentIndex: -1,
         alignmentFocus: go.Spot.Right
       })
-    );
+    ) as go.Link;
     
-    (linkingTool as any).temporaryFromSpot = go.Spot.AllSides;
-    (linkingTool as any).temporaryToSpot = go.Spot.AllSides;
+    (linkingTool as go.LinkingTool & { temporaryFromSpot?: go.Spot }).temporaryFromSpot = go.Spot.AllSides;
+    (linkingTool as go.LinkingTool & { temporaryToSpot?: go.Spot }).temporaryToSpot = go.Spot.AllSides;
   }
   
   /**
@@ -712,7 +772,7 @@ export class FlowTemplateService {
     linkStyleConfig: LinkStyleConfig,
     freeAngleLinkPoint: go.Link['getLinkPoint'],
     pointerTolerance: number,
-    $: any
+    $: GojsMake
   ): void {
     const relinkingTool = diagram.toolManager.relinkingTool;
     const linkingTool = diagram.toolManager.linkingTool;
@@ -756,17 +816,18 @@ export class FlowTemplateService {
 
     const isRealNode = (node: go.Node | null, excludeNode: go.Node | null): node is go.Node => {
       if (!node || node === excludeNode) return false;
-      const hasData = !!(node as any).data;
+      const nodeExt = node as go.Node & GojsNodeExt;
+      const hasData = !!nodeExt.data;
       const hasBody = !!node.findObject?.('BODY');
       if (!hasData && !hasBody) return false;
       const mainPort = node.findPort("");
-      return !!(mainPort && (mainPort as any).toLinkable);
+      return !!(mainPort && mainPort.toLinkable);
     };
 
     const getMainPort = (node: go.Node | null): go.GraphObject | null => {
       if (!node) return null;
       const mainPort = node.findPort("");
-      if (mainPort && (mainPort as any).toLinkable) return mainPort;
+      if (mainPort && mainPort.toLinkable) return mainPort;
       return null;
     };
 
@@ -775,7 +836,7 @@ export class FlowTemplateService {
       const node = port.part;
       if (node instanceof go.Node) {
         const portId = port.portId || '';
-        if (portId === "") return (port as any).toLinkable ? port : getMainPort(node);
+        if (portId === "") return port.toLinkable ? port : getMainPort(node);
         if (allowedPortIds.includes(portId)) return getMainPort(node) || port;
       }
       return port;
@@ -785,15 +846,20 @@ export class FlowTemplateService {
       const dia = tool.diagram;
       const pointer = dia?.lastInput?.documentPoint;
       if (!dia || !pointer) return null;
-      const toolAny = tool as any;
+      const toolExt = tool as go.LinkingTool & GojsLinkingToolExt & {
+        toNode?: go.Node | null;
+        originalToNode?: go.Node | null;
+        originalFromNode?: go.Node | null;
+        temporaryLink?: go.Link | null;
+      };
       const excludeNode = fromEnd
-        ? (toolAny.toNode || toolAny.originalToNode)
-        : (toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode);
+        ? (toolExt.toNode || toolExt.originalToNode)
+        : (toolExt.fromNode || toolExt.originalFromNode || toolExt.temporaryLink?.fromNode || toolExt._originNode);
       
       const directParts = dia.findPartsAt(pointer, true);
       let found: go.Node | null = null;
       directParts.each((part: go.Part) => {
-        if (!found && part instanceof go.Node && isRealNode(part, excludeNode) && isPointerNearBody(part, pointer, pointerTolerance)) {
+        if (!found && part instanceof go.Node && isRealNode(part, excludeNode ?? null) && isPointerNearBody(part, pointer, pointerTolerance)) {
           found = part;
         }
       });
@@ -808,7 +874,7 @@ export class FlowTemplateService {
       let closest: go.Node | null = null;
       let closestDist = Number.POSITIVE_INFINITY;
       dia.findPartsIn(searchRect, true, true).each((part: go.Part) => {
-        if (!(part instanceof go.Node) || !isRealNode(part, excludeNode)) return;
+        if (!(part instanceof go.Node) || !isRealNode(part, excludeNode ?? null)) return;
         if (!isPointerNearBody(part, pointer, pointerTolerance)) return;
         const dist = distanceToBodySquared(part, pointer);
         if (dist <= radiusSquared && dist < closestDist) {
@@ -819,7 +885,7 @@ export class FlowTemplateService {
       if (closest) return closest;
       
       dia.nodes.each((node: go.Node) => {
-        if (!isRealNode(node, excludeNode)) return;
+        if (!isRealNode(node, excludeNode ?? null)) return;
         if (!isPointerNearBody(node, pointer, pointerTolerance)) return;
         const dist = distanceToBodySquared(node, pointer);
         if (dist <= radiusSquared && dist < closestDist) {
@@ -836,8 +902,13 @@ export class FlowTemplateService {
         const node = findNodeNearPointer(this, fromEnd);
         const directPort = getMainPort(node);
         
-        const toolAny = this as any;
-        const originNode = toolAny.fromNode || toolAny.originalFromNode || toolAny.temporaryLink?.fromNode || toolAny._originNode;
+        const toolExt = this as go.LinkingTool & GojsLinkingToolExt & {
+          toNode?: go.Node | null;
+          originalToNode?: go.Node | null;
+          originalFromNode?: go.Node | null;
+          temporaryLink?: go.Link | null;
+        };
+        const originNode = toolExt.fromNode || toolExt.originalFromNode || toolExt.temporaryLink?.fromNode || toolExt._originNode;
         if (node && originNode && node === originNode) return null;
         
         if (directPort) return directPort;
@@ -854,7 +925,7 @@ export class FlowTemplateService {
     // 端口引力
     const portGravity = Math.max(4, pointerTolerance * 2);
     linkingTool.portGravity = portGravity;
-    (relinkingTool as any).portGravity = portGravity;
+    (relinkingTool as go.RelinkingTool & { portGravity?: number }).portGravity = portGravity;
     
     // 重连手柄
     relinkingTool.fromHandleArchetype = $(go.Shape, "Diamond", {
@@ -913,7 +984,7 @@ export class FlowTemplateService {
    * - 悬停提示位置自动适应，避免遮挡节点
    * - 点击时打开完整编辑器
    */
-  private createConnectionLabelPanel($: any): go.Panel {
+  private createConnectionLabelPanel($: GojsMake): go.Panel {
     const isMobile = this.store.isMobile();
     
     // 创建悬停提示（仅桌面端，移动端不显示 tooltip）
@@ -970,7 +1041,7 @@ export class FlowTemplateService {
     };
     
     // 构建面板配置对象，只在桌面端添加 toolTip 属性
-    const panelConfig: any = {
+    const panelConfig: Partial<go.Panel> & { toolTip?: go.Adornment } = {
       segmentIndex: NaN,
       segmentFraction: 0.5,
       cursor: "pointer",
@@ -986,9 +1057,9 @@ export class FlowTemplateService {
     return $(go.Panel, "Auto",
       {
         ...panelConfig,
-        // 事件代理：点击时通过全局事件总线发送信号（使用 any 类型）
-        click: (e: any, obj: any) => {
-          const link = obj?.part;
+        // 事件代理：点击时通过全局事件总线发送信号
+        click: (e: go.InputEvent, obj: go.GraphObject) => {
+          const link = obj?.part as go.Link | undefined;
           if (!link?.data?.isCrossTree) return;
           e.handled = true;
           // 获取视图坐标用于定位编辑器
@@ -1023,9 +1094,10 @@ export class FlowTemplateService {
           isActionable: true
         },
         // 优先显示 title，若无则显示截断的 description
-        new go.Binding("text", "", (data: any) => {
-          if (data.title) return data.title.substring(0, 8);
-          if (data.description) return data.description.substring(0, 6);
+        new go.Binding("text", "", (data: go.ObjectData) => {
+          const d = data as { title?: string; description?: string };
+          if (d.title) return d.title.substring(0, 8);
+          if (d.description) return d.description.substring(0, 6);
           return "...";
         }))
       )

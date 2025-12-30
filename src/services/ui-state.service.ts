@@ -97,7 +97,7 @@ export class UiStateService {
   private _editingVersion = 0;
   
   /** 编辑超时时间（毫秒） */
-  private static readonly EDITING_TIMEOUT = 2000;
+  private static readonly EDITING_TIMEOUT = 5000;
   
   // ========== 计算属性 ==========
   

@@ -100,6 +100,7 @@ export interface ConnectionTasks {
                   [(ngModel)]="editingTitle"
                   (ngModelChange)="onTitleChange($event)"
                   (keydown.escape)="exitEditMode()"
+                  spellcheck="false"
                   class="w-full text-[11px] text-stone-700 border border-violet-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 bg-white"
                   placeholder="输入关联标题..."
                   maxlength="20">
@@ -115,6 +116,7 @@ export interface ConnectionTasks {
                   (blur)="onTextareaBlur($event)"
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
+                  spellcheck="false"
                   class="w-full text-[11px] text-stone-700 border border-violet-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 bg-white resize-none font-mono"
                   placeholder="输入详细描述（支持 Markdown）..."
                   [style.min-height.px]="48"

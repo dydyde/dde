@@ -125,7 +125,7 @@ export class FlowDiagramConfigService {
     tasks: Task[],
     project: Project,
     searchQuery: string,
-    existingNodeMap: Map<string, any>
+    existingNodeMap: Map<string, go.ObjectData>
   ): GoJSDiagramData {
     const styles = this.currentStyles();
     const nodeDataArray: GoJSNodeData[] = [];
@@ -225,7 +225,7 @@ export class FlowDiagramConfigService {
    */
   private computeNodeLocation(
     task: Task,
-    existingNodeMap: Map<string, any>,
+    existingNodeMap: Map<string, go.ObjectData>,
     newNodeIndex: number
   ): string {
     const existingNode = existingNodeMap.get(task.id);
@@ -347,7 +347,7 @@ export class FlowDiagramConfigService {
    * - fromSpot/toSpot 设为 None，避免在端口微小边界上计算
    * - 实际锚点由主节点 + getLinkPoint 在节点边界（Perimeter）上计算
    */
-  createPort($: any, name: string, spot: go.Spot, output: boolean, input: boolean, isMobile: boolean = false): go.Shape {
+  createPort($: typeof go.GraphObject.make, name: string, spot: go.Spot, output: boolean, input: boolean, isMobile: boolean = false): go.Shape {
     const portSize = isMobile ? 24 : 8;  // 移动端增大到 24px 便于触摸
     
     return $(go.Shape, "Circle", {
@@ -366,12 +366,14 @@ export class FlowDiagramConfigService {
       fromSpot: go.Spot.None,
       toSpot: go.Spot.None,
       // 鼠标悬停时显示边框发光
-      mouseEnter: (e: any, port: go.Shape) => {
-        if (e.diagram.isReadOnly) return;
+      mouseEnter: (_e: go.InputEvent, obj: go.GraphObject) => {
+        if (_e.diagram?.isReadOnly) return;
+        const port = obj as go.Shape;
         port.stroke = "#6366f1";
         port.fill = "rgba(99, 102, 241, 0.15)";
       },
-      mouseLeave: (e: any, port: go.Shape) => {
+      mouseLeave: (_e: go.InputEvent, obj: go.GraphObject) => {
+        const port = obj as go.Shape;
         port.stroke = "transparent";
         port.fill = "transparent";
       }
@@ -381,7 +383,7 @@ export class FlowDiagramConfigService {
   /**
    * 获取节点主面板配置
    */
-  getNodeMainPanelConfig($: any): go.Panel {
+  getNodeMainPanelConfig($: typeof go.GraphObject.make): go.Panel {
     return $(go.Panel, "Auto",
       new go.Binding("width", "isUnassigned", (isUnassigned: boolean) => 
         isUnassigned ? this.nodeConfig.unassignedWidth : this.nodeConfig.assignedWidth),
@@ -398,9 +400,9 @@ export class FlowDiagramConfigService {
         toSpot: go.Spot.AllSides     // 让连接线像水珠一样沿边界滑动
       },
       new go.Binding("fill", "color"),
-      new go.Binding("stroke", "", (data: any, obj: any) => {
-        if (obj.part.isSelected) return data.selectedBorderColor || "#0d9488";
-        return data.borderColor || "#e7e5e4";
+      new go.Binding("stroke", "", (data: go.ObjectData, obj: go.GraphObject) => {
+        if (obj.part?.isSelected) return (data.selectedBorderColor as string) || "#0d9488";
+        return (data.borderColor as string) || "#e7e5e4";
       }).ofObject(),
       new go.Binding("strokeWidth", "borderWidth")),
       
@@ -429,7 +431,7 @@ export class FlowDiagramConfigService {
    * - 跨树连线保持紫色虚线样式以区分
    * - 颜色来源于数据预处理阶段注入的 familyColor 属性
    */
-  getLinkMainShapesConfig($: any, isMobile: boolean): go.Shape[] {
+  getLinkMainShapesConfig($: typeof go.GraphObject.make, isMobile: boolean): go.Shape[] {
     const styles = this.currentStyles();
     
     return [
@@ -449,9 +451,9 @@ export class FlowDiagramConfigService {
         strokeJoin: "round"  // 拐角圆润
       },
         // 绑定血缘家族颜色，跨树连线保持紫色
-        new go.Binding("stroke", "", (data: any) => {
+        new go.Binding("stroke", "", (data: go.ObjectData) => {
           if (data.isCrossTree) return styles.link.crossTreeColor; // 使用主题定义的跨树连线颜色
-          return data.familyColor || styles.link.parentChildColor; // 优先使用血缘颜色，否则使用主题定义的父子颜色
+          return (data.familyColor as string) || styles.link.parentChildColor; // 优先使用血缘颜色，否则使用主题定义的父子颜色
         }),
         new go.Binding("strokeDashArray", "isCrossTree", (isCross: boolean) => isCross ? [6, 10] : null)),
       // 箭头 - 使用粗描边 + strokeJoin: round 实现圆角效果
@@ -471,14 +473,14 @@ export class FlowDiagramConfigService {
         alignmentFocus: go.Spot.Right
       },
         // 箭头填充色
-        new go.Binding("fill", "", (data: any) => {
+        new go.Binding("fill", "", (data: go.ObjectData) => {
           if (data.isCrossTree) return styles.link.crossTreeColor;
-          return data.familyColor || styles.link.parentChildColor;
+          return (data.familyColor as string) || styles.link.parentChildColor;
         }),
         // 箭头描边色 - 必须与 fill 一致才能形成完整的圆角填充效果
-        new go.Binding("stroke", "", (data: any) => {
+        new go.Binding("stroke", "", (data: go.ObjectData) => {
           if (data.isCrossTree) return styles.link.crossTreeColor;
-          return data.familyColor || styles.link.parentChildColor;
+          return (data.familyColor as string) || styles.link.parentChildColor;
         }))
     ];
   }
@@ -486,7 +488,7 @@ export class FlowDiagramConfigService {
   /**
    * 获取联系块标签配置
    */
-  getConnectionLabelConfig($: any): go.Panel {
+  getConnectionLabelConfig($: typeof go.GraphObject.make): go.Panel {
     return $(go.Panel, "Auto", {
       segmentIndex: NaN,
       segmentFraction: 0.5,

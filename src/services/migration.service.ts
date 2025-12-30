@@ -133,12 +133,13 @@ export class MigrationService {
         default:
           return { success: false, migratedProjects: 0, strategy, error: '未知的迁移策略' };
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       return {
         success: false,
         migratedProjects: 0,
         strategy,
-        error: e?.message ?? String(e)
+        error: err?.message ?? String(e)
       };
     } finally {
       // 清理迁移状态，释放大型数据对象防止内存泄漏

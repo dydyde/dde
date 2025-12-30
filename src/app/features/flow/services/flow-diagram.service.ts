@@ -169,7 +169,7 @@ export class FlowDiagramService {
       this.diagramDiv = container;
       
       if (environment.gojsLicenseKey) {
-        (go.Diagram as any).licenseKey = environment.gojsLicenseKey;
+        (go.Diagram as unknown as { licenseKey: string }).licenseKey = environment.gojsLicenseKey;
       }
       
       const $ = go.GraphObject.make;
@@ -256,13 +256,13 @@ export class FlowDiagramService {
   private setupMultiSelectClickTool(diagram: go.Diagram): void {
     const clickTool = diagram.toolManager.clickSelectingTool;
     // GoJS 类型声明将 standardMouseSelect 定义为无参方法，但实际会以 (e, obj) 调用
-    const originalStandardMouseSelect = (clickTool.standardMouseSelect as any).bind(clickTool);
-    const originalStandardTouchSelect = ((clickTool as any).standardTouchSelect as any)?.bind(clickTool);
+    const originalStandardMouseSelect = (clickTool.standardMouseSelect as (e?: go.InputEvent, obj?: go.GraphObject | null) => void).bind(clickTool);
+    const originalStandardTouchSelect = ((clickTool as unknown as { standardTouchSelect?: (e?: go.InputEvent, obj?: go.GraphObject | null) => void }).standardTouchSelect)?.bind(clickTool);
 
-    (clickTool as any).standardMouseSelect = (e: go.InputEvent, obj: go.GraphObject | null) => {
+    (clickTool as unknown as { standardMouseSelect: (e: go.InputEvent, obj: go.GraphObject | null) => void }).standardMouseSelect = (e: go.InputEvent, obj: go.GraphObject | null) => {
       const dragSelectTool = diagram.toolManager.dragSelectingTool;
       const lastInput = diagram.lastInput as go.InputEvent | null;
-      const domEvent = (e as any)?.event as MouseEvent | PointerEvent | KeyboardEvent | undefined;
+      const domEvent = (e as go.InputEvent & { event?: MouseEvent | PointerEvent | KeyboardEvent })?.event;
 
       // 移动端框选模式：点击节点时禁用默认单选，交给节点模板或下方逻辑处理
       const isSelectModeActive = Boolean(dragSelectTool && dragSelectTool.isEnabled);
@@ -284,8 +284,8 @@ export class FlowDiagramService {
       }
 
       const shift = Boolean(e?.shift || lastInput?.shift || domEvent?.shiftKey);
-      const ctrl = Boolean(e?.control || lastInput?.control || (domEvent as any)?.ctrlKey);
-      const meta = Boolean(e?.meta || lastInput?.meta || (domEvent as any)?.metaKey);
+      const ctrl = Boolean(e?.control || lastInput?.control || (domEvent as MouseEvent | undefined)?.ctrlKey);
+      const meta = Boolean(e?.meta || lastInput?.meta || (domEvent as MouseEvent | undefined)?.metaKey);
       // 桌面端：仅修饰键触发多选；移动端框选模式的点选在模板事件中处理
       const wantsMultiSelect = shift || ctrl || meta;
 
@@ -302,7 +302,7 @@ export class FlowDiagramService {
 
     // 移动端：触摸点击也会走 standardTouchSelect（不重写会导致先清空 selection，从而无法“点击追加多选”）
     if (typeof originalStandardTouchSelect === 'function') {
-      (clickTool as any).standardTouchSelect = (e: go.InputEvent, obj: go.GraphObject | null) => {
+      (clickTool as unknown as { standardTouchSelect: (e: go.InputEvent, obj: go.GraphObject | null) => void }).standardTouchSelect = (e: go.InputEvent, obj: go.GraphObject | null) => {
         const dragSelectTool = diagram.toolManager.dragSelectingTool;
         const isSelectModeActive = Boolean(dragSelectTool && dragSelectTool.isEnabled);
 
@@ -521,7 +521,7 @@ export class FlowDiagramService {
             const physicalHeight = canvas.height;
             const docBounds = this.overview.documentBounds;
             const viewBounds = this.overview.viewportBounds;
-            const fixedBounds = (this.overview as any).fixedBounds;
+            const fixedBounds = (this.overview as go.Diagram & { fixedBounds?: go.Rect }).fixedBounds;
             this.logger.warn(`[Overview Debug] Canvas CSS: ${cssWidth}x${cssHeight}, Physical: ${physicalWidth}x${physicalHeight}`);
             this.logger.warn(`[Overview Debug] documentBounds: x=${Math.round(docBounds.x)}, y=${Math.round(docBounds.y)}, w=${Math.round(docBounds.width)}, h=${Math.round(docBounds.height)}`);
             this.logger.warn(`[Overview Debug] viewportBounds: x=${Math.round(viewBounds.x)}, y=${Math.round(viewBounds.y)}, w=${Math.round(viewBounds.width)}, h=${Math.round(viewBounds.height)}`);
@@ -632,7 +632,7 @@ export class FlowDiagramService {
     };
     
     let baseScale = calculateBaseScale();
-    let lastNodeDataCount = ((this.diagram.model as any)?.nodeDataArray?.length ?? 0);
+    let lastNodeDataCount = ((this.diagram.model as go.Model & { nodeDataArray?: go.ObjectData[] })?.nodeDataArray?.length ?? 0);
     this.lastOverviewScale = clampScale(baseScale);
     this.overview.scale = this.lastOverviewScale;
     
@@ -740,7 +740,7 @@ export class FlowDiagramService {
 
       const logOverview = (reason: string, details?: Record<string, unknown>) => {
         // 默认关闭：避免日志本身造成卡顿。需要时可在控制台执行：window.__NF_OVERVIEW_DEBUG = true
-        const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+        const debugEnabled = !!(globalThis as unknown as { __NF_OVERVIEW_DEBUG?: boolean })?.__NF_OVERVIEW_DEBUG;
         if (!debugEnabled) return;
 
         // 日志限频：默认 1000ms 一次（避免生产环境刷屏）
@@ -1005,7 +1005,7 @@ export class FlowDiagramService {
           this.overviewUpdateQueuedWhileApplying = false;
           // 重入期间可能丢掉最后一次状态，这里补一帧
           // 同时记录一次：出现过重入排队
-          const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+          const debugEnabled = !!(globalThis as unknown as { __NF_OVERVIEW_DEBUG?: boolean })?.__NF_OVERVIEW_DEBUG;
           if (debugEnabled) {
             this.logger.warn('[OverviewPerf]', { reason: 'flush:queued-while-applying' });
           }
@@ -1019,7 +1019,7 @@ export class FlowDiagramService {
       pendingUpdateSource = pendingUpdateSource === 'document' ? 'document' : source;
       if (this.isApplyingOverviewViewportUpdate) {
         this.overviewUpdateQueuedWhileApplying = true;
-        const debugEnabled = !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+        const debugEnabled = !!(globalThis as unknown as { __NF_OVERVIEW_DEBUG?: boolean })?.__NF_OVERVIEW_DEBUG;
         if (debugEnabled && !this.overviewUpdatePending) {
           this.logger.warn('[OverviewPerf]', { reason: 'schedule:queued-while-applying' });
         }
@@ -1070,7 +1070,7 @@ export class FlowDiagramService {
     this.overviewDocumentBoundsChangedHandler = () => {
       if (!this.overview || !this.diagram) return;
 
-      const currentNodeDataCount = ((this.diagram.model as any)?.nodeDataArray?.length ?? 0);
+      const currentNodeDataCount = ((this.diagram.model as go.Model & { nodeDataArray?: go.ObjectData[] })?.nodeDataArray?.length ?? 0);
       const nodeCountChanged = currentNodeDataCount !== lastNodeDataCount;
       
       const newBaseScale = calculateBaseScale();
@@ -1231,7 +1231,7 @@ export class FlowDiagramService {
     // 关键修复：统一 capture 参数，确保 removeEventListener 能正确移除监听器
     // addEventListener({ capture: true }) 必须用 removeEventListener(..., true) 才能移除
     // 之前没带 CAPTURE 导致监听器无法移除，每次重新初始化都会叠加新的监听器
-    const CAPTURE = true;
+    const _CAPTURE = true;
 
     // 存储当前捕获的 pointerId，用于 releasePointerCapture
     let capturedPointerId: number | null = null;
@@ -1258,7 +1258,7 @@ export class FlowDiagramService {
 
     // 仅在 window.__NF_OVERVIEW_DEBUG = true 时输出调试日志（默认关闭）。
     // 目标：确认拖拽白框时 box/假 viewportBounds/fixedBounds/scale 是否持续变化。
-    const isOverviewDebugEnabled = () => !!(globalThis as any)?.__NF_OVERVIEW_DEBUG;
+    const isOverviewDebugEnabled = () => !!(globalThis as unknown as { __NF_OVERVIEW_DEBUG?: boolean })?.__NF_OVERVIEW_DEBUG;
     const debugDrag = (reason: string, details?: Record<string, unknown>) => {
       if (!isOverviewDebugEnabled()) return;
       const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -1311,7 +1311,7 @@ export class FlowDiagramService {
     const stopEventForManualDrag = (ev: Event) => {
       // capture 阶段拦截，尽量阻止 GoJS 内部工具接管拖拽
       try {
-        (ev as any).stopImmediatePropagation?.();
+        (ev as Event & { stopImmediatePropagation?: () => void }).stopImmediatePropagation?.();
       } catch {
         // ignore
       }
@@ -1321,7 +1321,7 @@ export class FlowDiagramService {
         // ignore
       }
       try {
-        (ev as any).preventDefault?.();
+        (ev as Event & { preventDefault?: () => void }).preventDefault?.();
       } catch {
         // ignore
       }
@@ -1400,7 +1400,7 @@ export class FlowDiagramService {
     // 根据白色视口框（Overview.box）的中心点，推导一个“假 viewportBounds”，用于拖拽期间实时驱动小地图映射。
     // 重要：不要在这里直接修改主图 position（会与 GoJS Overview 内部拖拽互相打架，反而导致延迟/突变）。
     // 说明：使用 box.center 能严格跟随白框实际位置（用户抓角/抓边时也不会产生偏移）。
-    const updateOverviewBoxViewportBounds = (fallbackDocPt?: go.Point) => {
+    const _updateOverviewBoxViewportBounds = (fallbackDocPt?: go.Point) => {
       if (!this.diagram) return;
       const vb = this.diagram.viewportBounds;
       if (!vb.isReal()) return;
@@ -1424,7 +1424,7 @@ export class FlowDiagramService {
 
     // 修复节点同步延迟：使用 16ms 节流（约 60fps）实现实时更新
     // 之前 100ms 太慢，用户能感知到明显延迟
-    const throttledUpdateBindings = () => {
+    const _throttledUpdateBindings = () => {
       if (this.throttledUpdateBindingsPending || !this.overview) return;
       this.throttledUpdateBindingsPending = true;
       
@@ -1893,7 +1893,7 @@ export class FlowDiagramService {
   
   // ========== 图表数据更新 ==========
   
-  private detectStructuralChange(currentNodeMap: Map<string, any>, newTasks: Task[]): boolean {
+  private detectStructuralChange(currentNodeMap: Map<string, go.ObjectData>, newTasks: Task[]): boolean {
     if (currentNodeMap.size !== newTasks.length) {
       return true;
     }
@@ -1920,7 +1920,7 @@ export class FlowDiagramService {
     
     const project = this.store.activeProject();
     if (project) {
-      const model = this.diagram?.model as any;
+      const model = this.diagram?.model as go.GraphLinksModel;
       if (model) {
         const currentLinkCount = (model.linkDataArray || []).length;
         const parentChildCount = newTasks.filter(t => t.parentId).length;
@@ -1951,10 +1951,10 @@ export class FlowDiagramService {
     try {
       const lastUpdateType = this.store.getLastUpdateType();
       
-      const model = this.diagram.model as any;
-      const currentNodeMap = new Map<string, any>();
-      (model.nodeDataArray || []).forEach((n: any) => {
-        if (n.key) currentNodeMap.set(n.key, n);
+      const model = this.diagram.model as go.GraphLinksModel;
+      const currentNodeMap = new Map<string, go.ObjectData>();
+      (model.nodeDataArray || []).forEach((n: go.ObjectData) => {
+        if (n.key) currentNodeMap.set(n.key as string, n);
       });
       
       const activeTasks = tasks.filter(t => !t.deletedAt);
@@ -1964,10 +1964,10 @@ export class FlowDiagramService {
         return;
       }
       
-      const existingNodeMap = new Map<string, any>();
-      (this.diagram.model as any).nodeDataArray.forEach((n: any) => {
+      const existingNodeMap = new Map<string, go.ObjectData>();
+      (this.diagram.model as go.GraphLinksModel).nodeDataArray.forEach((n: go.ObjectData) => {
         if (n.key) {
-          existingNodeMap.set(n.key, n);
+          existingNodeMap.set(n.key as string, n);
         }
       });
       
@@ -1980,7 +1980,7 @@ export class FlowDiagramService {
       );
       
       const selectedKeys = new Set<string>();
-      this.diagram.selection.each((part: any) => {
+      this.diagram.selection.each((part: go.Part) => {
         if (part.data?.key) {
           selectedKeys.add(part.data.key);
         }
@@ -2002,17 +2002,17 @@ export class FlowDiagramService {
       const nodeKeys = new Set(diagramData.nodeDataArray.map(n => n.key));
       const linkKeys = new Set(diagramData.linkDataArray.map(l => l.key));
       
-      const nodesToRemove = model.nodeDataArray.filter((n: any) => !nodeKeys.has(n.key));
-      nodesToRemove.forEach((n: any) => model.removeNodeData(n));
+      const nodesToRemove = model.nodeDataArray.filter((n: go.ObjectData) => !nodeKeys.has(n.key as string));
+      nodesToRemove.forEach((n: go.ObjectData) => model.removeNodeData(n));
       
-      const linksToRemove = model.linkDataArray.filter((l: any) => !linkKeys.has(l.key));
-      linksToRemove.forEach((l: any) => model.removeLinkData(l));
+      const linksToRemove = model.linkDataArray.filter((l: go.ObjectData) => !linkKeys.has(l.key as string));
+      linksToRemove.forEach((l: go.ObjectData) => model.removeLinkData(l));
       
       this.diagram.skipsUndoManager = false;
       this.diagram.commitTransaction('update');
       
       if (selectedKeys.size > 0) {
-        this.diagram.nodes.each((node: any) => {
+        this.diagram.nodes.each((node: go.Node) => {
           if (selectedKeys.has(node.data?.key)) {
             node.isSelected = true;
           }
@@ -2057,7 +2057,7 @@ export class FlowDiagramService {
   
   // ========== 拖放支持 ==========
   
-  setupDropHandler(onDrop: (taskData: any, docPoint: go.Point) => void): void {
+  setupDropHandler(onDrop: (taskData: Task, docPoint: go.Point) => void): void {
     if (!this.diagramDiv) return;
     
     this.diagramDiv.addEventListener('dragover', (e: DragEvent) => {
@@ -2252,6 +2252,7 @@ export class FlowDiagramService {
   private setOverviewFixedBounds(bounds: go.Rect | null): void {
     if (!this.overview) return;
     // GoJS 要求 fixedBounds 必须是 Rect 实例或 undefined，不能是 null
-    (this.overview as any).fixedBounds = bounds || undefined;
+    // 使用类型断言绕过严格类型检查
+    (this.overview as unknown as { fixedBounds: go.Rect | undefined }).fixedBounds = bounds ?? undefined;
   }
 }

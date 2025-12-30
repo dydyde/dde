@@ -26,9 +26,9 @@ export interface RetryOptions extends TimeoutOptions {
   /** 最大重试次数（默认使用 RETRY_POLICY.MAX_RETRIES） */
   maxRetries?: number;
   /** 自定义重试条件 */
-  shouldRetry?: (error: any) => boolean;
+  shouldRetry?: (error: unknown) => boolean;
   /** 重试时的回调 */
-  onRetry?: (attempt: number, error: any) => void;
+  onRetry?: (attempt: number, error: unknown) => void;
 }
 
 /**
@@ -43,10 +43,16 @@ function getTimeoutMs(timeout?: number | TimeoutLevel): number {
 /**
  * 检查错误是否可重试
  */
-function isRetryableError(error: any): boolean {
+function isRetryableError(error: unknown): boolean {
   if (!error) return false;
   
-  const message = String(error.message ?? error).toLowerCase();
+  const errorObj = error as { 
+    message?: string; 
+    status?: number; 
+    statusCode?: number; 
+    name?: string 
+  };
+  const message = String(errorObj.message ?? error).toLowerCase();
   
   // 检查错误消息模式
   for (const pattern of RETRY_POLICY.RETRYABLE_ERROR_PATTERNS) {
@@ -56,13 +62,13 @@ function isRetryableError(error: any): boolean {
   }
   
   // 检查 HTTP 状态码
-  const status = error.status ?? error.statusCode;
+  const status = errorObj.status ?? errorObj.statusCode;
   if (typeof status === 'number') {
     return (RETRY_POLICY.RETRYABLE_STATUS_CODES as readonly number[]).includes(status);
   }
   
   // AbortError（超时）可重试
-  if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+  if (errorObj.name === 'AbortError' || errorObj.name === 'TimeoutError') {
     return true;
   }
   
@@ -140,14 +146,14 @@ export async function withRetry<T>(
     ...timeoutOptions
   } = options;
   
-  let lastError: any;
+  let lastError: unknown;
   
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // 第一次尝试或重试
       const promise = fn();
       return await withTimeout(promise, timeoutOptions);
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       
       // 检查是否应该重试

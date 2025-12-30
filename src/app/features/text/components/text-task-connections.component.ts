@@ -2,6 +2,7 @@ import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetection
 import { CommonModule } from '@angular/common';
 import { StoreService } from '../../../../services/store.service';
 import { TaskConnections } from './text-view.types';
+import { Task } from '../../../../models';
 
 /**
  * 任务关联区域组件
@@ -124,7 +125,7 @@ export class TextTaskConnectionsComponent {
   @Input() connections: TaskConnections | null = null;
   @Input() isMobile = false;
   
-  @Output() openTask = new EventEmitter<{ task: any; event: Event }>();
+  @Output() openTask = new EventEmitter<{ task: Task; event: Event }>();
   
   readonly isCollapsed = signal(false);
   
@@ -133,7 +134,7 @@ export class TextTaskConnectionsComponent {
     this.isCollapsed.update(v => !v);
   }
   
-  onOpenTask(task: any, event: Event) {
+  onOpenTask(task: Task, event: Event) {
     event.stopPropagation();
     if (task) {
       this.openTask.emit({ task, event });

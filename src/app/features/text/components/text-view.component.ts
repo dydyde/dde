@@ -284,11 +284,11 @@ export class TextViewComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     // 移除全局触摸事件监听器
     // 注意：removeEventListener 必须与 addEventListener 的 capture 设置匹配
-    document.removeEventListener('touchend', this.boundGlobalTouchEnd, { capture: true } as any);
-    document.removeEventListener('touchcancel', this.boundGlobalTouchCancel, { capture: true } as any);
-    document.removeEventListener('pointerup', this.boundGlobalPointerUp, { capture: true } as any);
-    document.removeEventListener('pointercancel', this.boundGlobalPointerUp, { capture: true } as any);
-    document.removeEventListener('click', this.boundEmergencyCleanup, { capture: true } as any);
+    document.removeEventListener('touchend', this.boundGlobalTouchEnd, { capture: true } as EventListenerOptions);
+    document.removeEventListener('touchcancel', this.boundGlobalTouchCancel, { capture: true } as EventListenerOptions);
+    document.removeEventListener('pointerup', this.boundGlobalPointerUp, { capture: true } as EventListenerOptions);
+    document.removeEventListener('pointercancel', this.boundGlobalPointerUp, { capture: true } as EventListenerOptions);
+    document.removeEventListener('click', this.boundEmergencyCleanup, { capture: true } as EventListenerOptions);
     document.removeEventListener('touchDragTimeout', this.boundTouchDragTimeout);
     // console.log('[TextView] Global touch listeners removed');
     

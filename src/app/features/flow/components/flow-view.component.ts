@@ -24,7 +24,7 @@ import { FlowLinkTypeDialogComponent } from './flow-link-type-dialog.component';
 import { FlowConnectionEditorComponent } from './flow-connection-editor.component';
 import { FlowLinkDeleteHintComponent } from './flow-link-delete-hint.component';
 import { FlowCascadeAssignDialogComponent, CascadeAssignDialogData } from './flow-cascade-assign-dialog.component';
-import { FlowBatchDeleteDialogComponent, BatchDeleteDialogData, BatchDeleteImpact } from './flow-batch-delete-dialog.component';
+import { FlowBatchDeleteDialogComponent, BatchDeleteDialogData } from './flow-batch-delete-dialog.component';
 import { flowTemplateEventHandlers } from '../services/flow-template-events';
 import * as go from 'gojs';
 
@@ -538,6 +538,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   /** 待清理的定时器（防止内存泄漏） */
   private pendingTimers: ReturnType<typeof setTimeout>[] = [];
+  
+  /** 移动端框选模式：保存的原始 standardMouseSelect 方法 */
+  private originalStandardMouseSelect: (() => void) | undefined;
   
   /** rAF 调度 ID（用于取消） */
   private pendingRafId: number | null = null;
@@ -1194,7 +1197,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     }
   }
   
-  private handleDiagramDrop(taskData: any, docPoint: go.Point): void {
+  private handleDiagramDrop(taskData: Task, docPoint: go.Point): void {
     const diagramInstance = this.diagram.diagramInstance;
     if (!diagramInstance) return;
 
@@ -1582,8 +1585,8 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (newMode) {
         // 进入框选模式：拦截 standardMouseSelect
         // 保存原始方法（如果还没保存）
-        if (!(clickTool as any)._originalStandardMouseSelect) {
-          (clickTool as any)._originalStandardMouseSelect = clickTool.standardMouseSelect;
+        if (!this.originalStandardMouseSelect) {
+          this.originalStandardMouseSelect = clickTool.standardMouseSelect.bind(clickTool);
         }
         // 覆盖为无操作，交由节点 click 事件处理多选
         clickTool.standardMouseSelect = function() {
@@ -1594,9 +1597,9 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         this.toast.info('框选模式', '拖拽框选或点击节点多选');
       } else {
         // 退出框选模式：恢复 standardMouseSelect
-        if ((clickTool as any)._originalStandardMouseSelect) {
-          clickTool.standardMouseSelect = (clickTool as any)._originalStandardMouseSelect;
-          (clickTool as any)._originalStandardMouseSelect = undefined;
+        if (this.originalStandardMouseSelect) {
+          clickTool.standardMouseSelect = this.originalStandardMouseSelect;
+          this.originalStandardMouseSelect = undefined;
         }
         
         this.selectionService.clearSelection();
@@ -1689,8 +1692,8 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // Alt+X: 删除选中的连接线（跨树连接）
     if (key === 'x') {
-      const selectedLinks: any[] = [];
-      diagramInstance.selection.each((part: any) => {
+      const selectedLinks: go.ObjectData[] = [];
+      diagramInstance.selection.each((part: go.Part) => {
         if (part instanceof go.Link && part?.data?.isCrossTree) {
           selectedLinks.push(part.data);
         }
