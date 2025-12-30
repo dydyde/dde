@@ -2,6 +2,7 @@ import { Component, inject, signal, computed, Output, EventEmitter, OnInit, OnDe
 import { CommonModule } from '@angular/common';
 import { UiStateService } from '../../../../services/ui-state.service';
 import { ProjectStateService } from '../../../../services/project-state.service';
+import { UserSessionService } from '../../../../services/user-session.service';
 import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
 import { ToastService } from '../../../../services/toast.service';
@@ -73,7 +74,7 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
           [draggingTaskId]="dragDropService.draggingTaskId()"
           [dragOverStage]="dragDropService.dragOverStage()"
           [dropTargetInfo]="dragDropService.dropTargetInfo()"
-          [userId]="projectState.currentUserId()"
+          [userId]="userSession.currentUserId()"
           [projectId]="projectState.activeProjectId()"
           (addNewStage)="onAddNewStage()"
           (stageDragOver)="onStageDragOver($event)"
@@ -114,6 +115,7 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
 export class TextViewComponent implements OnInit, OnDestroy {
   readonly uiState = inject(UiStateService);
   private readonly projectState = inject(ProjectStateService);
+  readonly userSession = inject(UserSessionService);
   private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
   private readonly syncCoordinator = inject(SyncCoordinatorService);
   private readonly toast = inject(ToastService);
