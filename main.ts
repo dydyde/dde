@@ -38,8 +38,10 @@ const START_TIME = Date.now();
 const VERSION_STORAGE_KEY = 'nanoflow.app-version';
 const FORCE_CLEAR_KEY = 'nanoflow.force-clear-cache';
 
-// 简化日志 - 仅输出到控制台，不创建屏幕浮层
-const log = (msg: string, color = '#0f0') => {
+// 简化日志 - 仅开发模式输出，生产模式静默
+const VERBOSE_LOGS = isDevMode() && localStorage.getItem('nanoflow.verbose') === 'true';
+const log = (msg: string, _color = '#0f0') => {
+  if (!VERBOSE_LOGS) return;
   const elapsed = Date.now() - START_TIME;
   console.log(`[NanoFlow +${elapsed}ms] ${msg}`);
 };

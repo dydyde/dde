@@ -734,7 +734,6 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
   
   ngOnDestroy() {
-    console.log('[FlowView] ngOnDestroy 被调用', new Error().stack);
     this.isDestroyed = true;
     
     // 标记 View 已销毁

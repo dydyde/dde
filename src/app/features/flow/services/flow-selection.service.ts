@@ -104,11 +104,6 @@ export class FlowSelectionService {
     // 通过事件总线通知其他服务
     flowTemplateEventHandlers.onSelectionChanged?.(Array.from(keys));
     
-    console.log('[FlowSelection] syncSelectionState 触发', { 
-      count: keys.size, 
-      keys: Array.from(keys),
-      hasMultiple: keys.size > 1 
-    });
     this.logger.debug(`选择变化: ${keys.size} 个节点`, Array.from(keys));
   }
   

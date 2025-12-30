@@ -514,37 +514,7 @@ export class FlowDiagramService {
         
         const nodeCount = this.diagram.nodes.count;
         const linkCount = this.diagram.links.count;
-        this.logger.info(`Overview 初始化成功 - 尺寸: ${containerWidth}x${containerHeight}, devicePixelRatio: ${devicePixelRatio}, 节点数: ${nodeCount}, 连接数: ${linkCount}`);
-        
-        // 调试：检查 Canvas 实际尺寸与 Overview 边界
-        setTimeout(() => {
-          if (!this.overview) return;
-          const canvas = container.querySelector('canvas');
-          if (canvas) {
-            const cssWidth = canvas.style.width;
-            const cssHeight = canvas.style.height;
-            const physicalWidth = canvas.width;
-            const physicalHeight = canvas.height;
-            const docBounds = this.overview.documentBounds;
-            const viewBounds = this.overview.viewportBounds;
-            const fixedBounds = (this.overview as go.Diagram & { fixedBounds?: go.Rect }).fixedBounds;
-            this.logger.warn(`[Overview Debug] Canvas CSS: ${cssWidth}x${cssHeight}, Physical: ${physicalWidth}x${physicalHeight}`);
-            this.logger.warn(`[Overview Debug] documentBounds: x=${Math.round(docBounds.x)}, y=${Math.round(docBounds.y)}, w=${Math.round(docBounds.width)}, h=${Math.round(docBounds.height)}`);
-            this.logger.warn(`[Overview Debug] viewportBounds: x=${Math.round(viewBounds.x)}, y=${Math.round(viewBounds.y)}, w=${Math.round(viewBounds.width)}, h=${Math.round(viewBounds.height)}`);
-            if (fixedBounds?.isReal()) {
-              this.logger.warn(`[Overview Debug] fixedBounds: x=${Math.round(fixedBounds.x)}, y=${Math.round(fixedBounds.y)}, w=${Math.round(fixedBounds.width)}, h=${Math.round(fixedBounds.height)}`);
-            }
-            this.logger.warn(`[Overview Debug] overview.scale: ${this.overview.scale}`);
-            
-            // 检查主图的 documentBounds
-            if (this.diagram) {
-              const mainDocBounds = this.diagram.documentBounds;
-              const mainViewBounds = this.diagram.viewportBounds;
-              this.logger.warn(`[Main Diagram Debug] documentBounds: x=${Math.round(mainDocBounds.x)}, y=${Math.round(mainDocBounds.y)}, w=${Math.round(mainDocBounds.width)}, h=${Math.round(mainDocBounds.height)}`);
-              this.logger.warn(`[Main Diagram Debug] viewportBounds: x=${Math.round(mainViewBounds.x)}, y=${Math.round(mainViewBounds.y)}, w=${Math.round(mainViewBounds.width)}, h=${Math.round(mainViewBounds.height)}`);
-            }
-          }
-        }, 500);
+        this.logger.info(`Overview 初始化成功 - 尺寸: ${containerWidth}x${containerHeight}, 节点数: ${nodeCount}, 连接数: ${linkCount}`);
       } catch (error) {
         this.logger.error('Overview 初始化失败:', error);
       }

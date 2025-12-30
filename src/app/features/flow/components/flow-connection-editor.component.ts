@@ -185,7 +185,6 @@ export class FlowConnectionEditorComponent implements OnInit, OnDestroy {
   // 当 data 变化时：刷新保护窗口，并在非编辑态同步内容
   private readonly dataSyncEffect = effect(() => {
     const data = this.data();
-    console.log('[ConnectionEditor] dataSyncEffect 触发', { data });
     if (!data) return;
 
     this.ignoreOutsideUntil = Date.now() + 200;
