@@ -1,6 +1,7 @@
 import { Component, input, output, signal, inject, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task } from '../../../../models';
 
 /**
@@ -26,26 +27,26 @@ import { Task } from '../../../../models';
          (touchend)="onPaletteAreaTouchEnd($event)">
         <!-- 1. 待完成区域 (To-Do) -->
         <div class="flex-none mx-2 sm:mx-4 mt-2 sm:mt-4 px-2 sm:px-4 pb-1 sm:pb-2 transition-all duration-300 overflow-hidden rounded-xl sm:rounded-2xl bg-orange-50/60 border border-orange-100/50 backdrop-blur-sm z-10 relative">
-            <div (click)="store.isFlowUnfinishedOpen.set(!store.isFlowUnfinishedOpen())" 
+            <div (click)="uiState.isFlowUnfinishedOpen.set(!uiState.isFlowUnfinishedOpen())" 
                  class="py-2 sm:py-3 cursor-pointer flex justify-between items-center group select-none">
                 <span class="font-bold text-stone-700 text-xs sm:text-sm flex items-center gap-2 tracking-tight">
                     <span class="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.4)]"></span>
                     待办事项
                 </span>
-                <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!store.isFlowUnfinishedOpen()">▼</span>
+                <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!uiState.isFlowUnfinishedOpen()">▼</span>
             </div>
             
-            @if (store.isFlowUnfinishedOpen()) {
+            @if (uiState.isFlowUnfinishedOpen()) {
                 <div class="pb-2 sm:pb-4 animate-slide-down max-h-24 sm:max-h-32 overflow-y-auto">
                     <ul class="space-y-1 sm:space-y-2">
-                        @for (item of store.unfinishedItems(); track item.taskId + item.text) {
+                        @for (item of projectState.unfinishedItems(); track item.taskId + item.text) {
                             <li class="text-[10px] sm:text-xs text-stone-600 flex items-center gap-2 sm:gap-3 bg-white/80 backdrop-blur-sm border border-stone-100/50 p-1.5 sm:p-2 rounded-lg hover:border-orange-200 cursor-pointer group shadow-sm transition-all" (click)="centerOnNode.emit(item.taskId)">
                                 <span class="w-1 h-1 rounded-full bg-stone-200 group-hover:bg-orange-400 transition-colors ml-1"></span>
-                                <span class="font-bold text-retro-muted text-[8px] sm:text-[9px] tracking-wider">{{store.compressDisplayId(item.taskDisplayId)}}</span>
+                                <span class="font-bold text-retro-muted text-[8px] sm:text-[9px] tracking-wider">{{projectState.compressDisplayId(item.taskDisplayId)}}</span>
                                 <span class="truncate flex-1 group-hover:text-stone-900 transition-colors">{{item.text}}</span>
                             </li>
                         }
-                        @if (store.unfinishedItems().length === 0) {
+                        @if (projectState.unfinishedItems().length === 0) {
                             <li class="text-[10px] sm:text-xs text-stone-400 italic px-2 font-light">暂无待办</li>
                         }
                     </ul>
@@ -55,22 +56,22 @@ import { Task } from '../../../../models';
 
         <!-- 2. 待分配区域 (To-Assign) - 可拖动到流程图 -->
         <div class="flex-none mx-2 sm:mx-4 mt-1 sm:mt-2 mb-2 sm:mb-4 px-2 sm:px-4 pb-1 sm:pb-2 transition-all duration-300 overflow-hidden rounded-xl sm:rounded-2xl bg-teal-50/60 border border-teal-100/50 backdrop-blur-sm z-10 relative">
-            <div (click)="store.isFlowUnassignedOpen.set(!store.isFlowUnassignedOpen())" 
+            <div (click)="uiState.isFlowUnassignedOpen.set(!uiState.isFlowUnassignedOpen())" 
                  class="py-2 sm:py-3 cursor-pointer flex justify-between items-center group select-none">
                 <span class="font-bold text-stone-700 text-xs sm:text-sm flex items-center gap-2 tracking-tight">
                     <span class="w-1.5 h-1.5 rounded-full bg-teal-500 shadow-[0_0_6px_rgba(20,184,166,0.4)]"></span>
                     待分配
                 </span>
-                <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!store.isFlowUnassignedOpen()">▼</span>
+                <span class="text-stone-300 text-xs transition-transform duration-300 group-hover:text-stone-500" [class.rotate-180]="!uiState.isFlowUnassignedOpen()">▼</span>
             </div>
 
-            @if (store.isFlowUnassignedOpen()) {
+            @if (uiState.isFlowUnassignedOpen()) {
                 <div class="pb-2 sm:pb-4 animate-slide-down max-h-24 sm:max-h-32 overflow-y-auto">
                     <div class="flex flex-wrap gap-1.5 sm:gap-2 unassigned-drag-area" 
                          id="unassignedPalette"
                          (dragover)="onDragOver($event)"
                          (drop)="onDrop($event)">
-                        @for (task of store.unassignedTasks(); track task.id) {
+                        @for (task of projectState.unassignedTasks(); track task.id) {
                             <div 
                                 draggable="true" 
                                 (dragstart)="onDragStart($event, task)"
@@ -99,18 +100,20 @@ import { Task } from '../../../../models';
 
     <!-- Resizer Handle -->
     <div class="h-2 sm:h-3 bg-transparent hover:bg-stone-200 cursor-row-resize z-20 flex-shrink-0 relative group transition-all flex items-center justify-center"
-         [class.h-4]="store.isMobile()"
-         [class.bg-stone-100]="store.isMobile()"
+         [class.h-4]="uiState.isMobile()"
+         [class.bg-stone-100]="uiState.isMobile()"
          (mousedown)="startResize($event)"
          (touchstart)="startResizeTouch($event)">
          <div class="w-10 sm:w-12 h-0.5 sm:h-1 rounded-full bg-stone-300 group-hover:bg-stone-400 transition-colors"
-              [class.w-14]="store.isMobile()"
-              [class.h-1]="store.isMobile()"></div>
+              [class.w-14]="uiState.isMobile()"
+              [class.h-1]="uiState.isMobile()"></div>
     </div>
   `
 })
 export class FlowPaletteComponent implements OnDestroy {
-  readonly store = inject(StoreService);
+  // P2-1 迁移：直接注入子服务
+  readonly uiState = inject(UiStateService);
+  readonly projectState = inject(ProjectStateService);
   
   // 输入
   readonly height = input<number>(200);
@@ -377,7 +380,7 @@ export class FlowPaletteComponent implements OnDestroy {
     };
     
     // 非手机端，使用原来的调整大小逻辑
-    if (!this.store.isMobile()) {
+    if (!this.uiState.isMobile()) {
       this.startResizeTouch(e);
     }
   }
@@ -390,7 +393,7 @@ export class FlowPaletteComponent implements OnDestroy {
     if (e.touches.length !== 1) return;
     
     // 非手机端不处理滑动手势
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     
     const touch = e.touches[0];
     const deltaX = touch.clientX - this.gestureState.startX;
@@ -429,7 +432,7 @@ export class FlowPaletteComponent implements OnDestroy {
    */
   onGestureAreaTouchEnd(e: TouchEvent) {
     // 非手机端不处理
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     
     // 如果是调整大小模式，结束调整
     if (this.gestureState.isResizing) {
@@ -510,7 +513,7 @@ export class FlowPaletteComponent implements OnDestroy {
    * 调色板区域触摸开始（用于空白区域滑动）
    */
   onPaletteAreaTouchStart(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const touch = e.touches[0];
@@ -525,7 +528,7 @@ export class FlowPaletteComponent implements OnDestroy {
    * 调色板区域触摸移动
    */
   onPaletteAreaTouchMove(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const touch = e.touches[0];
@@ -543,7 +546,7 @@ export class FlowPaletteComponent implements OnDestroy {
    * 调色板区域触摸结束
    */
   onPaletteAreaTouchEnd(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (!this.paletteSwipeState.isSwiping) return;
     
     const touch = e.changedTouches[0];

@@ -1,5 +1,6 @@
 import { Injectable, inject, signal, NgZone } from '@angular/core';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task } from '../../../../models';
@@ -48,7 +49,8 @@ export interface DropResultCallback {
   providedIn: 'root'
 })
 export class FlowDragDropService {
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOps = inject(TaskOperationAdapterService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowDragDrop');
   private readonly toast = inject(ToastService);
@@ -127,7 +129,7 @@ export class FlowDragDropService {
     try {
       const task = JSON.parse(data);
       if (task?.id && task.stage !== null) {
-        this.store.detachTask(task.id);
+        this.taskOps.detachTask(task.id);
         this.toast.success('已移至待分配', `任务 "${task.title}" 已解除分配`);
         return true;
       }
@@ -241,7 +243,7 @@ export class FlowDragDropService {
     targetId: string,
     loc: go.Point
   ): boolean {
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const sourceTask = tasks.find(t => t.id === sourceId);
     const targetTask = tasks.find(t => t.id === targetId);
     
@@ -261,12 +263,12 @@ export class FlowDragDropService {
     
     this.logger.info('插入任务到连接线', { taskId, sourceId, targetId });
     
-    // 使用 store 的方法完成插入
-    this.store.insertTaskBetween(taskId, sourceId, targetId);
+    // 使用 taskOps 的方法完成插入
+    this.taskOps.insertTaskBetween(taskId, sourceId, targetId);
     
     // 更新拖放位置
     setTimeout(() => {
-      this.store.updateTaskPosition(taskId, loc.x, loc.y);
+      this.taskOps.updateTaskPosition(taskId, loc.x, loc.y);
     }, UI_CONFIG.MEDIUM_DELAY);
     
     this.toast.success('任务已插入', '任务已插入到两个节点之间');
@@ -284,7 +286,7 @@ export class FlowDragDropService {
   ): void {
     // 场景二：待分配节点在流程图内移动，仅更新位置。
     // 不再支持“拖到连接线上立即插入并任务化”，任务化只在“拉线”确认时发生。
-    this.store.updateTaskPositionWithRankSync(nodeKey, loc.x, loc.y);
+    this.taskOps.updateTaskPositionWithRankSync(nodeKey, loc.x, loc.y);
   }
   
   // ========== 私有方法 ==========

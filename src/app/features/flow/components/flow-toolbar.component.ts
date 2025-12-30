@@ -1,6 +1,7 @@
 import { Component, input, output, computed, inject, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task } from '../../../../models';
 
 /**
@@ -14,7 +15,7 @@ import { Task } from '../../../../models';
   imports: [CommonModule],
   template: `
     <!-- 移动端顶部工具栏：侧边栏切换按钮 + 返回文本视图 -->
-    @if (store.isMobile()) {
+    @if (uiState.isMobile()) {
       <div class="absolute left-2 z-30 flex items-center gap-2 transition-all duration-200"
            [style.top]="mobileTopPosition()">
         <!-- 侧边栏/项目列表切换按钮 -->
@@ -42,22 +43,22 @@ import { Task } from '../../../../models';
 
     <!-- Zoom Controls -->
     <div class="absolute z-10 flex gap-2"
-         [class.flex-col]="!store.isMobile()"
-         [class.flex-row]="store.isMobile()"
-         [class.bottom-4]="!store.isMobile()"
-         [class.left-4]="!store.isMobile()"
-         [class.left-2]="store.isMobile()"
+         [class.flex-col]="!uiState.isMobile()"
+         [class.flex-row]="uiState.isMobile()"
+         [class.bottom-4]="!uiState.isMobile()"
+         [class.left-4]="!uiState.isMobile()"
+         [class.left-2]="uiState.isMobile()"
          [style.bottom]="mobileBottomPosition()">
         
         <!-- 放大按钮 -->
         <button (click)="zoomIn.emit()" 
                 class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-                [class.p-2]="!store.isMobile()"
-                [class.p-1.5]="store.isMobile()"
+                [class.p-2]="!uiState.isMobile()"
+                [class.p-1.5]="uiState.isMobile()"
                 title="放大">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                 [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                 [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                 [class.h-5]="!uiState.isMobile()" [class.w-5]="!uiState.isMobile()"
+                 [class.h-4]="uiState.isMobile()" [class.w-4]="uiState.isMobile()">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
         </button>
@@ -65,12 +66,12 @@ import { Task } from '../../../../models';
         <!-- 缩小按钮 -->
         <button (click)="zoomOut.emit()" 
                 class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-                [class.p-2]="!store.isMobile()"
-                [class.p-1.5]="store.isMobile()"
+                [class.p-2]="!uiState.isMobile()"
+                [class.p-1.5]="uiState.isMobile()"
                 title="缩小">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                 [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                 [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                 [class.h-5]="!uiState.isMobile()" [class.w-5]="!uiState.isMobile()"
+                 [class.h-4]="uiState.isMobile()" [class.w-4]="uiState.isMobile()">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
             </svg>
         </button>
@@ -79,12 +80,12 @@ import { Task } from '../../../../models';
         <button 
           (click)="autoLayout.emit()" 
           class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-          [class.p-2]="!store.isMobile()"
-          [class.p-1.5]="store.isMobile()"
+          [class.p-2]="!uiState.isMobile()"
+          [class.p-1.5]="uiState.isMobile()"
           title="自动整理布局">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                 [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                 [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                 [class.h-5]="!uiState.isMobile()" [class.w-5]="!uiState.isMobile()"
+                 [class.h-4]="uiState.isMobile()" [class.w-4]="uiState.isMobile()">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
             </svg>
         </button>
@@ -92,8 +93,8 @@ import { Task } from '../../../../models';
         <!-- 连接模式按钮 -->
         <button (click)="toggleLinkMode.emit()" 
                 class="backdrop-blur rounded-lg shadow-sm border transition-all hover:bg-stone-50" 
-                [class.p-2]="!store.isMobile()" 
-                [class.p-1.5]="store.isMobile()" 
+                [class.p-2]="!uiState.isMobile()" 
+                [class.p-1.5]="uiState.isMobile()" 
                 [class.bg-indigo-500]="isLinkMode()" 
                 [class.text-white]="isLinkMode()" 
                 [class.border-indigo-500]="isLinkMode()" 
@@ -102,14 +103,14 @@ import { Task } from '../../../../models';
                 [class.border-stone-200]="!isLinkMode()" 
                 title="连接模式">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" 
-                 [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()" 
-                 [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                 [class.h-5]="!uiState.isMobile()" [class.w-5]="!uiState.isMobile()" 
+                 [class.h-4]="uiState.isMobile()" [class.w-4]="uiState.isMobile()">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
         </button>
         
         <!-- 移动端：框选模式切换按钮 -->
-        @if (store.isMobile()) {
+        @if (uiState.isMobile()) {
           <button
             type="button"
             (pointerdown)="onToggleSelectModePointerDown($event)"
@@ -132,15 +133,15 @@ import { Task } from '../../../../models';
           <button 
             (click)="toggleExportMenu()"
             class="bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 hover:bg-stone-50 text-stone-600"
-            [class.p-2]="!store.isMobile()"
-            [class.p-1.5]="store.isMobile()"
+            [class.p-2]="!uiState.isMobile()"
+            [class.p-1.5]="uiState.isMobile()"
             [class.bg-emerald-500]="isExportMenuOpen"
             [class.text-white]="isExportMenuOpen"
             [class.border-emerald-500]="isExportMenuOpen"
             title="导出流程图">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                 [class.h-5]="!store.isMobile()" [class.w-5]="!store.isMobile()"
-                 [class.h-4]="store.isMobile()" [class.w-4]="store.isMobile()">
+                 [class.h-5]="!uiState.isMobile()" [class.w-5]="!uiState.isMobile()"
+                 [class.h-4]="uiState.isMobile()" [class.w-4]="uiState.isMobile()">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
           </button>
@@ -148,12 +149,12 @@ import { Task } from '../../../../models';
           <!-- 导出菜单 -->
           @if (isExportMenuOpen) {
             <div class="absolute z-20 bg-white rounded-lg shadow-lg border border-stone-200 py-1 min-w-[140px]"
-                 [class.bottom-full]="!store.isMobile()"
-                 [class.mb-2]="!store.isMobile()"
-                 [class.left-0]="!store.isMobile()"
-                 [class.top-full]="store.isMobile()"
-                 [class.mt-2]="store.isMobile()"
-                 [class.right-0]="store.isMobile()">
+                 [class.bottom-full]="!uiState.isMobile()"
+                 [class.mb-2]="!uiState.isMobile()"
+                 [class.left-0]="!uiState.isMobile()"
+                 [class.top-full]="uiState.isMobile()"
+                 [class.mt-2]="uiState.isMobile()"
+                 [class.right-0]="uiState.isMobile()">
               <button 
                 (click)="onExportPng()"
                 class="w-full px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-50 flex items-center gap-2">
@@ -170,7 +171,7 @@ import { Task } from '../../../../models';
                 </svg>
                 导出 SVG
               </button>
-              @if (store.currentUserId()) {
+              @if (projectState.currentUserId()) {
                 <div class="border-t border-stone-100 my-1"></div>
                 <button 
                   (click)="onSaveToCloud()"
@@ -198,7 +199,7 @@ import { Task } from '../../../../models';
     <!-- 连接模式提示 -->
     @if (isLinkMode()) {
       <div class="absolute z-10 bg-indigo-500 text-white font-medium rounded-lg shadow-lg animate-fade-in flex items-center px-3 py-2 text-xs top-4 left-4" 
-           [ngClass]="{'top-2 left-1/2 -translate-x-1/2 px-2 py-1.5 max-w-[90vw]': store.isMobile(), 'text-[10px]': store.isMobile()}">
+           [ngClass]="{'top-2 left-1/2 -translate-x-1/2 px-2 py-1.5 max-w-[90vw]': uiState.isMobile(), 'text-[10px]': uiState.isMobile()}">
         @if (linkSourceTask(); as source) {
           <span class="truncate">已选: <span class="font-bold">{{ source.title }}</span></span>
           <span class="mx-1">&rarr;</span>
@@ -212,7 +213,9 @@ import { Task } from '../../../../models';
   `
 })
 export class FlowToolbarComponent {
-  readonly store = inject(StoreService);
+  // P2-1 迁移：直接注入子服务
+  readonly uiState = inject(UiStateService);
+  readonly projectState = inject(ProjectStateService);
   private readonly elementRef = inject(ElementRef);
   
   @ViewChild('exportMenu') exportMenuRef!: ElementRef;
@@ -252,7 +255,7 @@ export class FlowToolbarComponent {
   // 计算移动端顶部按钮位置
   // 当详情栏展开时，按钮紧贴拖动条底部
   readonly mobileTopPosition = computed(() => {
-    if (!this.store.isFlowDetailOpen()) {
+    if (!this.uiState.isFlowDetailOpen()) {
       return '8px'; // 详情栏关闭时，固定在顶部
     }
     // 详情栏开启时，按钮紧贴抽屉底部边缘

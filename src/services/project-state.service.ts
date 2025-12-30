@@ -312,4 +312,37 @@ export class ProjectStateService {
       this.connectionStore.setConnection(connection, pid);
     }
   }
+  
+  /**
+   * 重命名项目
+   * 返回 true 表示成功，false 表示无效名称
+   */
+  renameProject(projectId: string, newName: string): boolean {
+    const trimmed = newName.trim();
+    if (!trimmed) return false;
+    
+    this.updateProjects(projects => projects.map(p => 
+      p.id === projectId ? { ...p, name: trimmed } : p
+    ));
+    return true;
+  }
+  
+  /**
+   * 更新项目视图状态（缩放、位置）
+   */
+  updateViewState(projectId: string, viewState: { scale?: number; positionX?: number; positionY?: number }): void {
+    this.updateProjects(projects => projects.map(p => {
+      if (p.id === projectId) {
+        return {
+          ...p,
+          viewState: {
+            scale: viewState.scale ?? p.viewState?.scale ?? 1,
+            positionX: viewState.positionX ?? p.viewState?.positionX ?? 0,
+            positionY: viewState.positionY ?? p.viewState?.positionY ?? 0
+          }
+        };
+      }
+      return p;
+    }));
+  }
 }

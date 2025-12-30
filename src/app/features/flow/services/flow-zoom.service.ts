@@ -12,7 +12,8 @@
 
 import { Injectable, inject } from '@angular/core';
 import { LoggerService } from '../../../../services/logger.service';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
 import * as go from 'gojs';
 
 /**
@@ -30,7 +31,8 @@ export interface ViewState {
 export class FlowZoomService {
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowZoom');
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly syncCoordinator = inject(SyncCoordinatorService);
   
   /** 外部注入的 Diagram 引用 */
   private diagram: go.Diagram | null = null;
@@ -207,9 +209,10 @@ export class FlowZoomService {
    */
   saveViewState(): void {
     const viewState = this.getCurrentViewState();
-    const projectId = this.store.activeProjectId();
+    const projectId = this.projectState.activeProjectId();
     if (viewState && projectId) {
-      this.store.updateViewState(projectId, viewState);
+      this.projectState.updateViewState(projectId, viewState);
+      this.syncCoordinator.schedulePersist();
       this.logger.debug('视图状态已保存', viewState);
     }
   }
@@ -220,7 +223,7 @@ export class FlowZoomService {
   restoreViewState(): void {
     if (!this.diagram) return;
     
-    const viewState = this.store.getViewState();
+    const viewState = this.projectState.getViewState();
     if (viewState) {
       this.diagram.scale = viewState.scale;
       this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);

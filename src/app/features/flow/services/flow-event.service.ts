@@ -18,7 +18,8 @@
 
 import { Injectable, inject, NgZone } from '@angular/core';
 import { LoggerService } from '../../../../services/logger.service';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { UiStateService } from '../../../../services/ui-state.service';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { GOJS_CONFIG } from '../../../../config';
 import type { GoJSLinkData } from '../../../../types/gojs-extended';
@@ -101,7 +102,8 @@ export class FlowEventService {
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowEvent');
   private readonly zone = inject(NgZone);
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly uiState = inject(UiStateService);
   
   // ========== Diagram 引用 ==========
   private diagram: go.Diagram | null = null;
@@ -266,7 +268,7 @@ export class FlowEventService {
   private setupEventListeners(): void {
     if (!this.diagram) return;
     
-    const isMobile = this.store.isMobile();
+    const isMobile = this.uiState.isMobile();
     
     // ========== GoJS 原生事件监听 ==========
     
@@ -328,7 +330,7 @@ export class FlowEventService {
    * 处理选择移动完成
    */
   private handleSelectionMoved(e: go.DiagramEvent): void {
-    const projectIdAtMove = this.store.activeProjectId();
+    const projectIdAtMove = this.projectState.activeProjectId();
     
     if (this.positionSaveTimer) {
       clearTimeout(this.positionSaveTimer);
@@ -336,7 +338,7 @@ export class FlowEventService {
     
     this.positionSaveTimer = setTimeout(() => {
       if (!this.diagram) return;
-      if (this.store.activeProjectId() !== projectIdAtMove) return;
+      if (this.projectState.activeProjectId() !== projectIdAtMove) return;
       
       const movedNodes: Array<{ key: string; x: number; y: number; isUnassigned: boolean }> = [];
       

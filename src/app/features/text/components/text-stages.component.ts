@@ -1,6 +1,7 @@
 import { Component, inject, Input, Output, EventEmitter, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task } from '../../../../models';
 import { DropTargetInfo } from './text-view.types';
 import { TextStageCardComponent } from './text-stage-card.component';
@@ -48,7 +49,7 @@ import { TextStageCardComponent } from './text-stage-card.component';
                   class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
                   [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                   <span>全部</span>
-                  @if (store.stageFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                  @if (uiState.stageFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
                 </div>
                 <div class="h-px bg-stone-100 my-0.5"></div>
                 @for (stage of availableStages(); track stage.stageNumber) {
@@ -57,7 +58,7 @@ import { TextStageCardComponent } from './text-stage-card.component';
                     class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
                     [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                     <span>阶段 {{stage.stageNumber}}</span>
-                    @if (store.stageFilter() === stage.stageNumber) { <span class="text-indigo-600 font-bold">✓</span> }
+                    @if (uiState.stageFilter() === stage.stageNumber) { <span class="text-indigo-600 font-bold">✓</span> }
                   </div>
                 }
               </div>
@@ -87,16 +88,16 @@ import { TextStageCardComponent } from './text-stage-card.component';
                   class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
                   [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                   <span>全部任务</span>
-                  @if (store.stageViewRootFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                  @if (uiState.stageViewRootFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
                 </div>
                 <div class="h-px bg-stone-100 my-0.5"></div>
-                @for (root of store.allStage1Tasks(); track root.id) {
+                @for (root of projectState.allStage1Tasks(); track root.id) {
                   <div 
                     (click)="setRootFilter(root.id)"
                     class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
                     [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                     <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                    @if (store.stageViewRootFilter() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                    @if (uiState.stageViewRootFilter() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                   </div>
                 }
               </div>
@@ -159,7 +160,8 @@ import { TextStageCardComponent } from './text-stage-card.component';
   `]
 })
 export class TextStagesComponent {
-  readonly store = inject(StoreService);
+  private readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
   
   @Input() isMobile = false;
   @Input() selectedTaskId: string | null = null;
@@ -201,26 +203,26 @@ export class TextStagesComponent {
   
   // 计算属性
   readonly currentStageLabel = computed(() => {
-    const filter = this.store.stageFilter();
+    const filter = this.uiState.stageFilter();
     return filter === 'all' ? '全部' : `阶段 ${filter}`;
   });
 
   readonly currentRootLabel = computed(() => {
-    const filter = this.store.stageViewRootFilter();
+    const filter = this.uiState.stageViewRootFilter();
     if (filter === 'all') return '全部任务';
-    const task = this.store.allStage1Tasks().find(t => t.id === filter);
+    const task = this.projectState.allStage1Tasks().find(t => t.id === filter);
     if (!task) return '全部任务';
     return task.title || task.displayId || '未命名任务';
   });
 
   /** 可选阶段列表（考虑延伸筛选后的有效阶段） */
   readonly availableStages = computed(() => {
-    const rootFilter = this.store.stageViewRootFilter();
-    let stages = this.store.stages();
+    const rootFilter = this.uiState.stageViewRootFilter();
+    let stages = this.projectState.stages();
     
     // 如果有延伸筛选，只保留有该根任务子孙的阶段
     if (rootFilter !== 'all') {
-      const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
+      const root = this.projectState.allStage1Tasks().find(t => t.id === rootFilter);
       if (root) {
         stages = stages.filter(stage => 
           stage.tasks.some(task => 
@@ -234,9 +236,9 @@ export class TextStagesComponent {
   });
 
   readonly visibleStages = computed(() => {
-    const stageFilter = this.store.stageFilter();
-    const rootFilter = this.store.stageViewRootFilter();
-    let stages = this.store.stages();
+    const stageFilter = this.uiState.stageFilter();
+    const rootFilter = this.uiState.stageViewRootFilter();
+    let stages = this.projectState.stages();
     
     // 应用阶段筛选
     if (stageFilter !== 'all') {
@@ -245,7 +247,7 @@ export class TextStagesComponent {
     
     // 应用延伸筛选
     if (rootFilter !== 'all') {
-      const root = this.store.allStage1Tasks().find(t => t.id === rootFilter);
+      const root = this.projectState.allStage1Tasks().find(t => t.id === rootFilter);
       if (root) {
         // DEBUG: 追踪带有 "?" displayId 的任务
         const allStage1Tasks = stages.flatMap(s => s.tasks).filter(t => t.stage === 1 && !t.parentId);
@@ -289,7 +291,7 @@ export class TextStagesComponent {
   constructor() {
     // 初始化时折叠所有阶段
     queueMicrotask(() => {
-      const collapsed = new Set(this.store.stages().map(s => s.stageNumber));
+      const collapsed = new Set(this.projectState.stages().map(s => s.stageNumber));
       this.collapsedStages.set(collapsed);
     });
   }
@@ -310,23 +312,23 @@ export class TextStagesComponent {
   }
   
   setStageFilter(value: 'all' | number) {
-    this.store.setStageFilter(value);
+    this.uiState.setStageFilter(value);
     this.isStageFilterOpen.set(false);
   }
   
   setRootFilter(value: string) {
-    this.store.stageViewRootFilter.set(value);
+    this.uiState.stageViewRootFilter.set(value);
     this.isRootFilterOpen.set(false);
     
     // 如果当前阶段筛选在新的延伸筛选下不可用，重置为"全部"
-    const currentStageFilter = this.store.stageFilter();
+    const currentStageFilter = this.uiState.stageFilter();
     if (currentStageFilter !== 'all') {
       // 需要在下一个微任务中检查，因为 availableStages 依赖 stageViewRootFilter
       queueMicrotask(() => {
         const available = this.availableStages();
         const stillValid = available.some(s => s.stageNumber === currentStageFilter);
         if (!stillValid) {
-          this.store.setStageFilter('all');
+          this.uiState.setStageFilter('all');
         }
       });
     }

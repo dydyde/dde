@@ -21,7 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { GOJS_CONFIG } from '../../../../config';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
 import { LoggerService } from '../../../../services/logger.service';
 import * as go from 'gojs';
 
@@ -106,7 +106,7 @@ export interface LinkStyleConfig {
   providedIn: 'root'
 })
 export class FlowTemplateService {
-  private readonly store = inject(StoreService);
+  private readonly uiState = inject(UiStateService);
   private readonly configService = inject(FlowDiagramConfigService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowTemplate');
@@ -271,7 +271,7 @@ export class FlowTemplateService {
    */
   setupNodeTemplate(diagram: go.Diagram): void {
     const $ = go.GraphObject.make;
-    const isMobile = this.store.isMobile();
+    const isMobile = this.uiState.isMobile();
     const portSize = isMobile ? 24 : 10;
     
     const _allowedPortIds = ["T", "B", "L", "R"];
@@ -447,7 +447,7 @@ export class FlowTemplateService {
    */
   setupLinkTemplate(diagram: go.Diagram): void {
     const $ = go.GraphObject.make;
-    const isMobile = this.store.isMobile();
+    const isMobile = this.uiState.isMobile();
     const allowedPortIds = ["T", "B", "L", "R"];
     const linkStyleConfig = this.getLinkStyleConfig(isMobile);
     const pointerTolerance = isMobile ? 6 : 3;
@@ -985,7 +985,7 @@ export class FlowTemplateService {
    * - 点击时打开完整编辑器
    */
   private createConnectionLabelPanel($: GojsMake): go.Panel {
-    const isMobile = this.store.isMobile();
+    const isMobile = this.uiState.isMobile();
     
     // 创建悬停提示（仅桌面端，移动端不显示 tooltip）
     // 智能定位：基于连接线角度决定 Tooltip 位置（O(1) 操作，无节点遍历）

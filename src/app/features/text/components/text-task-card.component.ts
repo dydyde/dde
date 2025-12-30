@@ -1,7 +1,7 @@
 import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, SimpleChanges, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task, Connection } from '../../../../models';
 import { renderMarkdownSafe } from '../../../../utils/markdown';
 import { TextTaskEditorComponent } from './text-task-editor.component';
@@ -35,7 +35,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
            [ngClass]="{'mb-1': !isMobile, 'mb-0.5': isMobile}">
         <span class="font-mono font-medium text-retro-muted"
               [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
-          {{store.compressDisplayId(task.displayId)}}
+          {{projectState.compressDisplayId(task.displayId)}}
         </span>
         <span class="text-retro-muted/60 font-light"
               [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
@@ -80,7 +80,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
   `
 })
 export class TextTaskCardComponent implements OnChanges {
-  readonly store = inject(StoreService);
+  readonly projectState = inject(ProjectStateService);
   private readonly sanitizer = inject(DomSanitizer);
   
   @ViewChild('taskEditor') taskEditor?: TextTaskEditorComponent;

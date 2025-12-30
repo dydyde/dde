@@ -1,5 +1,8 @@
 import { Injectable, inject, signal, NgZone } from '@angular/core';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
+import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { ToastService } from '../../../../services/toast.service';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
@@ -48,7 +51,10 @@ interface ViewState {
   providedIn: 'root'
 })
 export class FlowDiagramService {
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly uiState = inject(UiStateService);
+  private readonly taskOps = inject(TaskOperationAdapterService);
+  private readonly syncCoordinator = inject(SyncCoordinatorService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowDiagram');
   private readonly toast = inject(ToastService);
@@ -989,7 +995,7 @@ export class FlowDiagramService {
               duration: Math.round(duration),
               nodeCount,
               source,
-              isMobile: this.store.isMobile()
+              isMobile: this.uiState.isMobile()
             }
           });
           
@@ -1817,7 +1823,7 @@ export class FlowDiagramService {
   }
   
   private getExportFileName(): string {
-    const project = this.store.activeProject();
+    const project = this.projectState.activeProject();
     const projectName = project?.name || '未命名项目';
     const date = new Date().toISOString().slice(0, 10);
     return `${projectName}_${date}`;
@@ -1871,10 +1877,10 @@ export class FlowDiagramService {
    */
   onFlowActivated(): void {
     if (this.isDestroyed || !this.diagram) return;
-    if (this.store.activeView() !== 'flow') return;
+    if (this.uiState.activeView() !== 'flow') return;
     if (!this.pendingAutoFitToContents) return;
 
-    const viewState = this.store.getViewState();
+    const viewState = this.projectState.getViewState();
     if (viewState) {
       this.pendingAutoFitToContents = false;
       this.diagram.scale = viewState.scale;
@@ -1918,7 +1924,7 @@ export class FlowDiagramService {
       }
     }
     
-    const project = this.store.activeProject();
+    const project = this.projectState.activeProject();
     if (project) {
       const model = this.diagram?.model as go.GraphLinksModel;
       if (model) {
@@ -1943,13 +1949,13 @@ export class FlowDiagramService {
       return;
     }
     
-    const project = this.store.activeProject();
+    const project = this.projectState.activeProject();
     if (!project) {
       return;
     }
     
     try {
-      const lastUpdateType = this.store.getLastUpdateType();
+      const lastUpdateType = this.taskOps.getLastUpdateType();
       
       const model = this.diagram.model as go.GraphLinksModel;
       const currentNodeMap = new Map<string, go.ObjectData>();
@@ -1971,7 +1977,7 @@ export class FlowDiagramService {
         }
       });
       
-      const searchQuery = this.store.searchQuery();
+      const searchQuery = this.uiState.searchQuery();
       const diagramData = this.configService.buildDiagramData(
         tasks.filter(t => !t.deletedAt),
         project,
@@ -2038,9 +2044,9 @@ export class FlowDiagramService {
         this.isFirstLoad = false;
         setTimeout(() => {
           if (this.isDestroyed || !this.diagram) return;
-          const viewState = this.store.getViewState();
+          const viewState = this.projectState.getViewState();
           if (!viewState) {
-            if (this.store.activeView() !== 'flow') {
+            if (this.uiState.activeView() !== 'flow') {
               this.pendingAutoFitToContents = true;
               return;
             }
@@ -2160,17 +2166,18 @@ export class FlowDiagramService {
     this.viewStateSaveTimer = setTimeout(() => {
       if (this.isDestroyed || !this.diagram) return;
       
-      const projectId = this.store.activeProjectId();
+      const projectId = this.projectState.activeProjectId();
       if (!projectId) return;
       
       const scale = this.diagram.scale;
       const pos = this.diagram.position;
       
-      this.store.updateViewState(projectId, {
+      this.projectState.updateViewState(projectId, {
         scale,
         positionX: pos.x,
         positionY: pos.y
       });
+      this.syncCoordinator.schedulePersist();
       
       this.viewStateSaveTimer = null;
     }, 1000);
@@ -2179,7 +2186,7 @@ export class FlowDiagramService {
   private restoreViewState(): void {
     if (!this.diagram) return;
 
-    const immediateViewState = this.store.getViewState();
+    const immediateViewState = this.projectState.getViewState();
     if (immediateViewState) {
       this.pendingAutoFitToContents = false;
       this.diagram.scale = immediateViewState.scale;
@@ -2195,14 +2202,14 @@ export class FlowDiagramService {
     this.restoreViewStateTimer = setTimeout(() => {
       if (this.isDestroyed || !this.diagram) return;
 
-      const viewState = this.store.getViewState();
+      const viewState = this.projectState.getViewState();
       
       if (viewState) {
         this.pendingAutoFitToContents = false;
         this.diagram.scale = viewState.scale;
         this.diagram.position = new go.Point(viewState.positionX, viewState.positionY);
       } else {
-        if (this.store.activeView() !== 'flow') {
+        if (this.uiState.activeView() !== 'flow') {
           this.pendingAutoFitToContents = true;
           return;
         }

@@ -1,6 +1,6 @@
 import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task } from '../../../../models';
 import { StageData, DropTargetInfo } from './text-view.types';
 import { TextTaskCardComponent } from './text-task-card.component';
@@ -105,7 +105,7 @@ import { TextTaskCardComponent } from './text-task-card.component';
   `]
 })
 export class TextStageCardComponent {
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
   
   @Input({ required: true }) stage!: StageData;
   @Input() isMobile = false;
@@ -141,7 +141,7 @@ export class TextStageCardComponent {
   @Output() taskTouchCancel = new EventEmitter<TouchEvent>();
   
   getConnections(taskId: string) {
-    return this.store.getTaskConnections(taskId);
+    return this.projectState.getTaskConnections(taskId);
   }
   
   toggleCollapse() {

@@ -12,7 +12,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { LoggerService } from '../../../../services/logger.service';
-import { StoreService } from '../../../../services/store.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { GOJS_CONFIG, UI_CONFIG } from '../../../../config';
 import * as go from 'gojs';
 
@@ -43,7 +43,7 @@ export interface LayoutOptions {
 export class FlowLayoutService {
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowLayout');
-  private readonly store = inject(StoreService);
+  private readonly taskOps = inject(TaskOperationAdapterService);
   
   /** 外部注入的 Diagram 引用 */
   private diagram: go.Diagram | null = null;
@@ -133,7 +133,7 @@ export class FlowLayoutService {
       const data = node.data as { key?: string };
       const loc = node.location;
       if (data?.key && loc.isReal()) {
-        this.store.updateTaskPosition(data.key, loc.x, loc.y);
+        this.taskOps.updateTaskPosition(data.key, loc.x, loc.y);
       }
     });
     

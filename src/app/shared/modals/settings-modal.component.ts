@@ -1,6 +1,6 @@
 import { Component, inject, Output, EventEmitter, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../services/store.service';
+import { UserSessionService } from '../../../services/user-session.service';
 import { PreferenceService } from '../../../services/preference.service';
 import { ThemeType } from '../../../models';
 
@@ -45,10 +45,10 @@ import { ThemeType } from '../../../models';
               <!-- 默认主题 -->
               <button (click)="updateTheme('default')" 
                       class="flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all"
-                      [class.border-indigo-500]="store.theme() === 'default'"
-                      [class.bg-indigo-50]="store.theme() === 'default'"
-                      [class.border-stone-200]="store.theme() !== 'default'"
-                      [class.hover:border-stone-300]="store.theme() !== 'default'">
+                      [class.border-indigo-500]="preferenceService.theme() === 'default'"
+                      [class.bg-indigo-50]="preferenceService.theme() === 'default'"
+                      [class.border-stone-200]="preferenceService.theme() !== 'default'"
+                      [class.hover:border-stone-300]="preferenceService.theme() !== 'default'">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-stone-100 to-stone-300 border border-stone-300"></div>
                 <span class="text-[10px] text-stone-600">默认</span>
               </button>
@@ -56,10 +56,10 @@ import { ThemeType } from '../../../models';
               <!-- 海洋主题 -->
               <button (click)="updateTheme('ocean')" 
                       class="flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all"
-                      [class.border-sky-500]="store.theme() === 'ocean'"
-                      [class.bg-sky-50]="store.theme() === 'ocean'"
-                      [class.border-stone-200]="store.theme() !== 'ocean'"
-                      [class.hover:border-stone-300]="store.theme() !== 'ocean'">
+                      [class.border-sky-500]="preferenceService.theme() === 'ocean'"
+                      [class.bg-sky-50]="preferenceService.theme() === 'ocean'"
+                      [class.border-stone-200]="preferenceService.theme() !== 'ocean'"
+                      [class.hover:border-stone-300]="preferenceService.theme() !== 'ocean'">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-sky-200 to-cyan-400 border border-sky-300"></div>
                 <span class="text-[10px] text-stone-600">海洋</span>
               </button>
@@ -67,10 +67,10 @@ import { ThemeType } from '../../../models';
               <!-- 森林主题 -->
               <button (click)="updateTheme('forest')" 
                       class="flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all"
-                      [class.border-green-500]="store.theme() === 'forest'"
-                      [class.bg-green-50]="store.theme() === 'forest'"
-                      [class.border-stone-200]="store.theme() !== 'forest'"
-                      [class.hover:border-stone-300]="store.theme() !== 'forest'">
+                      [class.border-green-500]="preferenceService.theme() === 'forest'"
+                      [class.bg-green-50]="preferenceService.theme() === 'forest'"
+                      [class.border-stone-200]="preferenceService.theme() !== 'forest'"
+                      [class.hover:border-stone-300]="preferenceService.theme() !== 'forest'">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-green-200 to-emerald-400 border border-green-300"></div>
                 <span class="text-[10px] text-stone-600">森林</span>
               </button>
@@ -78,10 +78,10 @@ import { ThemeType } from '../../../models';
               <!-- 日落主题 -->
               <button (click)="updateTheme('sunset')" 
                       class="flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all"
-                      [class.border-orange-500]="store.theme() === 'sunset'"
-                      [class.bg-orange-50]="store.theme() === 'sunset'"
-                      [class.border-stone-200]="store.theme() !== 'sunset'"
-                      [class.hover:border-stone-300]="store.theme() !== 'sunset'">
+                      [class.border-orange-500]="preferenceService.theme() === 'sunset'"
+                      [class.bg-orange-50]="preferenceService.theme() === 'sunset'"
+                      [class.border-stone-200]="preferenceService.theme() !== 'sunset'"
+                      [class.hover:border-stone-300]="preferenceService.theme() !== 'sunset'">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-200 to-red-400 border border-orange-300"></div>
                 <span class="text-[10px] text-stone-600">日落</span>
               </button>
@@ -89,10 +89,10 @@ import { ThemeType } from '../../../models';
               <!-- 薰衣草主题 -->
               <button (click)="updateTheme('lavender')" 
                       class="flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all"
-                      [class.border-purple-500]="store.theme() === 'lavender'"
-                      [class.bg-purple-50]="store.theme() === 'lavender'"
-                      [class.border-stone-200]="store.theme() !== 'lavender'"
-                      [class.hover:border-stone-300]="store.theme() !== 'lavender'">
+                      [class.border-purple-500]="preferenceService.theme() === 'lavender'"
+                      [class.bg-purple-50]="preferenceService.theme() === 'lavender'"
+                      [class.border-stone-200]="preferenceService.theme() !== 'lavender'"
+                      [class.hover:border-stone-300]="preferenceService.theme() !== 'lavender'">
                 <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-200 to-fuchsia-400 border border-purple-300"></div>
                 <span class="text-[10px] text-stone-600">薰衣草</span>
               </button>
@@ -140,25 +140,25 @@ import { ThemeType } from '../../../models';
                 <div class="text-sm font-semibold text-stone-800">同步状态</div>
               </div>
               <span class="px-2.5 py-1 text-[11px] rounded-full border"
-                    [class.bg-emerald-50]="store.currentUserId()"
-                    [class.border-emerald-100]="store.currentUserId()"
-                    [class.text-emerald-700]="store.currentUserId()"
-                    [class.bg-amber-50]="!store.currentUserId()"
-                    [class.border-amber-100]="!store.currentUserId()"
-                    [class.text-amber-700]="!store.currentUserId()">
-                @if (store.currentUserId()) { 已登录 } @else { 未登录 }
+                    [class.bg-emerald-50]="userSession.currentUserId()"
+                    [class.border-emerald-100]="userSession.currentUserId()"
+                    [class.text-emerald-700]="userSession.currentUserId()"
+                    [class.bg-amber-50]="!userSession.currentUserId()"
+                    [class.border-amber-100]="!userSession.currentUserId()"
+                    [class.text-amber-700]="!userSession.currentUserId()">
+                @if (userSession.currentUserId()) { 已登录 } @else { 未登录 }
               </span>
             </div>
 
             <div class="text-xs text-stone-500">
-              @if (store.currentUserId()) {
+              @if (userSession.currentUserId()) {
                 当前账号：{{ sessionEmail() || "Supabase 用户" }}
               } @else {
                 点击侧边栏底部的"登录同步"按钮进行登录。
               }
             </div>
 
-            @if (store.currentUserId()) {
+            @if (userSession.currentUserId()) {
               <div class="flex flex-wrap gap-2 pt-1">
                 <button type="button" (click)="signOut.emit()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 transition">退出登录</button>
               </div>
@@ -174,7 +174,7 @@ import { ThemeType } from '../../../models';
   `
 })
 export class SettingsModalComponent {
-  store = inject(StoreService);
+  readonly userSession = inject(UserSessionService);
   preferenceService = inject(PreferenceService);
   
   /** 当前登录用户邮箱 */

@@ -1,7 +1,12 @@
 import { Component, inject, signal, HostListener, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, NavigationEnd, RouterOutlet } from '@angular/router';
-import { StoreService } from './services/store.service';
+import { UiStateService } from './services/ui-state.service';
+import { ProjectStateService } from './services/project-state.service';
+import { TaskOperationAdapterService } from './services/task-operation-adapter.service';
+import { PreferenceService } from './services/preference.service';
+import { UserSessionService } from './services/user-session.service';
+import { ProjectOperationService } from './services/project-operation.service';
 import { AuthService } from './services/auth.service';
 import { UndoService } from './services/undo.service';
 import { ToastService } from './services/toast.service';
@@ -13,6 +18,7 @@ import { ModalService, type DeleteProjectData, type ConflictData, type LoginData
 import { DynamicModalService } from './services/dynamic-modal.service';
 import { SyncCoordinatorService } from './services/sync-coordinator.service';
 import { SimpleSyncService } from './app/core/services/simple-sync.service';
+import { SearchService } from './services/search.service';
 import { ModalLoaderService } from './app/core/services/modal-loader.service';
 import { enableLocalMode, disableLocalMode } from './services/guards';
 import { ToastContainerComponent } from './app/shared/components/toast-container.component';
@@ -88,7 +94,43 @@ import { UI_CONFIG, AUTH_CONFIG } from './config';
 })
 export class AppComponent implements OnInit, OnDestroy {
 
-  store = inject(StoreService);
+  private readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly preferenceService = inject(PreferenceService);
+  private readonly userSession = inject(UserSessionService);
+  private readonly projectOps = inject(ProjectOperationService);
+  private readonly searchService = inject(SearchService);
+
+  // ========== 模板所需的公共 getter（暴露给 HTML 模板）==========
+  
+  /** UI 状态 */
+  get isMobile() { return this.uiState.isMobile; }
+  get sidebarWidth() { return this.uiState.sidebarWidth; }
+  
+  /** 项目/任务数据 */
+  get projects() { return this.projectState.projects; }
+  get activeProject() { return this.projectState.activeProject; }
+  get activeProjectId() { return this.projectState.activeProjectId; }
+  get deletedTasks() { return this.projectState.deletedTasks; }
+  get currentUserId() { return this.userSession.currentUserId; }
+  
+  /** 同步状态 */
+  get offlineMode() { return this.syncCoordinator.offlineMode; }
+  get sessionExpired() { return this.syncCoordinator.sessionExpired; }
+  
+  /** 搜索结果 */
+  get searchResults() { return this.searchService.searchResults; }
+  get filteredProjects() { return this.searchService.filteredProjects; }
+  
+  /** 辅助方法 */
+  compressDisplayId(displayId: string): string {
+    return this.projectState.compressDisplayId(displayId);
+  }
+  
+  setActiveProjectId(id: string | null): void {
+    this.projectState.setActiveProjectId(id);
+  }
   auth = inject(AuthService);
   undoService = inject(UndoService);
   swUpdate = inject(SwUpdate);
@@ -151,7 +193,7 @@ export class AppComponent implements OnInit, OnDestroy {
   
   // 侧边栏滑动手势处理
   onSidebarTouchStart(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     this.sidebarTouchStartX = e.touches[0].clientX;
@@ -160,7 +202,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   
   onSidebarTouchMove(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const deltaX = e.touches[0].clientX - this.sidebarTouchStartX;
@@ -173,7 +215,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   
   onSidebarTouchEnd(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (!this.isSidebarSwiping) return;
     
     const deltaX = e.changedTouches[0].clientX - this.sidebarTouchStartX;
@@ -189,7 +231,7 @@ export class AppComponent implements OnInit, OnDestroy {
   
   // 手机端滑动手势处理
   onMainTouchStart(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     this.touchStartX = e.touches[0].clientX;
@@ -198,7 +240,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   
   onMainTouchMove(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const deltaX = e.touches[0].clientX - this.touchStartX;
@@ -211,7 +253,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   
   onMainTouchEnd(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (!this.isSwiping) return;
     
     const deltaX = e.changedTouches[0].clientX - this.touchStartX;
@@ -219,14 +261,14 @@ export class AppComponent implements OnInit, OnDestroy {
     
     // 向右滑动打开侧边栏
     // 但在流程图视图中不响应，避免与画布操作冲突
-    if (deltaX > threshold && this.store.activeView() !== 'flow') {
+    if (deltaX > threshold && this.uiState.activeView() !== 'flow') {
       this.isSidebarOpen.set(true);
     }
     
     this.isSwiping = false;
   }
 
-  readonly showSettingsAuthForm = computed(() => !this.store.currentUserId() || this.isReloginMode());
+  readonly showSettingsAuthForm = computed(() => !this.userSession.currentUserId() || this.isReloginMode());
   
   // ========== 模态框状态（代理到 ModalService）==========
   // 使用 ModalService 统一管理，以下为便捷访问器
@@ -237,9 +279,9 @@ export class AppComponent implements OnInit, OnDestroy {
   );
   
   currentFilterLabel = computed(() => {
-    const filterId = this.store.filterMode();
+    const filterId = this.uiState.filterMode();
     if (filterId === 'all') return '全部任务';
-    const task = this.store.rootTasks().find(t => t.id === filterId);
+    const task = this.projectState.rootTasks().find(t => t.id === filterId);
     if (!task) return '全部任务';
     return task.title || task.displayId || '未命名任务';
   });
@@ -260,7 +302,7 @@ export class AppComponent implements OnInit, OnDestroy {
    */
   readonly showLoginRequired = computed(() => {
     return this.auth.isConfigured && 
-           !this.store.currentUserId() && 
+           !this.userSession.currentUserId() && 
            !this.modal.isOpen('login') && 
            !this.isCheckingSession() &&
            !this.bootstrapFailed();
@@ -317,7 +359,7 @@ export class AppComponent implements OnInit, OnDestroy {
     // console.log('[NanoFlow] 📊 初始状态:', {
     //   isCheckingSession: this.isCheckingSession(),
     //   bootstrapFailed: this.bootstrapFailed(),
-    //   currentUserId: this.store.currentUserId(),
+    //   currentUserId: this.userSession.currentUserId(),
     //   authConfigured: this.auth.isConfigured
     // });
   }
@@ -399,7 +441,7 @@ export class AppComponent implements OnInit, OnDestroy {
       const escapeData: StorageEscapeData = {
         queue: data.queue,
         deadLetter: data.deadLetter,
-        projects: this.store.projects(), // 附加当前项目数据
+        projects: this.projectState.projects(), // 附加当前项目数据
         timestamp: new Date().toISOString()
       };
       
@@ -448,16 +490,16 @@ export class AppComponent implements OnInit, OnDestroy {
     const params = currentRoute.snapshot.params;
     const projectId = params['projectId'];
     
-    if (projectId && projectId !== this.store.activeProjectId()) {
+    if (projectId && projectId !== this.projectState.activeProjectId()) {
       // 项目列表尚未加载完成时，不要基于空列表做重定向，避免深链接被误判。
-      if (this.store.projects().length === 0) {
+      if (this.projectState.projects().length === 0) {
         return;
       }
 
       // 检查项目是否存在
-      const projectExists = this.store.projects().some(p => p.id === projectId);
+      const projectExists = this.projectState.projects().some(p => p.id === projectId);
       if (projectExists) {
-        this.store.activeProjectId.set(projectId);
+        this.projectState.setActiveProjectId(projectId);
       } else {
         // 项目不存在，重定向到默认路由
         void this.router.navigate(['/projects']);
@@ -479,7 +521,7 @@ export class AppComponent implements OnInit, OnDestroy {
   
   private setupConflictHandler() {
     // 订阅冲突事件流 - 使用发布-订阅模式
-    this.store.onConflict$.pipe(
+    this.syncCoordinator.onConflict$.pipe(
       takeUntil(this.destroy$)
     ).subscribe(({ localProject, remoteProject, projectId }) => {
       this.modal.show('conflict', { 
@@ -494,7 +536,7 @@ export class AppComponent implements OnInit, OnDestroy {
   async resolveConflictLocal() {
     const data = this.conflictData();
     if (data) {
-      await this.store.resolveConflict(data.projectId, 'local');
+      await this.projectOps.resolveConflict(data.projectId, 'local');
       // store.resolveConflict 内部已有错误处理和 toast 显示
       // 冲突解决成功的反馈由 store 内部处理
     }
@@ -505,7 +547,7 @@ export class AppComponent implements OnInit, OnDestroy {
   async resolveConflictRemote() {
     const data = this.conflictData();
     if (data) {
-      await this.store.resolveConflict(data.projectId, 'remote');
+      await this.projectOps.resolveConflict(data.projectId, 'remote');
     }
     this.modal.closeByType('conflict', { choice: 'remote' });
   }
@@ -514,7 +556,7 @@ export class AppComponent implements OnInit, OnDestroy {
   async resolveConflictMerge() {
     const data = this.conflictData();
     if (data) {
-      await this.store.resolveConflict(data.projectId, 'merge');
+      await this.projectOps.resolveConflict(data.projectId, 'merge');
     }
     this.modal.closeByType('conflict', { choice: 'merge' });
   }
@@ -531,17 +573,17 @@ export class AppComponent implements OnInit, OnDestroy {
     // Ctrl+Z / Cmd+Z: 撤销
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey) {
       event.preventDefault();
-      this.store.undo();
+      this.undoService.undo();
     }
     // Ctrl+Shift+Z / Cmd+Shift+Z: 重做
     if ((event.ctrlKey || event.metaKey) && event.key === 'z' && event.shiftKey) {
       event.preventDefault();
-      this.store.redo();
+      this.undoService.redo();
     }
     // Ctrl+Y / Cmd+Y: 重做（Windows 风格）
     if ((event.ctrlKey || event.metaKey) && event.key === 'y') {
       event.preventDefault();
-      this.store.redo();
+      this.undoService.redo();
     }
   }
   
@@ -587,7 +629,7 @@ export class AppComponent implements OnInit, OnDestroy {
       e.preventDefault();
       this.isResizingSidebar = true;
       this.startX = e.clientX;
-      this.startWidth = this.store.sidebarWidth();
+      this.startWidth = this.uiState.sidebarWidth();
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
   }
@@ -596,7 +638,7 @@ export class AppComponent implements OnInit, OnDestroy {
       e.preventDefault();
       this.isResizingContent = true;
       this.startX = e.clientX;
-      this.startRatio = this.store.textColumnRatio();
+      this.startRatio = this.uiState.textColumnRatio();
       
       // Get current main content width
       const mainEl = document.querySelector('main');
@@ -612,7 +654,7 @@ export class AppComponent implements OnInit, OnDestroy {
           e.preventDefault();
           const delta = e.clientX - this.startX;
           const newWidth = Math.max(200, Math.min(600, this.startWidth + delta));
-          this.store.sidebarWidth.set(newWidth);
+          this.uiState.sidebarWidth.set(newWidth);
       } else if (this.isResizingContent) {
           e.preventDefault();
           const delta = e.clientX - this.startX;
@@ -620,7 +662,7 @@ export class AppComponent implements OnInit, OnDestroy {
           const deltaPercent = (delta / this.mainContentWidth) * 100;
           // 限制在 25-75% 之间，避免极端情况
           const newRatio = Math.max(25, Math.min(75, this.startRatio + deltaPercent));
-          this.store.textColumnRatio.set(newRatio);
+          this.uiState.textColumnRatio.set(newRatio);
       }
   }
 
@@ -639,7 +681,7 @@ export class AppComponent implements OnInit, OnDestroy {
       console.log('[Bootstrap] Supabase 未配置，启用离线模式');
       this.isCheckingSession.set(false);
       // 离线模式：加载本地数据（种子数据或缓存数据）
-      await this.store.setCurrentUser(null);
+      await this.userSession.setCurrentUser(null);
       return;
     }
     
@@ -665,13 +707,13 @@ export class AppComponent implements OnInit, OnDestroy {
         const loadStartTime = Date.now();
         
         // setCurrentUser 不会抛出异常，内部已处理所有错误
-        await this.store.setCurrentUser(result.userId);
+        await this.userSession.setCurrentUser(result.userId);
         
         const loadElapsed = Date.now() - loadStartTime;
         console.log(`[Bootstrap] 步骤 2/3: 数据加载完成 (耗时 ${loadElapsed}ms)`);
         console.log('[Bootstrap] 步骤 3/3: 检查项目数据...', {
-          projectCount: this.store.projects().length,
-          activeProjectId: this.store.activeProjectId()
+          projectCount: this.projectState.projects().length,
+          activeProjectId: this.projectState.activeProjectId()
         });
       } else {
         console.log('[Bootstrap] 步骤 2/3: 无现有会话，跳过数据加载');
@@ -734,7 +776,7 @@ export class AppComponent implements OnInit, OnDestroy {
         localStorage.setItem('currentUserId', userId);
       }
       
-      await this.store.setCurrentUser(userId);
+      await this.userSession.setCurrentUser(userId);
       
       // 手动登录成功反馈（自动登录/会话恢复保持静默）
       this.toast.success('登录成功', `欢迎回来`);
@@ -800,7 +842,7 @@ export class AppComponent implements OnInit, OnDestroy {
       } else if (this.auth.currentUserId()) {
         // 注册成功且自动登录
         this.sessionEmail.set(this.auth.sessionEmail());
-        await this.store.setCurrentUser(this.auth.currentUserId());
+        await this.userSession.setCurrentUser(this.auth.currentUserId());
         this.toast.success('注册成功', '欢迎使用');
         this.modal.closeByType('login', { success: true, userId: this.auth.currentUserId() ?? undefined });
         this.isSignupMode.set(false);
@@ -869,7 +911,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
 async signOut() {
     // 先清空本地敏感数据，防止数据泄漏
-    this.store.clearLocalData();
+    this.userSession.clearLocalData();
     
     if (this.auth.isConfigured) {
       await this.auth.signOut();
@@ -892,7 +934,7 @@ async signOut() {
     this.projectDrafts.set({});
     this.unifiedSearchQuery.set('');
     
-    await this.store.setCurrentUser(null);
+    await this.userSession.setCurrentUser(null);
   }
 
   startRelogin() {
@@ -913,14 +955,14 @@ async signOut() {
     }
     
     // 展开新项目的详情
-    this.store.activeProjectId.set(id);
+    this.projectState.setActiveProjectId(id);
     this.expandedProjectId.set(id);
     this.ensureProjectDraft(id);
     this.isEditingDescription.set(false);
     
     // 移动端流程图视图下：切换项目时直接导航（用于快速对比不同项目的流程图）
-    const currentView = this.store.activeView() || 'text';
-    if (this.store.isMobile() && currentView === 'flow') {
+    const currentView = this.uiState.activeView() || 'text';
+    if (this.uiState.isMobile() && currentView === 'flow') {
       void this.router.navigate(['/projects', id, currentView]);
     }
     // 其他情况：只展开详情，不自动导航，让用户可以先看项目简介
@@ -928,13 +970,13 @@ async signOut() {
   
   // 进入项目视图（双击或点击进入按钮）
   enterProject(id: string) {
-    this.store.activeProjectId.set(id);
+    this.projectState.setActiveProjectId(id);
     this.expandedProjectId.set(id);
     this.ensureProjectDraft(id);
-    const currentView = this.store.activeView() || 'text';
+    const currentView = this.uiState.activeView() || 'text';
     void this.router.navigate(['/projects', id, currentView]);
     // 移动端自动关闭侧边栏
-    if (this.store.isMobile()) {
+    if (this.uiState.isMobile()) {
       this.isSidebarOpen.set(false);
     }
   }
@@ -960,7 +1002,7 @@ async signOut() {
     const projectId = this.renamingProjectId();
     const newName = this.renameProjectName().trim();
     if (projectId && newName && newName !== this.originalProjectName) {
-      this.store.renameProject(projectId, newName);
+      this.projectState.renameProject(projectId, newName);
       this.toast.success('项目重命名成功');
     }
     this.cancelRenameProject();
@@ -997,7 +1039,7 @@ async signOut() {
     const draft = this.projectDraft(projectId);
     if (!draft) return;
     // Only update description, createdDate is read-only in UI logic now
-    this.store.updateProjectMetadata(projectId, {
+    this.projectOps.updateProjectMetadata(projectId, {
       description: draft.description
     });
     // Exit edit mode
@@ -1007,7 +1049,7 @@ async signOut() {
   private ensureProjectDraft(projectId: string) {
     const drafts = this.projectDrafts();
     if (drafts[projectId]) return drafts[projectId];
-    const project = this.store.projects().find(p => p.id === projectId);
+    const project = this.projectState.projects().find(p => p.id === projectId);
     if (!project) return null;
     const draft = {
       description: project.description ?? '',
@@ -1041,11 +1083,11 @@ async signOut() {
    * 导航到包含该任务的项目并打开流程图视图
    */
   onFocusFlowNode(taskId: string) {
-    const task = this.store.tasks().find(t => t.id === taskId);
+    const task = this.projectState.tasks().find(t => t.id === taskId);
     if (!task) return;
     
     // 导航到任务所在项目的流程图视图
-    const projectId = this.store.activeProjectId();
+    const projectId = this.projectState.activeProjectId();
     if (projectId) {
       void this.router.navigate(['/projects', projectId, 'task', taskId]);
     }
@@ -1053,7 +1095,7 @@ async signOut() {
   
   async confirmCreateProject(name: string, desc: string) {
       if (!name) return;
-      const result = await this.store.addProject({
+      const result = await this.projectOps.addProject({
           id: crypto.randomUUID(),
           name,
           description: desc,
@@ -1087,7 +1129,7 @@ async signOut() {
     if (result?.confirmed) {
       this.isDeleting.set(true);
       try {
-        const deleteResult = await this.store.deleteProject(projectId);
+        const deleteResult = await this.projectOps.deleteProject(projectId);
         if (deleteResult.success) {
           this.expandedProjectId.set(null);
           // 破坏性操作的成功反馈：让用户明确知道删除已完成
@@ -1105,7 +1147,7 @@ async signOut() {
     const target = this.deleteProjectTarget();
     if (target) {
       const projectName = target.name;
-      const result = await this.store.deleteProject(target.id);
+      const result = await this.projectOps.deleteProject(target.id);
       if (result.success) {
         this.expandedProjectId.set(null);
         this.modal.closeByType('deleteProject', { confirmed: true });
@@ -1152,21 +1194,21 @@ async signOut() {
 
   updateLayoutDirection(e: Event) {
     const val = (e.target as HTMLSelectElement).value as 'ltr' | 'rtl';
-    this.store.layoutDirection.set(val);
+    this.uiState.layoutDirection.set(val);
   }
   
   updateFloatPref(e: Event) {
       const val = (e.target as HTMLSelectElement).value as 'auto' | 'fixed';
-      this.store.floatingWindowPref.set(val);
+      this.uiState.floatingWindowPref.set(val);
   }
   
   updateTheme(theme: ThemeType) {
     // 使用 store 的 setTheme 方法，统一主题管理和云端同步
-    void this.store.setTheme(theme);
+    void this.preferenceService.setTheme(theme);
   }
 
   updateFilter(e: Event) {
-      this.store.filterMode.set((e.target as HTMLSelectElement).value);
+      this.uiState.filterMode.set((e.target as HTMLSelectElement).value);
   }
   
   // 以下方法用于适配 LoginModalComponent 的事件
@@ -1205,7 +1247,7 @@ async signOut() {
     this.modal.closeByType('login', { success: true, userId: AUTH_CONFIG.LOCAL_MODE_USER_ID });
     
     // 加载本地数据
-    void this.store.loadProjects();
+    void this.userSession.loadProjects();
     
     // 提示用户
     this.toast.info('本地模式', '数据仅保存在本地，不会同步到云端');
@@ -1221,7 +1263,7 @@ async signOut() {
    */
   private async checkMigrationAfterLogin() {
     // 获取云端项目列表
-    const remoteProjects = this.store.projects();
+    const remoteProjects = this.projectState.projects();
     
     // 检查是否需要迁移
     const needsMigration = this.migrationService.checkMigrationNeeded(remoteProjects);
@@ -1237,7 +1279,7 @@ async signOut() {
   handleMigrationComplete() {
     this.modal.closeByType('migration');
     // 刷新项目列表
-    void this.store.loadProjects();
+    void this.userSession.loadProjects();
     this.toast.success('数据迁移完成');
   }
   
@@ -1251,8 +1293,8 @@ async signOut() {
 
   @HostListener('window:resize')
   checkMobile() {
-    this.store.isMobile.set(window.innerWidth < 768); // Tailwind md breakpoint
-    if (this.store.isMobile()) {
+    this.uiState.isMobile.set(window.innerWidth < 768); // Tailwind md breakpoint
+    if (this.uiState.isMobile()) {
       this.isSidebarOpen.set(false); // Auto-close sidebar on mobile
     }
   }
@@ -1274,8 +1316,8 @@ async signOut() {
     
     this.searchDebounceTimer = setTimeout(() => {
       // 同步到两个搜索 signal
-      this.store.projectSearchQuery.set(query);
-      this.store.searchQuery.set(query);
+      this.uiState.projectSearchQuery.set(query);
+      this.uiState.searchQuery.set(query);
       this.searchDebounceTimer = null;
     }, this.SEARCH_DEBOUNCE_DELAY);
   }
@@ -1285,6 +1327,6 @@ async signOut() {
    */
   clearUnifiedSearch() {
     this.unifiedSearchQuery.set('');
-    this.store.clearSearch();
+    this.uiState.clearSearch();
   }
 }

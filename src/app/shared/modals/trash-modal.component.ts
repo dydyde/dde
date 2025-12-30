@@ -1,6 +1,7 @@
 import { Component, inject, signal, Output, EventEmitter, Input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../services/store.service';
+import { ProjectStateService } from '../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../services/task-operation-adapter.service';
 import { ToastService } from '../../../services/toast.service';
 import { Task } from '../../../models';
 import { TRASH_CONFIG } from '../../../config';
@@ -281,7 +282,8 @@ export class TrashModalComponent {
   @Input() show = false;
   @Output() close = new EventEmitter<void>();
   
-  private store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
   private toast = inject(ToastService);
   
   // 当前激活的标签页
@@ -295,11 +297,11 @@ export class TrashModalComponent {
   readonly autoCleanupDays = TRASH_CONFIG.AUTO_CLEANUP_DAYS;
   
   // 已删除任务列表
-  deletedTasks = computed(() => this.store.deletedTasks());
+  deletedTasks = computed(() => this.projectState.deletedTasks());
   
   // 已归档任务列表（当前项目中状态为 archived 的任务）
   archivedTasks = computed(() => 
-    this.store.tasks().filter(t => t.status === 'archived' && !t.deletedAt)
+    this.projectState.tasks().filter(t => t.status === 'archived' && !t.deletedAt)
   );
   
   /**
@@ -334,7 +336,7 @@ export class TrashModalComponent {
    */
   hasChildren(taskId: string): boolean {
     // 同时检查当前任务列表和已删除任务列表
-    const allTasks = [...this.store.tasks(), ...this.store.deletedTasks()];
+    const allTasks = [...this.projectState.tasks(), ...this.projectState.deletedTasks()];
     return allTasks.some(t => t.parentId === taskId);
   }
   
@@ -343,7 +345,7 @@ export class TrashModalComponent {
    */
   getChildCount(taskId: string): number {
     // 同时计算当前任务和已删除任务中的子任务
-    const allTasks = [...this.store.tasks(), ...this.store.deletedTasks()];
+    const allTasks = [...this.projectState.tasks(), ...this.projectState.deletedTasks()];
     
     const countDescendants = (id: string): number => {
       const children = allTasks.filter(t => t.parentId === id);
@@ -356,7 +358,7 @@ export class TrashModalComponent {
    * 恢复任务
    */
   restoreTask(task: Task) {
-    this.store.restoreTask(task.id);
+    this.taskOpsAdapter.restoreTask(task.id);
     this.toast.success('已恢复', `任务 "${task.title}" 已恢复`);
   }
   
@@ -364,7 +366,7 @@ export class TrashModalComponent {
    * 取消归档任务
    */
   unarchiveTask(task: Task) {
-    this.store.updateTaskStatus(task.id, 'active');
+    this.taskOpsAdapter.updateTaskStatus(task.id, 'active');
     this.toast.success('已取消归档', `任务 "${task.title}" 已恢复到主视图`);
   }
   
@@ -381,7 +383,7 @@ export class TrashModalComponent {
   executePermanentDelete() {
     const task = this.confirmDeleteTask();
     if (task) {
-      this.store.permanentlyDeleteTask(task.id);
+      this.taskOpsAdapter.permanentlyDeleteTask(task.id);
       this.toast.success('已删除', `任务 "${task.title}" 已永久删除`);
     }
     this.confirmDeleteTask.set(null);
@@ -398,7 +400,7 @@ export class TrashModalComponent {
    * 执行清空回收站
    */
   executeEmptyTrash() {
-    this.store.emptyTrash();
+    this.taskOpsAdapter.emptyTrash();
     this.showEmptyConfirm.set(false);
     this.toast.success('已清空', '回收站已清空');
   }

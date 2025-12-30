@@ -1,7 +1,11 @@
 import { Component, inject, signal, computed, ElementRef, ViewChild, AfterViewInit, OnDestroy, effect, NgZone, HostListener, Output, EventEmitter, ChangeDetectionStrategy, Injector, untracked } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
+import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
+import { PreferenceService } from '../../../../services/preference.service';
 import { ToastService } from '../../../../services/toast.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { FlowCommandService } from '../../../../services/flow-command.service';
@@ -113,7 +117,7 @@ import * as go from 'gojs';
           
           <!-- 批量操作浮动工具栏（放在流程图画布内部） -->
           @if (selectionService.hasMultipleSelection()) {
-            @if (store.isMobile()) {
+            @if (uiState.isMobile()) {
               <!-- 移动端：左下角，工具栏上方（不遮挡工具框） -->
               <div class="absolute left-2 z-40 animate-slide-up" style="bottom: 56px;">
                 <div class="bg-white/95 backdrop-blur rounded-lg shadow-lg border border-stone-200 px-2.5 py-1.5 flex items-center gap-1.5">
@@ -169,10 +173,10 @@ import * as go from 'gojs';
               style="overflow: hidden;"
               [class.opacity-40]="isOverviewCollapsed()"
               [class.hover:opacity-100]="isOverviewCollapsed()"
-              [style.right.px]="store.isMobile() ? 8 : 16"
+              [style.right.px]="uiState.isMobile() ? 8 : 16"
               [style.bottom]="overviewBottomPosition()"
-              [style.width.px]="isOverviewCollapsed() ? (store.isMobile() ? 24 : 28) : overviewSize().width"
-              [style.height.px]="isOverviewCollapsed() ? (store.isMobile() ? 24 : 28) : overviewSize().height">
+              [style.width.px]="isOverviewCollapsed() ? (uiState.isMobile() ? 24 : 28) : overviewSize().width"
+              [style.height.px]="isOverviewCollapsed() ? (uiState.isMobile() ? 24 : 28) : overviewSize().height">
               
               <!-- 小地图内容 -->
               @if (!isOverviewCollapsed()) {
@@ -188,16 +192,16 @@ import * as go from 'gojs';
                 (pointerdown)="onOverviewTogglePointerDown($event)"
                 type="button"
                 class="absolute top-0.5 right-0.5 z-50 pointer-events-auto rounded bg-white/80 hover:bg-stone-100 flex items-center justify-center transition-colors"
-                [class.w-5]="!store.isMobile()"
-                [class.h-5]="!store.isMobile()"
-                 [class.w-6]="store.isMobile()"
-                 [class.h-6]="store.isMobile()"
+                [class.w-5]="!uiState.isMobile()"
+                [class.h-5]="!uiState.isMobile()"
+                 [class.w-6]="uiState.isMobile()"
+                 [class.h-6]="uiState.isMobile()"
                 [title]="isOverviewCollapsed() ? '展开小地图' : '折叠小地图'">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-                     [class.w-3]="!store.isMobile()"
-                     [class.h-3]="!store.isMobile()"
-                   [class.w-3]="store.isMobile()"
-                   [class.h-3]="store.isMobile()"
+                     [class.w-3]="!uiState.isMobile()"
+                     [class.h-3]="!uiState.isMobile()"
+                   [class.w-3]="uiState.isMobile()"
+                   [class.h-3]="uiState.isMobile()"
                      class="text-stone-500">
                   @if (isOverviewCollapsed()) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -310,7 +314,7 @@ import * as go from 'gojs';
         [task]="deleteConfirmTask()"
         [keepChildren]="deleteKeepChildren()"
         [hasChildren]="deleteConfirmTask() ? taskOps.hasChildren(deleteConfirmTask()!) : false"
-        [isMobile]="store.isMobile()"
+        [isMobile]="uiState.isMobile()"
         (cancel)="deleteConfirmTask.set(null); deleteKeepChildren.set(false)"
         (confirm)="confirmDelete($event)"
         (keepChildrenChange)="deleteKeepChildren.set($event)">
@@ -319,13 +323,13 @@ import * as go from 'gojs';
       <!-- 批量删除确认弹窗 -->
       <app-flow-batch-delete-dialog
         [data]="batchDeleteDialog()"
-        [isMobile]="store.isMobile()"
+        [isMobile]="uiState.isMobile()"
         (cancel)="batchDeleteDialog.set(null)"
         (confirm)="confirmBatchDelete()">
       </app-flow-batch-delete-dialog>
       
       <!-- 移动端连接线删除提示 -->
-      @if (store.isMobile()) {
+      @if (uiState.isMobile()) {
         <app-flow-link-delete-hint
           [hint]="link.linkDeleteHint()"
           (confirm)="confirmLinkDelete()"
@@ -360,7 +364,7 @@ import * as go from 'gojs';
       </app-flow-cascade-assign-dialog>
       
       <!-- 移动端右侧滑出项目面板 -->
-      @if (store.isMobile()) {
+      @if (uiState.isMobile()) {
         <!-- 背景遮罩 -->
         @if (isRightPanelOpen()) {
           <div 
@@ -397,19 +401,19 @@ import * as go from 'gojs';
           
           <!-- Project List - 完全复刻项目列表样式 -->
           <div class="flex-1 overflow-y-auto space-y-1 px-2">
-            @for (proj of store.projects(); track proj.id) {
+            @for (proj of projectState.projects(); track proj.id) {
               <div 
                 (click)="onRightPanelProjectClick(proj.id)"
                 class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100 px-2 py-2"
-                [class.bg-indigo-100]="store.activeProjectId() === proj.id"
-                [class.text-indigo-900]="store.activeProjectId() === proj.id"
-                [class.text-stone-500]="store.activeProjectId() !== proj.id">
+                [class.bg-indigo-100]="projectState.activeProjectId() === proj.id"
+                [class.text-indigo-900]="projectState.activeProjectId() === proj.id"
+                [class.text-stone-500]="projectState.activeProjectId() !== proj.id">
                 <div class="flex items-center justify-between gap-1 min-w-0">
                   <div class="font-medium transition-colors flex-1 min-w-0 truncate text-xs">
                     {{ proj.name }}
                   </div>
                 </div>
-                @if (store.activeProjectId() === proj.id) {
+                @if (projectState.activeProjectId() === proj.id) {
                   <div class="text-[10px] text-indigo-400 mt-1 animate-fade-in leading-relaxed font-mono">
                     {{ proj.createdDate | date:'MM/dd' }}
                   </div>
@@ -426,7 +430,7 @@ import * as go from 'gojs';
           <div class="mb-4 shrink-0 space-y-2 mx-2">
             <!-- 同步状态提示 -->
             <div class="text-[10px] text-stone-400 text-center py-2">
-              共 {{ store.projects().length }} 个项目
+              共 {{ projectState.projects().length }} 个项目
             </div>
           </div>
         </aside>
@@ -439,8 +443,12 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   @ViewChild('overviewDiv') overviewDiv!: ElementRef;
   @Output() goBackToText = new EventEmitter<void>();
   
-  // ========== 依赖注入 ==========
-  readonly store = inject(StoreService);
+  // ========== P2-1 迁移：直接注入子服务 ==========
+  readonly uiState = inject(UiStateService);
+  readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly syncCoordinator = inject(SyncCoordinatorService);
+  private readonly preference = inject(PreferenceService);
   private readonly toast = inject(ToastService);
   private readonly logger = inject(LoggerService).category('FlowView');
   private readonly zone = inject(NgZone);
@@ -480,7 +488,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   readonly taskDetailPos = signal<{ x: number; y: number }>({ x: -1, y: -1 });
   
   /** 调色板高度 - 移动端默认更小 */
-  readonly paletteHeight = signal(this.store.isMobile() ? 120 : 180);
+  readonly paletteHeight = signal(this.uiState.isMobile() ? 120 : 180);
   
   /** 底部抽屉高度（vh） */
   readonly drawerHeight = signal(25);
@@ -501,7 +509,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   /** 小地图尺寸（移动端使用更小尺寸） */
   readonly overviewSize = computed(() => {
-    if (this.store.isMobile()) {
+    if (this.uiState.isMobile()) {
       return { width: 100, height: 80 };
     }
     return { width: 180, height: 140 };
@@ -510,7 +518,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   /** 小地图底部位置（抽屉在顶部，固定在底部） */
   readonly overviewBottomPosition = computed(() => {
     // 桌面端稍高一点
-    if (!this.store.isMobile()) {
+    if (!this.uiState.isMobile()) {
       return '16px';
     }
     // 移动端固定在底部（抽屉在顶部，不影响小地图）
@@ -527,7 +535,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   readonly selectedTask = computed(() => {
     const id = this.selectedTaskId();
     if (!id) return null;
-    return this.store.tasks().find(t => t.id === id) || null;
+    return this.projectState.tasks().find(t => t.id === id) || null;
   });
   
   // ========== 私有状态 ==========
@@ -588,14 +596,14 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   constructor() {
     // 初始化抽屉高度：如果是移动端且详情面板已打开，则设为 4.27
-    if (this.store.isMobile() && this.store.isFlowDetailOpen()) {
+    if (this.uiState.isMobile() && this.uiState.isFlowDetailOpen()) {
       this.drawerHeight.set(4.27);
     }
 
     // 监听任务数据变化，使用 rAF 对齐渲染帧更新图表
     // 核心原则：眼睛看到的（UI）用 rAF，硬盘存的（Data）用 debounce
     effect(() => {
-      const tasks = this.store.tasks();
+      const tasks = this.projectState.tasks();
       if (this.diagram.isInitialized) {
         this.scheduleRafDiagramUpdate(tasks, false);
       }
@@ -605,7 +613,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     // 必须单独监听，否则添加/删除跨树连接不会触发图表更新
     // 注意：使用连接的"有效签名"而非数组长度，以检测软删除和恢复操作
     effect(() => {
-      const project = this.store.activeProject();
+      const project = this.projectState.activeProject();
       // 构建有效连接的签名（过滤掉 deletedAt，只统计活跃连接）
       const activeConnections = project?.connections?.filter(c => !c.deletedAt) ?? [];
       // 使用连接的 source-target 对作为签名，检测任何变化
@@ -615,23 +623,23 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         .join('|');
       // 读取 connectionSignature 来建立依赖关系
       if (connectionSignature !== undefined && this.diagram.isInitialized) {
-        this.scheduleRafDiagramUpdate(this.store.tasks(), true);
+        this.scheduleRafDiagramUpdate(this.projectState.tasks(), true);
       }
     }, { injector: this.injector });
     
     // 监听搜索查询变化，使用 rAF 更新图表高亮
     effect(() => {
-      const _query = this.store.searchQuery();
+      const _query = this.uiState.searchQuery();
       if (this.diagram.isInitialized) {
-        this.scheduleRafDiagramUpdate(this.store.tasks(), true);
+        this.scheduleRafDiagramUpdate(this.projectState.tasks(), true);
       }
     }, { injector: this.injector });
     
     // 监听主题变化，使用 rAF 更新图表节点颜色
     effect(() => {
-      const _theme = this.store.theme();
+      const _theme = this.preference.theme();
       if (this.diagram.isInitialized) {
-        this.scheduleRafDiagramUpdate(this.store.tasks(), true);
+        this.scheduleRafDiagramUpdate(this.projectState.tasks(), true);
       }
     }, { injector: this.injector });
     
@@ -695,7 +703,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       if (this.isDestroyed || !this.diagram.isInitialized) return;
       
       // 执行图表更新，使用合并后的 forceUpdate 标志
-      this.diagram.updateDiagram(this.store.tasks(), this.diagramUpdatePending);
+      this.diagram.updateDiagram(this.projectState.tasks(), this.diagramUpdatePending);
       this.diagramUpdatePending = false;
     });
   }
@@ -708,7 +716,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     // 初始化完成后立即加载图表数据
     this.scheduleTimer(() => {
       if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks());
+        this.diagram.updateDiagram(this.projectState.tasks());
         
         // 标记 View 已就绪
         this.flowCommand.markViewReady();
@@ -793,11 +801,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       } else {
         this.selectedTaskId.set(taskId);
         // 移动端：点击任务块时，调整抽屉高度到 22.63
-        if (this.store.isMobile()) {
+        if (this.uiState.isMobile()) {
           this.drawerHeight.set(22.63);
         }
         if (isDoubleClick) {
-          this.store.isFlowDetailOpen.set(true);
+          this.uiState.isFlowDetailOpen.set(true);
         }
       }
     });
@@ -808,12 +816,12 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
         isCrossTree: linkData?.isCrossTree,
         x, 
         y,
-        isMobile: this.store.isMobile(),
+        isMobile: this.uiState.isMobile(),
         isDoubleClick
       });
       
       // 移动端：单击打开编辑器（仅跨树连接），双击/长按显示删除提示
-      if (this.store.isMobile()) {
+      if (this.uiState.isMobile()) {
         if (isDoubleClick) {
           console.log('[FlowView] 移动端长按/双击：显示删除提示');
           this.link.showLinkDeleteHint(linkData, x, y);
@@ -894,7 +902,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       const needsBatch = movedNodes.length > 1;
       
       if (needsBatch) {
-        this.store.beginPositionBatch();
+        this.taskOpsAdapter.beginPositionBatch();
       }
       
       try {
@@ -909,16 +917,16 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
           } else {
             // 单节点：带撤销的位置更新；批量：普通更新（由 endBatch 统一记录）
             if (needsBatch) {
-              this.store.updateTaskPositionWithRankSync(node.key, node.x, node.y);
+              this.taskOpsAdapter.updateTaskPositionWithRankSync(node.key, node.x, node.y);
             } else {
               // 单节点拖拽完成，带撤销记录
-              this.store.updateTaskPositionWithUndo(node.key, node.x, node.y);
+              this.taskOpsAdapter.updateTaskPositionWithUndo(node.key, node.x, node.y);
             }
           }
         });
       } finally {
         if (needsBatch) {
-          this.store.endPositionBatch();
+          this.taskOpsAdapter.endPositionBatch();
         }
       }
     });
@@ -927,7 +935,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       console.log('[FlowView] backgroundClick 触发，关闭编辑器和删除提示');
       this.link.closeConnectionEditor();
       // 移动端：同时关闭删除提示
-      if (this.store.isMobile()) {
+      if (this.uiState.isMobile()) {
         this.link.cancelLinkDelete();
       }
     });
@@ -953,7 +961,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   }
 
   private installMobileDiagramDragGhostListeners(): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (this.diagramSelectionMovedListener) return;
 
     const diagramInstance = this.diagram.diagramInstance;
@@ -963,7 +971,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     // 只使用 'SelectionMoved' 在拖拽结束时清理幽灵元素
     // 如果需要实时跟踪，应该监听 ToolManager 或使用 doMouseMove
     this.diagramSelectionMovedListener = () => {
-      if (!this.store.isMobile()) return;
+      if (!this.uiState.isMobile()) return;
       this.touch.endDiagramNodeDragGhost();
     };
 
@@ -1072,7 +1080,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
 
         this.initDiagram();
         if (this.diagram.isInitialized) {
-          this.diagram.updateDiagram(this.store.tasks());
+          this.diagram.updateDiagram(this.projectState.tasks());
           // 成功后重置重试计数
           this.diagramRetryCount = 0;
           this.hasReachedRetryLimit.set(false);
@@ -1107,7 +1115,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
 
         this.initDiagram();
         if (this.diagram.isInitialized) {
-          this.diagram.updateDiagram(this.store.tasks());
+          this.diagram.updateDiagram(this.projectState.tasks());
           this.toast.success('重置成功', '流程图已就绪');
         } else {
           // 重置后仍然失败，显示错误但允许再次重试
@@ -1164,11 +1172,11 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     this.zoomService.centerOnNode(taskId);
     this.selectedTaskId.set(taskId);
     // 移动端：居中到节点时，调整抽屉高度到 22.63
-    if (this.store.isMobile()) {
+    if (this.uiState.isMobile()) {
       this.drawerHeight.set(22.63);
     }
     if (openDetail) {
-      this.store.isFlowDetailOpen.set(true);
+      this.uiState.isFlowDetailOpen.set(true);
     }
   }
   
@@ -1180,7 +1188,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   private refreshDiagram(): void {
     this.scheduleTimer(() => {
-      this.diagram.updateDiagram(this.store.tasks());
+      this.diagram.updateDiagram(this.projectState.tasks());
     }, 50);
   }
   
@@ -1204,7 +1212,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     // 场景二：从流程图的待分配区域拖入画布时，不应立刻“任务化”。
     // 仅更新位置，待后续“拉线”时再根据连接关系赋予阶段/序号。
     if (taskData?.stage === null) {
-      this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
+      this.taskOpsAdapter.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
       return;
     }
     
@@ -1214,33 +1222,33 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       const { sourceId, targetId } = insertInfo.insertOnLink;
       this.dragDrop.insertTaskBetweenNodes(taskData.id, sourceId, targetId, docPoint);
     } else if (insertInfo.parentId) {
-      const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
+      const parentTask = this.projectState.tasks().find(t => t.id === insertInfo.parentId);
       if (parentTask) {
         const newStage = (parentTask.stage || 1) + 1;
-        this.store.moveTaskToStage(taskData.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
+        this.taskOpsAdapter.moveTaskToStage(taskData.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
         this.scheduleTimer(() => {
-          this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
+          this.taskOpsAdapter.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
         }, 100);
       }
     } else if (insertInfo.beforeTaskId || insertInfo.afterTaskId) {
-      const refTask = this.store.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
+      const refTask = this.projectState.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
       if (refTask?.stage) {
         if (insertInfo.afterTaskId) {
-          const siblings = this.store.tasks()
+          const siblings = this.projectState.tasks()
             .filter(t => t.stage === refTask.stage && t.parentId === refTask.parentId)
             .sort((a, b) => a.rank - b.rank);
           const afterIndex = siblings.findIndex(t => t.id === refTask.id);
           const nextSibling = siblings[afterIndex + 1];
-          this.store.moveTaskToStage(taskData.id, refTask.stage, nextSibling?.id || null, refTask.parentId);
+          this.taskOpsAdapter.moveTaskToStage(taskData.id, refTask.stage, nextSibling?.id || null, refTask.parentId);
         } else {
-          this.store.moveTaskToStage(taskData.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
+          this.taskOpsAdapter.moveTaskToStage(taskData.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
         }
         this.scheduleTimer(() => {
-          this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
+          this.taskOpsAdapter.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
         }, 100);
       }
     } else {
-      this.store.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
+      this.taskOpsAdapter.updateTaskPosition(taskData.id, docPoint.x, docPoint.y);
     }
   }
   
@@ -1272,7 +1280,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   private handleTouchDrop(task: Task, insertInfo: InsertPositionInfo, docPoint: go.Point): void {
     // 场景二（移动端）：待分配块拖入画布仅更新位置，不立刻任务化
     if (task.stage === null) {
-      this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
+      this.taskOpsAdapter.updateTaskPosition(task.id, docPoint.x, docPoint.y);
       return;
     }
 
@@ -1280,24 +1288,24 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       const { sourceId, targetId } = insertInfo.insertOnLink;
       this.dragDrop.insertTaskBetweenNodes(task.id, sourceId, targetId, docPoint);
     } else if (insertInfo.parentId) {
-      const parentTask = this.store.tasks().find(t => t.id === insertInfo.parentId);
+      const parentTask = this.projectState.tasks().find(t => t.id === insertInfo.parentId);
       if (parentTask) {
         const newStage = (parentTask.stage || 1) + 1;
-        this.store.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
+        this.taskOpsAdapter.moveTaskToStage(task.id, newStage, insertInfo.beforeTaskId, insertInfo.parentId);
         this.scheduleTimer(() => {
-          this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
+          this.taskOpsAdapter.updateTaskPosition(task.id, docPoint.x, docPoint.y);
         }, UI_CONFIG.MEDIUM_DELAY);
       }
     } else if (insertInfo.beforeTaskId || insertInfo.afterTaskId) {
-      const refTask = this.store.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
+      const refTask = this.projectState.tasks().find(t => t.id === (insertInfo.beforeTaskId || insertInfo.afterTaskId));
       if (refTask?.stage) {
-        this.store.moveTaskToStage(task.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
+        this.taskOpsAdapter.moveTaskToStage(task.id, refTask.stage, insertInfo.beforeTaskId, refTask.parentId);
         this.scheduleTimer(() => {
-          this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
+          this.taskOpsAdapter.updateTaskPosition(task.id, docPoint.x, docPoint.y);
         }, UI_CONFIG.MEDIUM_DELAY);
       }
     } else {
-      this.store.updateTaskPosition(task.id, docPoint.x, docPoint.y);
+      this.taskOpsAdapter.updateTaskPosition(task.id, docPoint.x, docPoint.y);
     }
   }
   
@@ -1331,7 +1339,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     targetStage: number,
     targetParentId: string | null
   ): void {
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     
@@ -1360,7 +1368,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     const dialog = this.cascadeAssignDialog();
     if (!dialog) return;
     
-    this.store.moveTaskToStage(
+    this.taskOpsAdapter.moveTaskToStage(
       dialog.taskId,
       dialog.targetStage,
       undefined,
@@ -1483,7 +1491,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       
       // 强制刷新图表
       if (this.diagram.isInitialized) {
-        this.diagram.updateDiagram(this.store.tasks(), true);
+        this.diagram.updateDiagram(this.projectState.tasks(), true);
       }
     }
   }
@@ -1500,7 +1508,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // 单选时走单任务删除流程
     if (selectedIds.length === 1) {
-      const task = this.store.tasks().find(t => t.id === selectedIds[0]);
+      const task = this.projectState.tasks().find(t => t.id === selectedIds[0]);
       if (task) {
         this.deleteTask(task);
       }
@@ -1540,7 +1548,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     
     // 强制刷新图表
     if (this.diagram.isInitialized) {
-      this.diagram.updateDiagram(this.store.tasks(), true);
+      this.diagram.updateDiagram(this.projectState.tasks(), true);
     }
   }
   
@@ -1564,7 +1572,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
     const newMode = !this.isSelectMode();
     this.isSelectMode.set(newMode);
     
-    console.log('[FlowView] 切换框选模式', { newMode, isMobile: this.store.isMobile() });
+    console.log('[FlowView] 切换框选模式', { newMode, isMobile: this.uiState.isMobile() });
     
     const diagramInstance = this.diagram.diagramInstance;
     if (diagramInstance) {
@@ -1685,7 +1693,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
       event.stopPropagation();
       
       this.zone.run(() => {
-        selectedKeys.forEach(id => this.store.detachTask(id));
+        selectedKeys.forEach(id => this.taskOpsAdapter.detachTask(id));
       });
       return;
     }
@@ -1720,7 +1728,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   /** 切换右侧面板（移动端） */
   toggleRightPanel(): void {
-    if (this.store.isMobile()) {
+    if (this.uiState.isMobile()) {
       this.isRightPanelOpen.update(v => !v);
     }
   }
@@ -1734,7 +1742,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
   
   /** 右侧面板项目点击处理 */
   onRightPanelProjectClick(projectId: string): void {
-    this.store.activeProjectId.set(projectId);
+    this.projectState.activeProjectId.set(projectId);
     this.isRightPanelOpen.set(false);
   }
   
@@ -1810,7 +1818,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
    * 记录起始位置，准备检测滑动手势
    */
   onDiagramAreaTouchStart(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const touch = e.touches[0];
@@ -1828,7 +1836,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
    * 检测是水平滑动还是垂直滚动
    */
   onDiagramAreaTouchMove(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     // 如果已经确定是垂直滚动，让 GoJS 处理
@@ -1861,7 +1869,7 @@ export class FlowViewComponent implements AfterViewInit, OnDestroy {
    * 根据滑动方向执行相应操作
    */
   onDiagramAreaTouchEnd(e: TouchEvent): void {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     
     // 如果是垂直滚动或没有检测到滑动，不处理
     if (this.diagramAreaSwipeState.isVerticalScroll || !this.diagramAreaSwipeState.isSwiping) {

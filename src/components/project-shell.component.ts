@@ -10,7 +10,10 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { StoreService } from '../services/store.service';
+import { UiStateService } from '../services/ui-state.service';
+import { ProjectStateService } from '../services/project-state.service';
+import { TaskOperationAdapterService } from '../services/task-operation-adapter.service';
+import { SyncCoordinatorService } from '../services/sync-coordinator.service';
 import { ToastService } from '../services/toast.service';
 import { TabSyncService } from '../services/tab-sync.service';
 import { FlowCommandService } from '../services/flow-command.service';
@@ -49,31 +52,31 @@ import { FlowViewComponent } from '../app/features/flow';
   `],
   template: `
     <div class="relative flex h-full w-full min-h-0 overflow-hidden" style="background-color: var(--theme-bg);">
-      @if (store.activeProjectId()) {
+      @if (projectState.activeProjectId()) {
         <!-- Text Column - 允许滑动手势切换 -->
         <div class="flex flex-col min-w-[300px] min-h-0" 
              style="background-color: var(--theme-bg); border-color: var(--theme-border);"
-             [class.border-r]="!store.isMobile()"
-             [class.absolute]="store.isMobile()"
-             [class.inset-0]="store.isMobile()"
-             [class.w-full]="store.isMobile()"
-             [class.flex-1]="store.isMobile()"
-             [class.opacity-0]="store.isMobile() && store.activeView() !== 'text'"
-             [class.opacity-100]="store.isMobile() && store.activeView() === 'text'"
-             [class.pointer-events-none]="store.isMobile() && store.activeView() !== 'text'"
-             [class.z-10]="store.isMobile() && store.activeView() === 'text'"
-             [class.z-0]="store.isMobile() && store.activeView() !== 'text'"
-             [style.width.%]="store.isMobile() ? 100 : store.textColumnRatio()"
+             [class.border-r]="!uiState.isMobile()"
+             [class.absolute]="uiState.isMobile()"
+             [class.inset-0]="uiState.isMobile()"
+             [class.w-full]="uiState.isMobile()"
+             [class.flex-1]="uiState.isMobile()"
+             [class.opacity-0]="uiState.isMobile() && uiState.activeView() !== 'text'"
+             [class.opacity-100]="uiState.isMobile() && uiState.activeView() === 'text'"
+             [class.pointer-events-none]="uiState.isMobile() && uiState.activeView() !== 'text'"
+             [class.z-10]="uiState.isMobile() && uiState.activeView() === 'text'"
+             [class.z-0]="uiState.isMobile() && uiState.activeView() !== 'text'"
+             [style.width.%]="uiState.isMobile() ? 100 : uiState.textColumnRatio()"
              (touchstart)="onTextViewTouchStart($event)"
              (touchmove)="onTextViewTouchMove($event)"
              (touchend)="onTextViewTouchEnd($event)">
           
           <!-- Header for Text Column -->
           <div class="shrink-0 z-10"
-               [ngClass]="{'h-6 mx-6 mt-4': !store.isMobile(), 'mx-2 mt-1 mb-1': store.isMobile()}">
+               [ngClass]="{'h-6 mx-6 mt-4': !uiState.isMobile(), 'mx-2 mt-1 mb-1': uiState.isMobile()}">
              
              <!-- Desktop Layout -->
-             @if (!store.isMobile()) {
+             @if (!uiState.isMobile()) {
                <div class="h-full flex items-center justify-between">
                  <div class="flex items-center gap-3">
                    <button (click)="toggleSidebar()" 
@@ -101,18 +104,18 @@ import { FlowViewComponent } from '../app/features/flow';
                       <div class="fixed inset-0 z-40" (click)="isFilterOpen.set(false)"></div>
                       <div class="absolute right-0 top-full mt-1 w-48 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-dropdown overflow-hidden">
                           <div 
-                              (click)="store.filterMode.set('all'); isFilterOpen.set(false)"
+                              (click)="uiState.filterMode.set('all'); isFilterOpen.set(false)"
                               class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
                               <span>全部任务</span>
-                              @if (store.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                              @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
                           </div>
                           <div class="h-px bg-stone-100 my-1"></div>
-                          @for(root of store.rootTasks(); track root.id) {
+                          @for(root of projectState.rootTasks(); track root.id) {
                               <div 
-                                  (click)="store.filterMode.set(root.id); isFilterOpen.set(false)"
+                                  (click)="uiState.filterMode.set(root.id); isFilterOpen.set(false)"
                                   class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
                                   <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                                  @if (store.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                                  @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                               </div>
                           }
                       </div>
@@ -122,7 +125,7 @@ import { FlowViewComponent } from '../app/features/flow';
              }
              
              <!-- Mobile Layout: Compact -->
-             @if (store.isMobile()) {
+             @if (uiState.isMobile()) {
                <div class="flex items-center justify-between gap-2">
                  <div class="flex items-center gap-2 min-w-0">
                    <button (click)="toggleSidebar()" class="btn-compact text-stone-400 p-1 rounded-lg active:bg-stone-200/50 shrink-0" aria-label="菜单">
@@ -153,18 +156,18 @@ import { FlowViewComponent } from '../app/features/flow';
                   <div class="fixed inset-0 z-40" (click)="isFilterOpen.set(false)"></div>
                   <div class="absolute right-3 top-12 w-44 bg-white/95 backdrop-blur-xl border border-stone-200 rounded-lg shadow-xl z-50 py-1 animate-dropdown overflow-hidden">
                       <div 
-                          (click)="store.filterMode.set('all'); isFilterOpen.set(false)"
+                          (click)="uiState.filterMode.set('all'); isFilterOpen.set(false)"
                           class="px-3 py-2 text-xs text-stone-600 active:bg-indigo-50 cursor-pointer flex items-center justify-between">
                           <span>全部任务</span>
-                          @if (store.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                          @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
                       </div>
                       <div class="h-px bg-stone-100"></div>
-                      @for(root of store.rootTasks(); track root.id) {
+                      @for(root of projectState.rootTasks(); track root.id) {
                           <div 
-                              (click)="store.filterMode.set(root.id); isFilterOpen.set(false)"
+                              (click)="uiState.filterMode.set(root.id); isFilterOpen.set(false)"
                               class="px-3 py-2 text-xs text-stone-600 active:bg-indigo-50 cursor-pointer flex items-center justify-between">
                               <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                              @if (store.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                              @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
                           </div>
                       }
                   </div>
@@ -193,7 +196,7 @@ import { FlowViewComponent } from '../app/features/flow';
         </div>
 
         <!-- Content Resizer -->
-        @if(!store.isMobile()) {
+        @if(!uiState.isMobile()) {
           <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize z-20 flex-shrink-0 relative group"
                (mousedown)="startContentResize($event)">
                <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
@@ -202,19 +205,19 @@ import { FlowViewComponent } from '../app/features/flow';
 
         <!-- Flow Column - 移动端条件渲染，桌面端始终显示 -->
         <!-- 使用 @defer 实现 GoJS 懒加载，减少首屏加载体积 -->
-        @if (!store.isMobile() || store.activeView() === 'flow') {
+        @if (!uiState.isMobile() || uiState.activeView() === 'flow') {
            <div class="flex-1 flex flex-col min-w-[300px] min-h-0" 
              style="background-color: var(--theme-bg);"
-             [class.absolute]="store.isMobile()"
-             [class.inset-0]="store.isMobile()"
-             [class.w-full]="store.isMobile()"
-             [class.z-10]="store.isMobile()">
+             [class.absolute]="uiState.isMobile()"
+             [class.inset-0]="uiState.isMobile()"
+             [class.w-full]="uiState.isMobile()"
+             [class.z-10]="uiState.isMobile()">
            <div class="flex items-center justify-between shrink-0 z-10"
-                [ngClass]="{'h-12 mx-4 mt-2': !store.isMobile(), 'mx-2 mt-1 mb-0.5': store.isMobile()}">
-              <span class="text-stone-700" [ngClass]="{'text-lg font-bold text-stone-800 tracking-tight': !store.isMobile(), 'text-base font-bold': store.isMobile()}">
-                @if (store.isMobile()) { 流程图 } @else { 流程视图 }
+                [ngClass]="{'h-12 mx-4 mt-2': !uiState.isMobile(), 'mx-2 mt-1 mb-0.5': uiState.isMobile()}">
+              <span class="text-stone-700" [ngClass]="{'text-lg font-bold text-stone-800 tracking-tight': !uiState.isMobile(), 'text-base font-bold': uiState.isMobile()}">
+                @if (uiState.isMobile()) { 流程图 } @else { 流程视图 }
               </span>
-              @if(store.isMobile()) {
+              @if(uiState.isMobile()) {
                   <button data-testid="text-view-tab" (click)="switchToText()" class="btn-compact bg-indigo-500 text-white px-2 py-0.5 rounded text-[10px] font-medium active:bg-indigo-600">
                       文本
                   </button>
@@ -255,7 +258,10 @@ import { FlowViewComponent } from '../app/features/flow';
   `
 })
 export class ProjectShellComponent implements OnInit, OnDestroy {
-  store = inject(StoreService);
+  readonly uiState = inject(UiStateService);
+  readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly syncCoordinator = inject(SyncCoordinatorService);
   private toast = inject(ToastService);
   private tabSync = inject(TabSyncService);
   private route = inject(ActivatedRoute);
@@ -268,7 +274,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   
   // UI 状态
   isFilterOpen = signal(false);
-  // 使用 store.activeView 代替本地的 mobileActiveView，使其他组件可以访问当前视图状态
+  // 使用 uiState.activeView 代替本地的 mobileActiveView，使其他组件可以访问当前视图状态
   
   // 内容调整状态
   private isResizingContent = false;
@@ -290,9 +296,9 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   
   // 计算属性
   currentFilterLabel() {
-    const filterId = this.store.filterMode();
+    const filterId = this.uiState.filterMode();
     if (filterId === 'all') return '全部任务';
-    const task = this.store.rootTasks().find(t => t.id === filterId);
+    const task = this.projectState.rootTasks().find(t => t.id === filterId);
     if (!task) return '全部任务';
     return task.title || task.displayId || '未命名任务';
   }
@@ -305,13 +311,13 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
         const projectId = params['projectId'];
         const taskId = params['taskId'];
         
-        if (projectId && projectId !== this.store.activeProjectId()) {
+        if (projectId && projectId !== this.projectState.activeProjectId()) {
           // 路由层已有 projectExistsGuard 负责校验与提示。
           // 这里不应在项目列表尚未加载完成时误判并弹 toast。
-          this.store.activeProjectId.set(projectId);
+          this.projectState.setActiveProjectId(projectId);
 
           // 通知其他标签页当前项目已打开（仅在本地已有项目数据时）
-          const project = this.store.projects().find(p => p.id === projectId);
+          const project = this.projectState.projects().find(p => p.id === projectId);
           if (project) {
             this.tabSync.notifyProjectOpen(projectId, project.name);
           }
@@ -330,12 +336,12 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
       .subscribe(() => {
         const currentUrl = this.router.url;
         if (currentUrl.endsWith('/flow')) {
-          this.store.activeView.set('flow');
+          this.uiState.activeView.set('flow');
         } else if (currentUrl.endsWith('/text')) {
-          this.store.activeView.set('text');
+          this.uiState.activeView.set('text');
         } else if (currentUrl.includes('/task/')) {
           // 任务深链接默认使用流程图视图
-          this.store.activeView.set('flow');
+          this.uiState.activeView.set('flow');
         }
       });
   }
@@ -356,14 +362,14 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
       if (this.isDestroyed) return;
       
       retries++;
-      const tasks = this.store.tasks();
+      const tasks = this.projectState.tasks();
       const task = tasks.find(t => t.id === taskId);
-      const isLoading = this.store.isLoadingRemote?.() ?? (tasks.length === 0);
+      const isLoading = this.syncCoordinator.isLoadingRemote?.() ?? (tasks.length === 0);
       
       if (task) {
         // 任务存在，通过命令服务发送居中请求
         // FlowCommandService 会缓存命令直到 FlowView 就绪
-        this.store.activeView.set('flow');
+        this.uiState.activeView.set('flow');
         
         // 等待图表渲染后定位
         this.deepLinkRetryTimer = setTimeout(() => {
@@ -380,7 +386,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
       } else {
         // 超时未找到任务，导航到流程图视图并提示用户
         // 🔥 不再更新 URL - 避免触发路由导航销毁组件
-        this.store.activeView.set('flow');
+        this.uiState.activeView.set('flow');
         
         // 根据情况显示不同提示，并提供明确的下一步操作
         if (!isLoading && !task) {
@@ -394,7 +400,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
                 label: '新建任务',
                 onClick: () => {
                   // 触发创建新任务
-                  this.store.addFloatingTask('新任务', '', 100, 100);
+                  this.taskOpsAdapter.addFloatingTask('新任务', '', 100, 100);
                   this.toast.success('已创建新任务');
                 }
               }
@@ -442,12 +448,12 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
    * 移动端：使用条件渲染，FlowView 组件会被完全销毁/重建
    */
   switchToFlow() {
-    this.store.activeView.set('flow');
+    this.uiState.activeView.set('flow');
   }
   
   switchToText() {
     console.log('[ProjectShell] switchToText 被调用', new Error().stack);
-    this.store.activeView.set('text');
+    this.uiState.activeView.set('text');
   }
   
   // ========== 侧边栏控制 ==========
@@ -465,7 +471,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   // ========== 流程图节点定位 ==========
   
   onFocusFlowNode(taskId: string) {
-    if (!this.store.isMobile()) {
+    if (!this.uiState.isMobile()) {
       // 通过命令服务发送居中请求，无需检查 flowView 实例
       this.flowCommand.centerOnNode(taskId, false);
     }
@@ -477,7 +483,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
     e.preventDefault();
     this.isResizingContent = true;
     this.startX = e.clientX;
-    this.startRatio = this.store.textColumnRatio();
+    this.startRatio = this.uiState.textColumnRatio();
     
     const mainEl = document.querySelector('main');
     this.mainContentWidth = mainEl ? mainEl.clientWidth : 1000;
@@ -493,7 +499,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
       const delta = e.clientX - this.startX;
       const deltaPercent = (delta / this.mainContentWidth) * 100;
       const newRatio = Math.max(25, Math.min(75, this.startRatio + deltaPercent));
-      this.store.textColumnRatio.set(newRatio);
+      this.uiState.textColumnRatio.set(newRatio);
     }
   }
   
@@ -511,7 +517,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   // 流程图视图不处理滑动手势，避免与画布操作冲突
   
   onTextViewTouchStart(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     this.textViewSwipeState = {
@@ -522,7 +528,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   }
   
   onTextViewTouchMove(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (e.touches.length !== 1) return;
     
     const deltaX = e.touches[0].clientX - this.textViewSwipeState.startX;
@@ -541,7 +547,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
   }
   
   onTextViewTouchEnd(e: TouchEvent) {
-    if (!this.store.isMobile()) return;
+    if (!this.uiState.isMobile()) return;
     if (!this.textViewSwipeState.isSwiping) return;
     
     const deltaX = e.changedTouches[0].clientX - this.textViewSwipeState.startX;
@@ -571,7 +577,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
    */
   retryTextView(): void {
     // 强制刷新当前视图
-    this.store.activeView.set('text');
+    this.uiState.activeView.set('text');
   }
   
   /**
@@ -580,7 +586,7 @@ export class ProjectShellComponent implements OnInit, OnDestroy {
    */
   retryFlowView(): void {
     // 触发流程图重新初始化
-    this.store.activeView.set('flow');
+    this.uiState.activeView.set('flow');
     // 通过命令服务发送重试命令
     // 命令会被缓存直到 FlowView 就绪
     this.flowCommand.retryDiagram();

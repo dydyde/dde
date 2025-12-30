@@ -1,6 +1,9 @@
 import { Component, inject, signal, computed, Output, EventEmitter, OnInit, OnDestroy, ElementRef, ViewChild, NgZone, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
+import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task } from '../../../../models';
 import { getErrorMessage, isFailure } from '../../../../utils/result';
@@ -70,8 +73,8 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
           [draggingTaskId]="dragDropService.draggingTaskId()"
           [dragOverStage]="dragDropService.dragOverStage()"
           [dropTargetInfo]="dragDropService.dropTargetInfo()"
-          [userId]="store.currentUserId()"
-          [projectId]="store.activeProjectId()"
+          [userId]="projectState.currentUserId()"
+          [projectId]="projectState.activeProjectId()"
           (addNewStage)="onAddNewStage()"
           (stageDragOver)="onStageDragOver($event)"
           (stageDragLeave)="onStageDragLeave($event)"
@@ -109,7 +112,10 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
   `
 })
 export class TextViewComponent implements OnInit, OnDestroy {
-  readonly store = inject(StoreService);
+  readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly syncCoordinator = inject(SyncCoordinatorService);
   private readonly toast = inject(ToastService);
   readonly dragDropService = inject(TextViewDragDropService);
   private readonly elementRef = inject(ElementRef);
@@ -138,15 +144,15 @@ export class TextViewComponent implements OnInit, OnDestroy {
   private pendingTimers: ReturnType<typeof setTimeout>[] = [];
   
   // 计算属性
-  readonly isMobile = this.store.isMobile;
+  readonly isMobile = this.uiState.isMobile;
   
   /**
    * 是否显示加载骨架屏
    * 只在首次加载（无本地数据）时显示，增量同步时保留现有内容
    */
   readonly showLoadingSkeleton = computed(() => {
-    const isLoading = this.store.isLoadingRemote();
-    const hasLocalData = this.store.tasks().length > 0 || this.store.stages().length > 0;
+    const isLoading = this.syncCoordinator.isLoadingRemote();
+    const hasLocalData = this.projectState.tasks().length > 0 || this.projectState.stages().length > 0;
     // 只有在加载中 且 没有本地数据时，才显示骨架屏
     return isLoading && !hasLocalData;
   });
@@ -236,7 +242,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
         //   beforeId: targetBeforeId?.slice(-4) || null
         // });
         
-        const result = this.store.moveTaskToStage(task.id, targetStage, targetBeforeId);
+        const result = this.taskOpsAdapter.moveTaskToStage(task.id, targetStage, targetBeforeId);
         if (isFailure(result)) {
           const errorDetail = getErrorMessage(result.error);
           console.error('[TouchDragTimeout] Move failed:', errorDetail);
@@ -412,22 +418,22 @@ export class TextViewComponent implements OnInit, OnDestroy {
   // ========== 待办事项处理 ==========
   
   async onJumpToTask(taskId: string) {
-    const task = this.store.tasks().find(t => t.id === taskId);
+    const task = this.projectState.tasks().find(t => t.id === taskId);
     if (!task) return;
     
     if (task.stage) {
       // 有阶段的任务：跳转到阶段区域
       this.stagesRef?.expandStage(task.stage);
-      if (this.store.stageFilter() !== 'all' && this.store.stageFilter() !== task.stage) {
-        this.store.setStageFilter('all');
+      if (this.uiState.stageFilter() !== 'all' && this.uiState.stageFilter() !== task.stage) {
+        this.uiState.setStageFilter('all');
       }
       this.selectedTaskId.set(taskId);
       this.scrollToElementById(`[data-task-id="${taskId}"]`);
     } else {
       // 待分配的任务：跳转到待分配区域并展开任务卡片
       // 1. 确保待分配区域展开
-      if (!this.store.isTextUnassignedOpen()) {
-        this.store.isTextUnassignedOpen.set(true);
+      if (!this.uiState.isTextUnassignedOpen()) {
+        this.uiState.isTextUnassignedOpen.set(true);
       }
       
       // 2. 等待待分配区域渲染完成（确保 unassignedRef 可用）
@@ -462,7 +468,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
   }
   
   onCreateUnassigned() {
-    const result = this.store.addTask('', '', null, null, false);
+    const result = this.taskOpsAdapter.addTask('', '', null, null, false);
     if (isFailure(result)) {
       this.toast.error('创建任务失败', getErrorMessage(result.error));
     } else {
@@ -483,7 +489,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
   }
   
   onAddSibling(task: Task) {
-    const result = this.store.addTask('', '', task.stage, task.parentId, true);
+    const result = this.taskOpsAdapter.addTask('', '', task.stage, task.parentId, true);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));
     } else {
@@ -493,7 +499,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
   
   onAddChild(task: Task) {
     const newStage = (task.stage || 0) + 1;
-    const result = this.store.addTask('', '', newStage, task.id, false);
+    const result = this.taskOpsAdapter.addTask('', '', newStage, task.id, false);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));
     } else {
@@ -510,9 +516,9 @@ export class TextViewComponent implements OnInit, OnDestroy {
     if (task) {
       this.selectedTaskId.set(null);
       if (keepChildren) {
-        this.store.deleteTaskKeepChildren(task.id);
+        this.taskOpsAdapter.deleteTaskKeepChildren(task.id);
       } else {
-        this.store.deleteTask(task.id);
+        this.taskOpsAdapter.deleteTask(task.id);
       }
       this.deleteConfirmTask.set(null);
       this.deleteKeepChildren.set(false);
@@ -542,8 +548,8 @@ export class TextViewComponent implements OnInit, OnDestroy {
   }
   
   onAddNewStage() {
-    const maxStage = Math.max(...this.store.stages().map(s => s.stageNumber), 0);
-    const result = this.store.addTask('', '', maxStage + 1, null, false);
+    const maxStage = Math.max(...this.projectState.stages().map(s => s.stageNumber), 0);
+    const result = this.taskOpsAdapter.addTask('', '', maxStage + 1, null, false);
     if (isFailure(result)) {
       this.toast.error('创建阶段失败', getErrorMessage(result.error));
     } else {
@@ -554,8 +560,8 @@ export class TextViewComponent implements OnInit, OnDestroy {
   private navigateToNewTask(taskId: string, stage: number | null) {
     if (stage) {
       this.stagesRef?.expandStage(stage);
-      if (this.store.stageFilter() !== 'all' && this.store.stageFilter() !== stage) {
-        this.store.setStageFilter('all');
+      if (this.uiState.stageFilter() !== 'all' && this.uiState.stageFilter() !== stage) {
+        this.uiState.setStageFilter('all');
       }
     }
     this.selectedTaskId.set(taskId);
@@ -563,7 +569,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
   }
   
   hasChildren(task: Task): boolean {
-    return this.store.tasks().some(t => t.parentId === task.id);
+    return this.projectState.tasks().some(t => t.parentId === task.id);
   }
   
   // ========== 鼠标拖拽处理 ==========
@@ -623,7 +629,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
     if (isAbove) {
       this.dragDropService.updateDropTarget(stageNumber, task.id);
     } else {
-      const stages = this.store.stages();
+      const stages = this.projectState.stages();
       const stage = stages.find(s => s.stageNumber === stageNumber);
       const idx = stage?.tasks.findIndex(t => t.id === task.id) ?? -1;
       const nextTask = stage?.tasks[idx + 1];
@@ -687,10 +693,10 @@ export class TextViewComponent implements OnInit, OnDestroy {
       
       if (beforeTaskId) {
         // 有明确的插入位置（在某个任务之前）
-        const referenceTask = this.store.tasks().find(t => t.id === beforeTaskId) || null;
+        const referenceTask = this.projectState.tasks().find(t => t.id === beforeTaskId) || null;
         if (referenceTask?.parentId) {
           // 验证参照任务的父任务是否在正确的阶段
-          const parentTask = this.store.tasks().find(t => t.id === referenceTask.parentId);
+          const parentTask = this.projectState.tasks().find(t => t.id === referenceTask.parentId);
           if (parentTask && parentTask.stage === stageNumber - 1) {
             inferredParentId = referenceTask.parentId;
           } else {
@@ -709,13 +715,13 @@ export class TextViewComponent implements OnInit, OnDestroy {
       } else {
         // 没有 beforeTaskId，说明拖到阶段最后
         // 查找该阶段的最后一个任务，将新任务放在它后面
-        const stages = this.store.stages();
+        const stages = this.projectState.stages();
         const targetStage = stages.find(s => s.stageNumber === stageNumber);
         if (targetStage && targetStage.tasks.length > 0) {
           const lastTask = targetStage.tasks[targetStage.tasks.length - 1];
           if (lastTask.parentId) {
             // 验证最后一个任务的父任务是否在正确的阶段
-            const parentTask = this.store.tasks().find(t => t.id === lastTask.parentId);
+            const parentTask = this.projectState.tasks().find(t => t.id === lastTask.parentId);
             if (parentTask && parentTask.stage === stageNumber - 1) {
               inferredParentId = lastTask.parentId;
             } else {
@@ -735,7 +741,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
         }
       }
 
-      const result = this.store.moveTaskToStage(task.id, stageNumber, beforeTaskId, inferredParentId);
+      const result = this.taskOpsAdapter.moveTaskToStage(task.id, stageNumber, beforeTaskId, inferredParentId);
       
       if (isFailure(result)) {
         const errorDetail = getErrorMessage(result.error);
@@ -865,7 +871,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
                   // console.log('[TouchMove] Target: before task', { stageNum, taskId: taskId.slice(-4) });
                   this.dragDropService.updateTouchTarget(stageNum, taskId);
                 } else {
-                  const stages = this.store.stages();
+                  const stages = this.projectState.stages();
                   const stage = stages.find(s => s.stageNumber === stageNum);
                   const idx = stage?.tasks.findIndex(t => t.id === taskId) ?? -1;
                   const nextTask = stage?.tasks[idx + 1];
@@ -957,7 +963,7 @@ export class TextViewComponent implements OnInit, OnDestroy {
       // });
       
       // 即使是同一阶段，也要执行移动（可能改变位置）
-      const result = this.store.moveTaskToStage(task.id, targetStage, targetBeforeId);
+      const result = this.taskOpsAdapter.moveTaskToStage(task.id, targetStage, targetBeforeId);
       if (isFailure(result)) {
         const errorDetail = getErrorMessage(result.error);
         console.error('[TouchEnd] Move failed:', errorDetail);

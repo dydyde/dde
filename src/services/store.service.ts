@@ -3,6 +3,35 @@
  * 
  * 【重要】此服务是一个纯门面（Pure Facade），严禁添加任何新业务逻辑！
  * 
+ * ============================================================================
+ * 【迁移指南 - P2-1 渐进式迁移计划】
+ * ============================================================================
+ * 
+ * ⚠️ 新代码禁止使用 inject(StoreService)！
+ * ✅ 新代码应直接注入所需子服务：
+ * 
+ * ```typescript
+ * // ❌ 禁止
+ * private readonly store = inject(StoreService);
+ * this.store.addTask(...);
+ * 
+ * // ✅ 推荐
+ * private readonly taskOps = inject(TaskOperationAdapterService);
+ * private readonly projectState = inject(ProjectStateService);
+ * this.taskOps.addTask(...);
+ * ```
+ * 
+ * 可用子服务及职责：
+ * - UiStateService: UI 状态（视图切换、过滤器、侧边栏）
+ * - ProjectStateService: 项目/任务状态读取、项目元数据修改
+ * - SyncCoordinatorService: 同步调度、在线状态、冲突检测
+ * - UserSessionService: 用户登录/登出、项目切换
+ * - PreferenceService: 主题、用户偏好
+ * - TaskOperationAdapterService: 任务 CRUD、撤销/重做
+ * 
+ * 此门面将逐步精简，最终仅保留跨服务协调的复杂方法。
+ * ============================================================================
+ * 
  * 职责：
  * - 作为统一入口，协调各子服务
  * - 透传属性和方法到子服务
@@ -501,28 +530,19 @@ export class StoreService {
     }
   }
 
-  renameProject(projectId: string, newName: string) {
-    if (!newName.trim()) return;
-    this.project.updateProjects(projects => projects.map(p => 
-      p.id === projectId ? { ...p, name: newName.trim() } : p
-    ));
-    this.sync.schedulePersist();
+  renameProject(projectId: string, newName: string): boolean {
+    const success = this.project.renameProject(projectId, newName);
+    if (success) {
+      this.sync.schedulePersist();
+    }
+    return success;
   }
 
+  /**
+   * @deprecated 请直接注入 ProjectStateService 并调用 projectState.updateViewState()
+   */
   updateViewState(projectId: string, viewState: { scale?: number; positionX?: number; positionY?: number }) {
-    this.project.updateProjects(projects => projects.map(p => {
-      if (p.id === projectId) {
-        return {
-          ...p,
-          viewState: {
-            scale: viewState.scale ?? p.viewState?.scale ?? 1,
-            positionX: viewState.positionX ?? p.viewState?.positionX ?? 0,
-            positionY: viewState.positionY ?? p.viewState?.positionY ?? 0
-          }
-        };
-      }
-      return p;
-    }));
+    this.project.updateViewState(projectId, viewState);
     this.sync.schedulePersist();
   }
 
@@ -600,6 +620,9 @@ export class StoreService {
     }
   }
 
+  /**
+   * @deprecated 请直接注入 TaskOperationAdapterService 并调用 taskOps.updateTaskContent()
+   */
   updateTaskContent(taskId: string, newContent: string) {
     this.taskOps.updateTaskContent(taskId, newContent);
   }
@@ -612,10 +635,16 @@ export class StoreService {
     this.taskOps.completeUnfinishedItem(taskId, itemText);
   }
 
+  /**
+   * @deprecated 请直接注入 TaskOperationAdapterService 并调用 taskOps.updateTaskTitle()
+   */
   updateTaskTitle(taskId: string, title: string) {
     this.taskOps.updateTaskTitle(taskId, title);
   }
 
+  /**
+   * @deprecated 请直接注入 TaskOperationAdapterService 并调用 taskOps.updateTaskPosition()
+   */
   updateTaskPosition(taskId: string, x: number, y: number) {
     this.taskOps.updateTaskPosition(taskId, x, y);
   }
@@ -695,6 +724,9 @@ export class StoreService {
     this.taskOps.removeTaskTag(taskId, tag);
   }
 
+  /**
+   * @deprecated 请直接注入 TaskOperationAdapterService 并调用 taskOps.deleteTask()
+   */
   deleteTask(taskId: string) {
     this.taskOps.deleteTask(taskId);
   }
@@ -823,6 +855,9 @@ export class StoreService {
 
   // ========== 视图控制：委托给 UiStateService ==========
 
+  /**
+   * @deprecated 请直接注入 UiStateService 并调用 ui.toggleView()
+   */
   toggleView(view: 'text' | 'flow') {
     this.ui.toggleView(view);
   }

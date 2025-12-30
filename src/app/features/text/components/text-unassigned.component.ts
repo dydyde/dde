@@ -1,7 +1,10 @@
 import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener, ChangeDetectorRef, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
-import { StoreService } from '../../../../services/store.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
+import { ChangeTrackerService } from '../../../../services/change-tracker.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { Task } from '../../../../models';
 import { renderMarkdownSafe } from '../../../../utils/markdown';
 
@@ -27,7 +30,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
       [ngClass]="{'mx-4 mt-2 mb-4': !isMobile, 'mx-2': isMobile}">
       
       <header 
-        (click)="store.isTextUnassignedOpen.set(!store.isTextUnassignedOpen()); $event.stopPropagation()" 
+        (click)="uiState.isTextUnassignedOpen.set(!uiState.isTextUnassignedOpen()); $event.stopPropagation()" 
         class="py-2 cursor-pointer flex justify-between items-center group select-none touch-manipulation"
         style="-webkit-tap-highlight-color: transparent;">
         <span class="font-bold text-retro-dark flex items-center gap-2 tracking-tight pointer-events-none"
@@ -36,13 +39,13 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
           待分配
         </span>
         <span class="text-stone-300 text-xs group-hover:text-stone-500 transition-transform pointer-events-none" 
-              [class.rotate-180]="!store.isTextUnassignedOpen()">▼</span>
+              [class.rotate-180]="!uiState.isTextUnassignedOpen()">▼</span>
       </header>
 
-      @if (store.isTextUnassignedOpen()) {
+      @if (uiState.isTextUnassignedOpen()) {
         <div class="pb-2 animate-collapse-open">
           <div class="flex flex-wrap" [ngClass]="{'gap-2': !isMobile, 'gap-1.5': isMobile}">
-            @for (task of store.unassignedTasks(); track task.id) {
+            @for (task of projectState.unassignedTasks(); track task.id) {
               @if (editingTaskId() === task.id) {
                 <!-- 编辑/预览模式 -->
                 <div 
@@ -177,7 +180,10 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
   `]
 })
 export class TextUnassignedComponent implements OnDestroy {
-  readonly store = inject(StoreService);
+  readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly changeTracker = inject(ChangeTrackerService);
   private readonly elementRef = inject(ElementRef);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -220,7 +226,7 @@ export class TextUnassignedComponent implements OnDestroy {
     effect(() => {
       const taskId = this.editingTaskId();
       if (taskId) {
-        const tasks = this.store.unassignedTasks();
+        const tasks = this.projectState.unassignedTasks();
         const task = tasks.find(t => t.id === taskId);
         if (task) {
           if (!this.isTitleFocused) {
@@ -239,6 +245,26 @@ export class TextUnassignedComponent implements OnDestroy {
       clearTimeout(timer);
     }
     this.unlockTimers.clear();
+  }
+  
+  // ========== Split-Brain 锁定辅助方法 ==========
+  
+  /** 锁定任务字段（防止远程更新覆盖本地编辑） */
+  private lockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    for (const field of fields) {
+      this.changeTracker.lockTaskField(taskId, projectId, field);
+    }
+  }
+  
+  /** 解锁任务字段 */
+  private unlockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    for (const field of fields) {
+      this.changeTracker.unlockTaskField(taskId, projectId, field);
+    }
   }
   
   /** 监听 document 点击事件，当点击组件外部时切换回预览模式 */
@@ -308,7 +334,7 @@ export class TextUnassignedComponent implements OnDestroy {
    * 输入框聚焦处理（Split-Brain 模式）
    */
   onInputFocus(field: 'title' | 'content' | 'todo') {
-    this.store.markEditing();
+    this.uiState.markEditing();
     
     const taskId = this.editingTaskId();
     if (!taskId) return;
@@ -320,7 +346,7 @@ export class TextUnassignedComponent implements OnDestroy {
         clearTimeout(existingTimer);
         this.unlockTimers.delete('title');
       }
-      this.store.lockTaskFields(taskId, ['title']);
+      this.lockTaskFields(taskId, ['title']);
     } else if (field === 'content') {
       this.isContentFocused = true;
       const existingTimer = this.unlockTimers.get('content');
@@ -328,7 +354,7 @@ export class TextUnassignedComponent implements OnDestroy {
         clearTimeout(existingTimer);
         this.unlockTimers.delete('content');
       }
-      this.store.lockTaskFields(taskId, ['content']);
+      this.lockTaskFields(taskId, ['content']);
     }
   }
   
@@ -341,20 +367,20 @@ export class TextUnassignedComponent implements OnDestroy {
     
     if (field === 'title') {
       // 提交到 Store
-      this.store.updateTaskTitle(taskId, this.localTitle());
+      this.taskOpsAdapter.updateTaskTitle(taskId, this.localTitle());
       
       const timer = setTimeout(() => {
         this.isTitleFocused = false;
-        this.store.unlockTaskFields(taskId, ['title']);
+        this.unlockTaskFields(taskId, ['title']);
         this.unlockTimers.delete('title');
       }, 10000);
       this.unlockTimers.set('title', timer);
     } else if (field === 'content') {
-      this.store.updateTaskContent(taskId, this.localContent());
+      this.taskOpsAdapter.updateTaskContent(taskId, this.localContent());
       
       const timer = setTimeout(() => {
         this.isContentFocused = false;
-        this.store.unlockTaskFields(taskId, ['content']);
+        this.unlockTaskFields(taskId, ['content']);
         this.unlockTimers.delete('content');
       }, 10000);
       this.unlockTimers.set('content', timer);
@@ -363,19 +389,19 @@ export class TextUnassignedComponent implements OnDestroy {
   
   onTitleInput(taskId: string, value: string) {
     this.localTitle.set(value);
-    this.store.updateTaskTitle(taskId, value);
+    this.taskOpsAdapter.updateTaskTitle(taskId, value);
   }
   
   onContentInput(taskId: string, value: string) {
     this.localContent.set(value);
-    this.store.updateTaskContent(taskId, value);
+    this.taskOpsAdapter.updateTaskContent(taskId, value);
   }
   
   addQuickTodo(taskId: string, text: string, inputElement: HTMLInputElement) {
     const trimmed = text.trim();
     if (!trimmed) return;
     
-    this.store.addTodoItem(taskId, trimmed);
+    this.taskOpsAdapter.addTodoItem(taskId, trimmed);
     inputElement.value = '';
     inputElement.focus();
   }
@@ -388,7 +414,7 @@ export class TextUnassignedComponent implements OnDestroy {
     
     // 初始化本地状态
     if (taskId) {
-      const tasks = this.store.unassignedTasks();
+      const tasks = this.projectState.unassignedTasks();
       const task = tasks.find(t => t.id === taskId);
       if (task) {
         this.localTitle.set(task.title || '');

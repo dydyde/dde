@@ -1,6 +1,6 @@
 import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { TaskConnections } from './text-view.types';
 import { Task } from '../../../../models';
 
@@ -58,7 +58,7 @@ import { Task } from '../../../../models';
                          (click)="onOpenTask(conn.targetTask!, $event)">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-1.5">
-                          <span class="text-[9px] font-bold text-violet-400">{{store.compressDisplayId(conn.targetTask?.displayId || '?')}}</span>
+                          <span class="text-[9px] font-bold text-violet-400">{{projectState.compressDisplayId(conn.targetTask?.displayId || '?')}}</span>
                           <span class="text-[11px] text-violet-700 truncate font-medium">{{conn.targetTask?.title || '未命名'}}</span>
                         </div>
                         @if (conn.description) {
@@ -89,7 +89,7 @@ import { Task } from '../../../../models';
                          (click)="onOpenTask(conn.sourceTask!, $event)">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-1.5">
-                          <span class="text-[9px] font-bold text-indigo-400">{{store.compressDisplayId(conn.sourceTask?.displayId || '?')}}</span>
+                          <span class="text-[9px] font-bold text-indigo-400">{{projectState.compressDisplayId(conn.sourceTask?.displayId || '?')}}</span>
                           <span class="text-[11px] text-indigo-700 truncate font-medium">{{conn.sourceTask?.title || '未命名'}}</span>
                         </div>
                         @if (conn.description) {
@@ -120,7 +120,7 @@ import { Task } from '../../../../models';
   `]
 })
 export class TextTaskConnectionsComponent {
-  readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
   
   @Input() connections: TaskConnections | null = null;
   @Input() isMobile = false;

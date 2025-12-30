@@ -1,5 +1,6 @@
 import { Injectable, inject, signal, NgZone, DestroyRef } from '@angular/core';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task } from '../../../../models';
@@ -36,7 +37,8 @@ export type LinkType = 'parent-child' | 'cross-tree';
   providedIn: 'root'
 })
 export class FlowLinkService {
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOps = inject(TaskOperationAdapterService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowLink');
   private readonly toast = inject(ToastService);
@@ -110,7 +112,7 @@ export class FlowLinkService {
    * @returns 是否已创建连接
    */
   handleLinkModeClick(taskId: string): boolean {
-    const task = this.store.tasks().find(t => t.id === taskId);
+    const task = this.projectState.tasks().find(t => t.id === taskId);
     if (!task) return false;
     
     const source = this.linkSourceTask();
@@ -128,9 +130,9 @@ export class FlowLinkService {
       // 场景二：若目标是“待分配块”，先将其任务化（赋予阶段/序号），再创建连接
       if (task.stage === null) {
         const inferredStage = source.stage ?? 1;
-        this.store.moveTaskToStage(taskId, inferredStage, undefined, null);
+        this.taskOps.moveTaskToStage(taskId, inferredStage, undefined, null);
       }
-      this.store.addCrossTreeConnection(source.id, taskId);
+      this.taskOps.addCrossTreeConnection(source.id, taskId);
       this.linkSourceTask.set(null);
       this.isLinkMode.set(false);
       return true;
@@ -156,7 +158,7 @@ export class FlowLinkService {
       return;
     }
     
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const sourceTask = tasks.find(t => t.id === sourceId) || null;
     const targetTask = tasks.find(t => t.id === targetId) || null;
     
@@ -197,7 +199,7 @@ export class FlowLinkService {
     const parentStage = parentTask?.stage ?? null;
     const nextStage = parentStage !== null ? parentStage + 1 : 1;
     
-    this.store.moveTaskToStage(dialog.targetId, nextStage, undefined, dialog.sourceId);
+    this.taskOps.moveTaskToStage(dialog.targetId, nextStage, undefined, dialog.sourceId);
     this.linkTypeDialog.set(null);
   }
   
@@ -216,10 +218,10 @@ export class FlowLinkService {
     // 场景二：若目标是“待分配块”，在创建关联连接前先任务化（否则不会从待分配区消失）
     if (dialog.targetTask?.stage === null) {
       const inferredStage = dialog.sourceTask?.stage ?? 1;
-      this.store.moveTaskToStage(dialog.targetId, inferredStage, undefined, null);
+      this.taskOps.moveTaskToStage(dialog.targetId, inferredStage, undefined, null);
     }
 
-    this.store.addCrossTreeConnection(dialog.sourceId, dialog.targetId);
+    this.taskOps.addCrossTreeConnection(dialog.sourceId, dialog.targetId);
     this.linkTypeDialog.set(null);
   }
   
@@ -253,8 +255,8 @@ export class FlowLinkService {
     }
     
     // 检查目标节点是否已有父节点
-    const childTask = this.store.tasks().find(t => t.id === targetId);
-    const sourceTask = this.store.tasks().find(t => t.id === sourceId);
+    const childTask = this.projectState.tasks().find(t => t.id === targetId);
+    const sourceTask = this.projectState.tasks().find(t => t.id === sourceId);
     
     // 🔴 严格规则：禁止待分配块成为已分配任务的父节点
     // 待分配块 (stage === null) 可以成为其他待分配块的父节点
@@ -270,7 +272,7 @@ export class FlowLinkService {
       if (sourceTask && childTask.stage === null && sourceTask.stage !== null && sourceTask.stage !== undefined) {
         const targetStage = sourceTask.stage + 1;
         // 将待分配子任务及其子树分配到新父任务下
-        const result = this.store.moveTaskToStage(targetId, targetStage, undefined, sourceId);
+        const result = this.taskOps.moveTaskToStage(targetId, targetStage, undefined, sourceId);
         if (result.ok) {
           this.toast.success('已分配任务', `"${childTask.title}" 已成为新任务的子任务`);
           return 'create-parent-child';
@@ -281,7 +283,7 @@ export class FlowLinkService {
       }
       
       // 目标已有父节点且已分配，只能创建跨树连接
-      this.store.addCrossTreeConnection(sourceId, targetId);
+      this.taskOps.addCrossTreeConnection(sourceId, targetId);
       this.toast.success('已创建关联', '目标任务已有父级，已创建关联连接');
       return 'create-cross-tree';
     }
@@ -319,7 +321,7 @@ export class FlowLinkService {
       return 'cancelled';
     }
     
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const childTask = tasks.find(t => t.id === childTaskId);
     const newParentTask = tasks.find(t => t.id === newParentId);
     
@@ -353,7 +355,7 @@ export class FlowLinkService {
     });
     
     // 执行迁移
-    const result = this.store.moveSubtreeToNewParent(childTaskId, newParentId);
+    const result = this.taskOps.moveSubtreeToNewParent(childTaskId, newParentId);
     
     if (result.ok) {
       if (subtreeCount > 1) {
@@ -405,7 +407,7 @@ export class FlowLinkService {
       return 'cancelled';
     }
     
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const sourceTask = tasks.find(t => t.id === newSourceId);
     const targetTask = tasks.find(t => t.id === newTargetId);
     
@@ -420,7 +422,7 @@ export class FlowLinkService {
     }
     
     // 检查是否已存在相同的跨树连接（排除已软删除的）
-    const project = this.store.activeProject();
+    const project = this.projectState.activeProject();
     const existingConnection = project?.connections?.find(
       c => c.source === newSourceId && c.target === newTargetId && !c.deletedAt
     );
@@ -441,7 +443,7 @@ export class FlowLinkService {
     });
     
     // 使用原子操作：在一个撤销单元内删除旧连接并创建新连接
-    this.store.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
+    this.taskOps.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
     
     const changedEndText = changedEnd === 'from' ? '起点' : '终点';
     this.toast.success(
@@ -458,7 +460,7 @@ export class FlowLinkService {
    * @param oldParentId 原父任务 ID
    */
   handleMoveSubtreeToRoot(childTaskId: string, oldParentId: string): 'success' | 'cancelled' | 'error' {
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     const childTask = tasks.find(t => t.id === childTaskId);
     
     if (!childTask) {
@@ -478,7 +480,7 @@ export class FlowLinkService {
     });
     
     // 执行迁移（newParentId = null 表示迁移到根节点）
-    const result = this.store.moveSubtreeToNewParent(childTaskId, null);
+    const result = this.taskOps.moveSubtreeToNewParent(childTaskId, null);
     
     if (result.ok) {
       if (subtreeCount > 1) {
@@ -599,7 +601,7 @@ export class FlowLinkService {
   saveConnectionContent(title: string, description: string): void {
     const data = this.connectionEditorData();
     if (data) {
-      this.store.updateConnectionContent(data.sourceId, data.targetId, title, description);
+      this.taskOps.updateConnectionContent(data.sourceId, data.targetId, title, description);
       // 更新本地数据，保持编辑器状态同步
       this.connectionEditorData.set({
         ...data,
@@ -622,7 +624,7 @@ export class FlowLinkService {
     
     this.logger.info('删除跨树连接', { sourceId: data.sourceId, targetId: data.targetId });
     // 删除跨树连接
-    this.store.removeConnection(data.sourceId, data.targetId);
+    this.taskOps.removeConnection(data.sourceId, data.targetId);
     // 关闭编辑器
     this.closeConnectionEditor();
     return true;
@@ -635,7 +637,7 @@ export class FlowLinkService {
     const data = this.connectionEditorData();
     if (!data) return { source: null, target: null };
     
-    const tasks = this.store.tasks();
+    const tasks = this.projectState.tasks();
     return {
       source: tasks.find(t => t.id === data.sourceId) || null,
       target: tasks.find(t => t.id === data.targetId) || null
@@ -808,9 +810,9 @@ export class FlowLinkService {
     if (!fromKey || !toKey) return null;
     
     if (isCrossTree) {
-      this.store.removeConnection(fromKey, toKey);
+      this.taskOps.removeConnection(fromKey, toKey);
     } else {
-      this.store.detachTask(toKey);
+      this.taskOps.detachTask(toKey);
     }
     
     return { fromKey, toKey, isCrossTree };
@@ -828,7 +830,7 @@ export class FlowLinkService {
         const fromKey = linkData.from;
         const toKey = linkData.to;
         if (fromKey && toKey) {
-          this.store.removeConnection(fromKey, toKey);
+          this.taskOps.removeConnection(fromKey, toKey);
         }
       }
     });
@@ -879,10 +881,10 @@ export class FlowLinkService {
     
     if (isCrossTree) {
       this.logger.info('删除跨树连接', { fromKey, toKey });
-      this.store.removeConnection(fromKey, toKey);
+      this.taskOps.removeConnection(fromKey, toKey);
     } else {
       this.logger.info('解除父子关系', { toKey });
-      this.store.detachTask(toKey);
+      this.taskOps.detachTask(toKey);
     }
     
     return { fromKey, toKey, isCrossTree };

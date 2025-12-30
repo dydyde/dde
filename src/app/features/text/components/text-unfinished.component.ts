@@ -1,6 +1,8 @@
 import { Component, inject, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { UnfinishedItem } from './text-view.types';
 
 /**
@@ -18,7 +20,7 @@ import { UnfinishedItem } from './text-view.types';
       [ngClass]="{'mx-4 mt-4': !isMobile, 'mx-2': isMobile}">
       
       <header 
-        (click)="store.isTextUnfinishedOpen.set(!store.isTextUnfinishedOpen())" 
+        (click)="uiState.isTextUnfinishedOpen.set(!uiState.isTextUnfinishedOpen())" 
         class="py-2 cursor-pointer flex justify-between items-center group select-none">
         <span class="font-bold text-retro-dark flex items-center gap-2 tracking-tight"
               [ngClass]="{'text-sm': !isMobile, 'text-xs': isMobile}">
@@ -26,13 +28,13 @@ import { UnfinishedItem } from './text-view.types';
           待办事项
         </span>
         <span class="text-stone-300 text-xs group-hover:text-stone-500 transition-transform" 
-              [class.rotate-180]="!store.isTextUnfinishedOpen()">▼</span>
+              [class.rotate-180]="!uiState.isTextUnfinishedOpen()">▼</span>
       </header>
       
-      @if (store.isTextUnfinishedOpen()) {
+      @if (uiState.isTextUnfinishedOpen()) {
         <div class="pb-2 overflow-y-auto grid grid-cols-1 animate-collapse-open"
              [ngClass]="{'max-h-48 gap-2': !isMobile, 'max-h-36 gap-1': isMobile}">
-          @for (item of store.unfinishedItems(); track trackItem(item)) {
+          @for (item of projectState.unfinishedItems(); track trackItem(item)) {
             <div class="p-2 bg-panel/50 backdrop-blur-sm rounded-lg border border-retro-muted/20 hover:border-retro-rust hover:shadow-sm cursor-pointer group flex items-start gap-2 active:scale-[0.98] transition-all">
               <button 
                 (click)="onComplete(item.taskId, item.text, $event)"
@@ -40,7 +42,7 @@ import { UnfinishedItem } from './text-view.types';
                 title="点击完成"></button>
               <div class="flex-1 min-w-0" (click)="jumpToTask.emit(item.taskId)">
                 <div class="text-[9px] font-bold text-retro-muted mb-0.5 tracking-wider group-hover:text-retro-rust transition-colors">
-                  {{store.compressDisplayId(item.taskDisplayId)}}
+                  {{projectState.compressDisplayId(item.taskDisplayId)}}
                 </div>
                 <div class="text-xs text-stone-600 line-clamp-2 group-hover:text-stone-900 transition-colors leading-relaxed">
                   {{item.text}}
@@ -65,7 +67,9 @@ import { UnfinishedItem } from './text-view.types';
   `]
 })
 export class TextUnfinishedComponent {
-  readonly store = inject(StoreService);
+  readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
   
   @Input() isMobile = false;
   @Output() jumpToTask = new EventEmitter<string>();
@@ -74,6 +78,6 @@ export class TextUnfinishedComponent {
   
   onComplete(taskId: string, text: string, event: Event) {
     event.stopPropagation();
-    this.store.completeUnfinishedItem(taskId, text);
+    this.taskOpsAdapter.completeUnfinishedItem(taskId, text);
   }
 }

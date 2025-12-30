@@ -1,7 +1,9 @@
 import { Component, input, output, signal, computed, inject, OnDestroy, HostListener, ElementRef, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { StoreService } from '../../../../services/store.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { ChangeTrackerService } from '../../../../services/change-tracker.service';
 import { Task, Attachment } from '../../../../models';
 import { renderMarkdown } from '../../../../utils/markdown';
 
@@ -18,7 +20,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
   imports: [CommonModule, FormsModule],
   template: `
     <!-- 桌面端可拖动浮动面板 -->
-    @if (!store.isMobile() && store.isFlowDetailOpen()) {
+    @if (!uiState.isMobile() && uiState.isFlowDetailOpen()) {
       <div class="absolute z-20 pointer-events-auto"
            [style.right.px]="position().x < 0 ? 0 : null"
            [style.top.px]="position().y < 0 ? 24 : position().y"
@@ -36,7 +38,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                      <span class="text-[8px] text-stone-400">☰</span>
                      <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
                  </div>
-                 <button (click)="store.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
+                 <button (click)="uiState.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                    </svg>
@@ -46,11 +48,11 @@ import { renderMarkdown } from '../../../../utils/markdown';
              <div class="flex-1 overflow-y-auto px-3 py-2 space-y-2">
                  @if (task(); as t) {
                      <ng-container *ngTemplateOutlet="taskContent; context: { $implicit: t }"></ng-container>
-                 } @else if (store.activeProject()) {
+                 } @else if (projectState.activeProject()) {
                      <div class="text-[11px] space-y-1">
-                         <div class="font-bold text-stone-800">{{store.activeProject()?.name}}</div>
-                         <div class="text-stone-400 font-mono text-[10px]">{{store.activeProject()?.createdDate | date:'yyyy-MM-dd'}}</div>
-                         <div class="text-stone-500 mt-1">{{store.activeProject()?.description}}</div>
+                         <div class="font-bold text-stone-800">{{projectState.activeProject()?.name}}</div>
+                         <div class="text-stone-400 font-mono text-[10px]">{{projectState.activeProject()?.createdDate | date:'yyyy-MM-dd'}}</div>
+                         <div class="text-stone-500 mt-1">{{projectState.activeProject()?.description}}</div>
                      </div>
                  } @else {
                      <div class="py-4 text-center text-stone-400 text-[10px]">
@@ -63,8 +65,8 @@ import { renderMarkdown } from '../../../../utils/markdown';
     }
     
     <!-- 桌面端详情开启按钮 -->
-    @if (!store.isMobile() && !store.isFlowDetailOpen()) {
-      <button (click)="store.isFlowDetailOpen.set(true)" 
+    @if (!uiState.isMobile() && !uiState.isFlowDetailOpen()) {
+      <button (click)="uiState.isFlowDetailOpen.set(true)" 
               class="absolute top-6 right-2 z-20 bg-white/90 backdrop-blur border border-stone-200 rounded-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all flex items-center gap-1">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -74,9 +76,9 @@ import { renderMarkdown } from '../../../../utils/markdown';
     }
 
     <!-- 移动端顶部小型标签触发器 -->
-    @if (store.isMobile() && !store.isFlowDetailOpen()) {
+    @if (uiState.isMobile() && !uiState.isFlowDetailOpen()) {
       <button 
-        (click)="store.isFlowDetailOpen.set(true)"
+        (click)="uiState.isFlowDetailOpen.set(true)"
         class="absolute top-2 right-2 z-25 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -86,7 +88,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
     }
     
     <!-- 移动端顶部下拉抽屉面板 -->
-    @if (store.isMobile() && store.isFlowDetailOpen()) {
+    @if (uiState.isMobile() && uiState.isFlowDetailOpen()) {
       <div class="absolute left-0 right-0 z-30 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col transition-all duration-100"
            [style.top.px]="0"
            [style.height.vh]="drawerHeight()"
@@ -122,7 +124,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
              (mousedown)="startDrawerResize($event)"
              style="transform: translateZ(0); will-change: transform;">
           <div class="w-10 h-1 bg-stone-300 rounded-full"></div>
-          <button (click)="store.isFlowDetailOpen.set(false); $event.stopPropagation()" 
+          <button (click)="uiState.isFlowDetailOpen.set(false); $event.stopPropagation()" 
                   (touchstart)="$event.stopPropagation()"
                   (mousedown)="$event.stopPropagation()"
                   class="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 transition-all pointer-events-auto">
@@ -140,7 +142,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
           <!-- 头部信息栏 + 编辑切换 -->
           <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 text-[10px]">
-                  <span class="font-bold text-retro-muted bg-stone-100 px-1.5 py-0.5 rounded">{{store.compressDisplayId(task.displayId)}}</span>
+                  <span class="font-bold text-retro-muted bg-stone-100 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
                   <span class="text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
                 <span data-testid="flow-task-status-badge" class="px-1.5 py-0.5 rounded"
                         [class.bg-emerald-100]="task.status === 'completed'"
@@ -247,10 +249,10 @@ import { renderMarkdown } from '../../../../utils/markdown';
           </div>
           
           <!-- 附件管理 - 暂时隐藏 -->
-          <!-- @if (store.currentUserId()) {
+          <!-- @if (projectState.currentUserId()) {
             <app-attachment-manager
-              [userId]="store.currentUserId()!"
-              [projectId]="store.activeProjectId()!"
+              [userId]="projectState.currentUserId()!"
+              [projectId]="projectState.activeProjectId()!"
               [taskId]="task.id"
               [currentAttachments]="task.attachments"
               [compact]="true"
@@ -267,7 +269,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
     <ng-template #mobileTaskContent let-task>
       <!-- 紧凑的任务信息头 - 单行布局 -->
       <div class="flex items-center gap-1.5 mb-1 flex-wrap">
-        <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 px-1.5 py-0.5 rounded">{{store.compressDisplayId(task.displayId)}}</span>
+        <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
         <span class="text-[9px] text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
         <span class="text-[9px] px-1 py-0.5 rounded"
               [class.bg-emerald-100]="task.status === 'completed'"
@@ -397,10 +399,10 @@ import { renderMarkdown } from '../../../../utils/markdown';
       </div>
       
       <!-- 附件管理（手机端） - 暂时隐藏 -->
-      <!-- @if (store.currentUserId()) {
+      <!-- @if (projectState.currentUserId()) {
         <app-attachment-manager
-          [userId]="store.currentUserId()!"
-          [projectId]="store.activeProjectId()!"
+          [userId]="projectState.currentUserId()!"
+          [projectId]="projectState.activeProjectId()!"
           [taskId]="task.id"
           [currentAttachments]="task.attachments"
           [compact]="true"
@@ -412,7 +414,10 @@ import { renderMarkdown } from '../../../../utils/markdown';
   `
 })
 export class FlowTaskDetailComponent implements OnDestroy {
-  readonly store = inject(StoreService);
+  // P2-1 迁移：直接注入子服务
+  readonly uiState = inject(UiStateService);
+  readonly projectState = inject(ProjectStateService);
+  private readonly changeTracker = inject(ChangeTrackerService);
   private readonly elementRef = inject(ElementRef);
   
   // 输入
@@ -501,10 +506,34 @@ export class FlowTaskDetailComponent implements OnDestroy {
   // ========== Split-Brain 输入处理 ==========
   
   /**
+   * 锁定任务字段（防止远程覆盖本地编辑）
+   */
+  private lockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    
+    for (const field of fields) {
+      this.changeTracker.lockTaskField(taskId, projectId, field, ChangeTrackerService.TEXT_INPUT_LOCK_TIMEOUT_MS);
+    }
+  }
+  
+  /**
+   * 解锁任务字段
+   */
+  private unlockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return;
+    
+    for (const field of fields) {
+      this.changeTracker.unlockTaskField(taskId, projectId, field);
+    }
+  }
+  
+  /**
    * 输入框聚焦处理
    */
   onInputFocus(field: 'title' | 'content') {
-    this.store.markEditing();
+    this.uiState.markEditing();
     
     const task = this.task();
     if (!task) return;
@@ -516,7 +545,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
         clearTimeout(existingTimer);
         this.unlockTimers.delete('title');
       }
-      this.store.lockTaskFields(task.id, ['title']);
+      this.lockTaskFields(task.id, ['title']);
     } else if (field === 'content') {
       this.isContentFocused = true;
       const existingTimer = this.unlockTimers.get('content');
@@ -524,7 +553,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
         clearTimeout(existingTimer);
         this.unlockTimers.delete('content');
       }
-      this.store.lockTaskFields(task.id, ['content']);
+      this.lockTaskFields(task.id, ['content']);
     }
   }
   
@@ -541,7 +570,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       
       const timer = setTimeout(() => {
         this.isTitleFocused = false;
-        this.store.unlockTaskFields(task.id, ['title']);
+        this.unlockTaskFields(task.id, ['title']);
         this.unlockTimers.delete('title');
       }, 10000);
       this.unlockTimers.set('title', timer);
@@ -550,7 +579,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
       
       const timer = setTimeout(() => {
         this.isContentFocused = false;
-        this.store.unlockTaskFields(task.id, ['content']);
+        this.unlockTaskFields(task.id, ['content']);
         this.unlockTimers.delete('content');
       }, 10000);
       this.unlockTimers.set('content', timer);

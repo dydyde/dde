@@ -13,6 +13,7 @@ export { TaskOperationService, type CreateTaskParams, type MoveTaskParams, type 
 export { UserSessionService } from './user-session.service';
 export { PreferenceService } from './preference.service';
 export { TaskOperationAdapterService } from './task-operation-adapter.service';
+export { ProjectOperationService } from './project-operation.service';
 export { RemoteChangeHandlerService, type RemoteProjectChangePayload as RemoteProjectPayload, type RemoteTaskChangePayload as RemoteTaskPayload } from './remote-change-handler.service';
 
 // 同步相关服务

@@ -1,5 +1,6 @@
 import { Injectable, inject, ElementRef } from '@angular/core';
-import { StoreService } from '../../../../services/store.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task, Attachment } from '../../../../models';
 import { isFailure, getErrorMessage } from '../../../../utils/result';
@@ -25,7 +26,8 @@ import { UI_CONFIG } from '../../../../config';
   providedIn: 'root'
 })
 export class FlowTaskOperationsService {
-  private readonly store = inject(StoreService);
+  private readonly projectState = inject(ProjectStateService);
+  private readonly taskOps = inject(TaskOperationAdapterService);
   private readonly toast = inject(ToastService);
   
   // ========== 任务属性更新 ==========
@@ -34,14 +36,14 @@ export class FlowTaskOperationsService {
    * 更新任务标题
    */
   updateTaskTitle(taskId: string, title: string): void {
-    this.store.updateTaskTitle(taskId, title);
+    this.taskOps.updateTaskTitle(taskId, title);
   }
   
   /**
    * 更新任务内容
    */
   updateTaskContent(taskId: string, content: string): void {
-    this.store.updateTaskContent(taskId, content);
+    this.taskOps.updateTaskContent(taskId, content);
   }
   
   /**
@@ -49,14 +51,14 @@ export class FlowTaskOperationsService {
    */
   updateTaskPriority(taskId: string, priority: string | undefined): void {
     const validPriority = priority as 'low' | 'medium' | 'high' | 'urgent' | undefined;
-    this.store.updateTaskPriority(taskId, validPriority);
+    this.taskOps.updateTaskPriority(taskId, validPriority);
   }
   
   /**
    * 更新任务截止日期
    */
   updateTaskDueDate(taskId: string, dueDate: string | null): void {
-    this.store.updateTaskDueDate(taskId, dueDate);
+    this.taskOps.updateTaskDueDate(taskId, dueDate);
   }
   
   // ========== 标签管理 ==========
@@ -66,7 +68,7 @@ export class FlowTaskOperationsService {
    */
   addTaskTag(taskId: string, tag: string): void {
     if (tag?.trim()) {
-      this.store.addTaskTag(taskId, tag.trim());
+      this.taskOps.addTaskTag(taskId, tag.trim());
     }
   }
   
@@ -74,7 +76,7 @@ export class FlowTaskOperationsService {
    * 移除标签
    */
   removeTaskTag(taskId: string, tag: string): void {
-    this.store.removeTaskTag(taskId, tag);
+    this.taskOps.removeTaskTag(taskId, tag);
   }
   
   // ========== 待办事项 ==========
@@ -84,7 +86,7 @@ export class FlowTaskOperationsService {
    */
   addQuickTodo(taskId: string, text: string): void {
     if (!text?.trim()) return;
-    this.store.addTodoItem(taskId, text.trim());
+    this.taskOps.addTodoItem(taskId, text.trim());
   }
   
   // ========== 任务层级操作 ==========
@@ -99,7 +101,7 @@ export class FlowTaskOperationsService {
    * @returns 新任务ID，如果失败返回 null
    */
   addSiblingTask(task: Task): string | null {
-    const result = this.store.addTask('', '', task.stage, task.parentId, true);
+    const result = this.taskOps.addTask('', '', task.stage, task.parentId, true);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));
       return null;
@@ -122,7 +124,7 @@ export class FlowTaskOperationsService {
     // 否则子任务的 stage = 父任务 stage + 1
     const childStage = task.stage === null ? null : task.stage + 1;
     
-    const result = this.store.addTask('', '', childStage, task.id, false);
+    const result = this.taskOps.addTask('', '', childStage, task.id, false);
     if (isFailure(result)) {
       this.toast.error('添加任务失败', getErrorMessage(result.error));
       return null;
@@ -159,7 +161,7 @@ export class FlowTaskOperationsService {
    */
   toggleTaskStatus(task: Task): void {
     const newStatus = task.status === 'completed' ? 'active' : 'completed';
-    this.store.updateTaskStatus(task.id, newStatus);
+    this.taskOps.updateTaskStatus(task.id, newStatus);
   }
   
   /**
@@ -168,7 +170,7 @@ export class FlowTaskOperationsService {
    */
   archiveTask(task: Task): 'active' | 'archived' {
     const newStatus = task.status === 'archived' ? 'active' : 'archived';
-    this.store.updateTaskStatus(task.id, newStatus);
+    this.taskOps.updateTaskStatus(task.id, newStatus);
     return newStatus;
   }
   
@@ -178,9 +180,9 @@ export class FlowTaskOperationsService {
    */
   deleteTask(taskId: string, keepChildren: boolean = false): void {
     if (keepChildren) {
-      this.store.deleteTaskKeepChildren(taskId);
+      this.taskOps.deleteTaskKeepChildren(taskId);
     } else {
-      this.store.deleteTask(taskId);
+      this.taskOps.deleteTask(taskId);
     }
   }
   
@@ -190,21 +192,21 @@ export class FlowTaskOperationsService {
    * @returns 实际删除的任务数量（含级联子任务）
    */
   deleteTasksBatch(explicitIds: string[]): number {
-    return this.store.deleteTasksBatch(explicitIds);
+    return this.taskOps.deleteTasksBatch(explicitIds);
   }
   
   /**
    * 计算批量删除将影响的任务数量（含级联子任务）
    */
   calculateBatchDeleteImpact(explicitIds: string[]): { total: number; explicit: number; cascaded: number } {
-    return this.store.calculateBatchDeleteImpact(explicitIds);
+    return this.taskOps.calculateBatchDeleteImpact(explicitIds);
   }
   
   /**
    * 检查任务是否有子任务
    */
   hasChildren(task: Task): boolean {
-    return this.store.tasks().some(t => t.parentId === task.id && !t.deletedAt);
+    return this.projectState.tasks().some(t => t.parentId === task.id && !t.deletedAt);
   }
   
   // ========== 附件管理 ==========
@@ -213,21 +215,21 @@ export class FlowTaskOperationsService {
    * 附件变更处理（全量替换）
    */
   updateTaskAttachments(taskId: string, attachments: Attachment[]): void {
-    this.store.updateTaskAttachments(taskId, attachments);
+    this.taskOps.updateTaskAttachments(taskId, attachments);
   }
   
   /**
    * 添加单个附件
    */
   addTaskAttachment(taskId: string, attachment: Attachment): void {
-    this.store.addTaskAttachment(taskId, attachment);
+    this.taskOps.addTaskAttachment(taskId, attachment);
   }
   
   /**
    * 移除单个附件
    */
   removeTaskAttachment(taskId: string, attachmentId: string): void {
-    this.store.removeTaskAttachment(taskId, attachmentId);
+    this.taskOps.removeTaskAttachment(taskId, attachmentId);
   }
   
   /**
@@ -244,7 +246,7 @@ export class FlowTaskOperationsService {
    * @returns 新任务ID，如果失败返回 null
    */
   createUnassignedTask(title: string = '新任务'): string | null {
-    const result = this.store.addTask(title, '', null, null, false);
+    const result = this.taskOps.addTask(title, '', null, null, false);
     if (isFailure(result)) {
       this.toast.error('创建任务失败', getErrorMessage(result.error));
       return null;
@@ -256,8 +258,8 @@ export class FlowTaskOperationsService {
    * 解除任务分配（移回待分配区域）
    */
   detachTask(taskId: string): void {
-    const task = this.store.tasks().find(t => t.id === taskId);
-    this.store.detachTask(taskId);
+    const task = this.projectState.tasks().find(t => t.id === taskId);
+    this.taskOps.detachTask(taskId);
     if (task) {
       this.toast.success('已移至待分配', `任务 "${task.title}" 已解除分配`);
     }

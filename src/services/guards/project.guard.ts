@@ -1,6 +1,8 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router, ActivatedRouteSnapshot } from '@angular/router';
-import { StoreService } from '../store.service';
+import { ProjectStateService } from '../project-state.service';
+import { SyncCoordinatorService } from '../sync-coordinator.service';
+import { UserSessionService } from '../user-session.service';
 import { ToastService } from '../toast.service';
 import { GUARD_CONFIG } from '../../config';
 
@@ -18,7 +20,9 @@ import { GUARD_CONFIG } from '../../config';
  *          { isFirstLoad: boolean } 是否首次加载（无本地缓存）
  */
 async function ensureDataAvailable(
-  store: StoreService, 
+  projectState: ProjectStateService,
+  syncCoordinator: SyncCoordinatorService,
+  userSession: UserSessionService,
   _toast: ToastService,
   _maxWaitMs: number = GUARD_CONFIG.DATA_INIT_TIMEOUT
 ): Promise<{ loaded: boolean; isFirstLoad: boolean }> {
@@ -27,14 +31,14 @@ async function ensureDataAvailable(
   const maxQuickWait = 200; // 最多等待 200ms 让本地数据加载完成
   
   // 1. 快速检查：Store 中是否已有数据
-  if (store.projects().length > 0) {
+  if (projectState.projects().length > 0) {
     return { loaded: true, isFirstLoad: false };
   }
   
   // 2. 如果 Store 为空，等待本地缓存加载（最多 200ms）
   // 这是为了等待 loadOfflineSnapshot() 完成
   while (Date.now() - startTime < maxQuickWait) {
-    if (store.projects().length > 0) {
+    if (projectState.projects().length > 0) {
       return { loaded: true, isFirstLoad: false };
     }
     await new Promise(resolve => setTimeout(resolve, checkInterval));
@@ -42,13 +46,13 @@ async function ensureDataAvailable(
   
   // 3. 如果仍无数据，触发 loadProjects（会创建种子项目）
   // 但不等待云端同步完成
-  if (store.projects().length === 0) {
-    const isLoadingRemote = store.isLoadingRemote();
+  if (projectState.projects().length === 0) {
+    const isLoadingRemote = syncCoordinator.isLoadingRemote();
     
     // 如果没有在加载，触发加载
     if (!isLoadingRemote) {
       // 不阻塞等待 - loadProjects 内部会先加载本地缓存/种子数据
-      store.loadProjects().catch(() => {
+      userSession.loadProjects().catch(() => {
         // 静默处理，loadProjects 内部已有兜底
       });
       
@@ -58,7 +62,7 @@ async function ensureDataAvailable(
     
     // 如果还是没有数据，说明是首次加载或加载失败
     // 但仍然放行，让用户看到 UI（可能是骨架屏或空状态）
-    if (store.projects().length === 0) {
+    if (projectState.projects().length === 0) {
       return { loaded: true, isFirstLoad: true };
     }
   }
@@ -71,7 +75,9 @@ async function ensureDataAvailable(
  * 用于需要确保数据加载完成的场景（如深链接直接访问项目）
  */
 async function waitForDataInit(
-  store: StoreService, 
+  projectState: ProjectStateService,
+  syncCoordinator: SyncCoordinatorService,
+  userSession: UserSessionService,
   toast: ToastService,
   maxWaitMs: number = GUARD_CONFIG.DATA_INIT_TIMEOUT
 ): Promise<{ loaded: boolean; reason?: string }> {
@@ -82,8 +88,8 @@ async function waitForDataInit(
   let loadTriggered = false;
   
   while (Date.now() - startTime < maxWaitMs) {
-    const projectCount = store.projects().length;
-    const isLoadingRemote = store.isLoadingRemote();
+    const projectCount = projectState.projects().length;
+    const isLoadingRemote = syncCoordinator.isLoadingRemote();
 
     // 如果已有项目数据，初始化完成
     if (projectCount > 0) {
@@ -95,7 +101,7 @@ async function waitForDataInit(
     if (!loadTriggered && !isLoadingRemote) {
       loadTriggered = true;
       try {
-        await store.loadProjects();
+        await userSession.loadProjects();
       } catch {
         // loadProjects 内部已有兜底，这里不再额外处理
       }
@@ -136,10 +142,12 @@ async function waitForDataInit(
  * - 项目不存在时，等待云端同步（给深链接一个机会）
  * - 超时后才认定项目不存在
  * 
- * 单用户场景：StoreService 加载的项目即为当前用户可访问的全部项目
+ * 单用户场景：直接注入子服务获取项目数据
  */
 export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSnapshot, _state) => {
-  const store = inject(StoreService);
+  const projectState = inject(ProjectStateService);
+  const syncCoordinator = inject(SyncCoordinatorService);
+  const userSession = inject(UserSessionService);
   const router = inject(Router);
   const toast = inject(ToastService);
   
@@ -151,10 +159,10 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
   }
   
   // 【新策略】本地优先检查
-  const dataResult = await ensureDataAvailable(store, toast);
+  const dataResult = await ensureDataAvailable(projectState, syncCoordinator, userSession, toast);
   
   // 快速检查项目是否存在于本地
-  let projects = store.projects();
+  let projects = projectState.projects();
   let project = projects.find(p => p.id === projectId);
   
   if (project) {
@@ -174,12 +182,12 @@ export const projectExistsGuard: CanActivateFn = async (route: ActivatedRouteSna
   }
   
   // 如果正在后台同步，等待同步完成后再检查一次
-  if (store.isLoadingRemote()) {
-    const waitResult = await waitForDataInit(store, toast, 5000); // 最多等 5 秒
+  if (syncCoordinator.isLoadingRemote()) {
+    const waitResult = await waitForDataInit(projectState, syncCoordinator, userSession, toast, 5000); // 最多等 5 秒
     
     if (waitResult.loaded) {
       // 重新检查项目是否存在
-      projects = store.projects();
+      projects = projectState.projects();
       project = projects.find(p => p.id === projectId);
       
       if (project) {

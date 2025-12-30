@@ -1,7 +1,10 @@
 import { Component, inject, Input, Output, EventEmitter, signal, ChangeDetectionStrategy, ElementRef, HostListener, effect, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
-import { StoreService } from '../../../../services/store.service';
+import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
+import { ChangeTrackerService } from '../../../../services/change-tracker.service';
+import { UiStateService } from '../../../../services/ui-state.service';
+import { ProjectStateService } from '../../../../services/project-state.service';
 import { AttachmentService } from '../../../../services/attachment.service';
 import { ToastService } from '../../../../services/toast.service';
 import { Task, Attachment, Connection } from '../../../../models';
@@ -274,7 +277,10 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
   `]
 })
 export class TextTaskEditorComponent implements OnDestroy {
-  private readonly store = inject(StoreService);
+  private readonly taskOpsAdapter = inject(TaskOperationAdapterService);
+  private readonly changeTracker = inject(ChangeTrackerService);
+  private readonly uiState = inject(UiStateService);
+  private readonly projectState = inject(ProjectStateService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elementRef = inject(ElementRef);
   private readonly attachmentService = inject(AttachmentService);
@@ -342,6 +348,26 @@ export class TextTaskEditorComponent implements OnDestroy {
       clearTimeout(timer);
     }
     this.unlockTimers.clear();
+  }
+  
+  // ========== Split-Brain 锁定辅助方法 ==========
+  
+  /** 锁定任务字段（防止远程更新覆盖本地编辑） */
+  private lockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectId || this.projectState.activeProjectId();
+    if (!projectId) return;
+    for (const field of fields) {
+      this.changeTracker.lockTaskField(taskId, projectId, field);
+    }
+  }
+  
+  /** 解锁任务字段 */
+  private unlockTaskFields(taskId: string, fields: string[]): void {
+    const projectId = this.projectId || this.projectState.activeProjectId();
+    if (!projectId) return;
+    for (const field of fields) {
+      this.changeTracker.unlockTaskField(taskId, projectId, field);
+    }
   }
   
   /** 
@@ -416,7 +442,7 @@ export class TextTaskEditorComponent implements OnDestroy {
    * 3. 标记本地聚焦状态，阻止 Store->Local 同步
    */
   onInputFocus(field: 'title' | 'content' | 'todo') {
-    this.store.markEditing();
+    this.uiState.markEditing();
     
     if (field === 'title') {
       this.isTitleFocused = true;
@@ -427,7 +453,7 @@ export class TextTaskEditorComponent implements OnDestroy {
         this.unlockTimers.delete('title');
       }
       // 锁定标题字段（1小时，由 blur 事件触发解锁）
-      this.store.lockTaskFields(this.task.id, ['title']);
+      this.lockTaskFields(this.task.id, ['title']);
     } else if (field === 'content') {
       this.isContentFocused = true;
       const existingTimer = this.unlockTimers.get('content');
@@ -435,7 +461,7 @@ export class TextTaskEditorComponent implements OnDestroy {
         clearTimeout(existingTimer);
         this.unlockTimers.delete('content');
       }
-      this.store.lockTaskFields(this.task.id, ['content']);
+      this.lockTaskFields(this.task.id, ['content']);
     }
     // todo 字段不需要锁定（不会被远程更新覆盖）
   }
@@ -454,21 +480,21 @@ export class TextTaskEditorComponent implements OnDestroy {
     
     if (field === 'title') {
       // 提交本地内容到 Store
-      this.store.updateTaskTitle(this.task.id, this.localTitle());
+      this.taskOpsAdapter.updateTaskTitle(this.task.id, this.localTitle());
       
       // 延迟 10 秒后解锁（等待同步防抖 3s + 网络延迟 + 额外缓冲）
       const timer = setTimeout(() => {
         this.isTitleFocused = false;
-        this.store.unlockTaskFields(this.task.id, ['title']);
+        this.unlockTaskFields(this.task.id, ['title']);
         this.unlockTimers.delete('title');
       }, 10000);
       this.unlockTimers.set('title', timer);
     } else if (field === 'content') {
-      this.store.updateTaskContent(this.task.id, this.localContent());
+      this.taskOpsAdapter.updateTaskContent(this.task.id, this.localContent());
       
       const timer = setTimeout(() => {
         this.isContentFocused = false;
-        this.store.unlockTaskFields(this.task.id, ['content']);
+        this.unlockTaskFields(this.task.id, ['content']);
         this.unlockTimers.delete('content');
       }, 10000);
       this.unlockTimers.set('content', timer);
@@ -482,7 +508,7 @@ export class TextTaskEditorComponent implements OnDestroy {
   onTitleInput(value: string) {
     this.localTitle.set(value);
     // 同时更新 Store（保持乐观更新的即时反馈）
-    this.store.updateTaskTitle(this.task.id, value);
+    this.taskOpsAdapter.updateTaskTitle(this.task.id, value);
   }
   
   /**
@@ -492,20 +518,20 @@ export class TextTaskEditorComponent implements OnDestroy {
   onContentInput(value: string) {
     this.localContent.set(value);
     // 同时更新 Store（保持乐观更新的即时反馈）
-    this.store.updateTaskContent(this.task.id, value);
+    this.taskOpsAdapter.updateTaskContent(this.task.id, value);
   }
   
   addQuickTodo(inputElement: HTMLInputElement) {
     const text = inputElement.value.trim();
     if (!text) return;
     
-    this.store.addTodoItem(this.task.id, text);
+    this.taskOpsAdapter.addTodoItem(this.task.id, text);
     inputElement.value = '';
     inputElement.focus();
   }
   
   onAttachmentsChange(attachments: Attachment[]) {
-    this.store.updateTaskAttachments(this.task.id, attachments);
+    this.taskOpsAdapter.updateTaskAttachments(this.task.id, attachments);
   }
   
   // ========== 移动端附件管理方法 ==========
@@ -572,7 +598,7 @@ export class TextTaskEditorComponent implements OnDestroy {
       
       if (newAttachments.length > 0) {
         const updatedAttachments = [...(this.task.attachments || []), ...newAttachments];
-        this.store.updateTaskAttachments(this.task.id, updatedAttachments);
+        this.taskOpsAdapter.updateTaskAttachments(this.task.id, updatedAttachments);
         this.toast.success('上传成功', `${newAttachments.length} 个文件已上传`);
       }
     } catch (error) {
@@ -597,7 +623,7 @@ export class TextTaskEditorComponent implements OnDestroy {
       const updatedAttachments = (this.task.attachments || []).map(a => 
         a.id === attachment.id ? deletedAttachment : a
       );
-      this.store.updateTaskAttachments(this.task.id, updatedAttachments);
+      this.taskOpsAdapter.updateTaskAttachments(this.task.id, updatedAttachments);
       this.toast.success('删除成功', `${attachment.name} 已删除`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : '删除失败';
