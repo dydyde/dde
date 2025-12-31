@@ -1,7 +1,7 @@
 ---
 name: Router
 description: "Triage requests, choose safest toolset, and hand off to the right specialist."
-tools: ['execute', 'read', 'filesystem/list_directory', 'filesystem/list_directory_with_sizes', 'search']
+tools: ['execute', 'read', 'search']
 handoffs:
   - label: Research (Web/MCP)
     agent: Researcher

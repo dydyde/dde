@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { UiStateService } from '../../../../services/ui-state.service';
 import { ProjectStateService } from '../../../../services/project-state.service';
+import { UserSessionService } from '../../../../services/user-session.service';
 import { ChangeTrackerService } from '../../../../services/change-tracker.service';
 import { Task, Attachment } from '../../../../models';
 import { renderMarkdown } from '../../../../utils/markdown';
@@ -249,9 +250,9 @@ import { renderMarkdown } from '../../../../utils/markdown';
           </div>
           
           <!-- 附件管理 - 暂时隐藏 -->
-          <!-- @if (projectState.currentUserId()) {
+          <!-- @if (userSession.currentUserId()) {
             <app-attachment-manager
-              [userId]="projectState.currentUserId()!"
+              [userId]="userSession.currentUserId()!"
               [projectId]="projectState.activeProjectId()!"
               [taskId]="task.id"
               [currentAttachments]="task.attachments"
@@ -399,9 +400,9 @@ import { renderMarkdown } from '../../../../utils/markdown';
       </div>
       
       <!-- 附件管理（手机端） - 暂时隐藏 -->
-      <!-- @if (projectState.currentUserId()) {
+      <!-- @if (userSession.currentUserId()) {
         <app-attachment-manager
-          [userId]="projectState.currentUserId()!"
+          [userId]="userSession.currentUserId()!"
           [projectId]="projectState.activeProjectId()!"
           [taskId]="task.id"
           [currentAttachments]="task.attachments"
@@ -417,6 +418,7 @@ export class FlowTaskDetailComponent implements OnDestroy {
   // P2-1 迁移：直接注入子服务
   readonly uiState = inject(UiStateService);
   readonly projectState = inject(ProjectStateService);
+  readonly userSession = inject(UserSessionService);
   private readonly changeTracker = inject(ChangeTrackerService);
   private readonly elementRef = inject(ElementRef);
   

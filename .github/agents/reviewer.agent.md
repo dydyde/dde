@@ -1,7 +1,7 @@
 ---
 name: Reviewer
 description: "Read-only review for security/quality/regression."
-tools: ["read", "search", "structured-thinking/*"]
+tools: ['read', 'tavily/search', 'structured-thinking/*', 'search']
 handoffs:
   - label: Fix Issues
     agent: Implementer

@@ -1,7 +1,7 @@
 ---
 name: Researcher
 description: "Use web/MCP research tools; summarize with citations and injection-safety."
-tools: ["tavily/*", "web", "puppeteer/*", "structured-thinking/*"]
+tools: ["tavily/*", "web", "structured-thinking/*"]
 ---
 
 # Research Rules

@@ -271,10 +271,134 @@ describe('SimpleSyncService', () => {
     it('pushConnection 应该成功推送', async () => {
       const connection = createMockConnection();
       
+      // Mock 任务存在性查询（预检查）
+      // 注意：移除了 .is('deleted_at', null) 检查，因为外键约束只检查任务行是否存在
+      const tasksQueryMock = {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              data: [
+                { id: connection.source },
+                { id: connection.target }
+              ],
+              error: null
+            })
+          })
+        })
+      };
+      
+      // Mock connections upsert
+      const connectionsQueryMock = {
+        upsert: vi.fn().mockResolvedValue({ error: null })
+      };
+      
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'tasks') return tasksQueryMock;
+        if (table === 'connections') return connectionsQueryMock;
+        return {};
+      });
+      
       const result = await service.pushConnection(connection, 'project-1');
       
       expect(result).toBe(true);
+      expect(mockClient.from).toHaveBeenCalledWith('tasks');
       expect(mockClient.from).toHaveBeenCalledWith('connections');
+    });
+    
+    it('pushConnection 应该在任务不存在时跳过推送', async () => {
+      const connection = createMockConnection();
+      
+      // Mock 任务查询返回空（任务不存在）
+      const tasksQueryMock = {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              data: [], // 任务不存在
+              error: null
+            })
+          })
+        })
+      };
+      
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'tasks') return tasksQueryMock;
+        return {};
+      });
+      
+      const result = await service.pushConnection(connection, 'project-1');
+      
+      expect(result).toBe(false);
+      expect(mockClient.from).toHaveBeenCalledWith('tasks');
+      expect(mockClient.from).not.toHaveBeenCalledWith('connections');
+    });
+    
+    it('pushConnection 应该在外键约束错误时不加入重试队列', async () => {
+      const connection = createMockConnection();
+      
+      // Mock 任务查询通过（假装任务存在）
+      const tasksQueryMock = {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              data: [
+                { id: connection.source },
+                { id: connection.target }
+              ],
+              error: null
+            })
+          })
+        })
+      };
+      
+      // Mock connections upsert 返回外键错误
+      const connectionsQueryMock = {
+        upsert: vi.fn().mockResolvedValue({ 
+          error: { 
+            code: '23503',
+            message: 'insert or update on table "connections" violates foreign key constraint "connections_source_id_fkey"'
+          } 
+        })
+      };
+      
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'tasks') return tasksQueryMock;
+        if (table === 'connections') return connectionsQueryMock;
+        return {};
+      });
+      
+      const initialQueueSize = service['retryQueue'].length;
+      const result = await service.pushConnection(connection, 'project-1');
+      
+      expect(result).toBe(false);
+      // 外键错误不应该加入重试队列
+      expect(service['retryQueue'].length).toBe(initialQueueSize);
+    });
+    
+    it('pushConnection 应该在任务查询超时时跳过推送', async () => {
+      const connection = createMockConnection();
+      
+      // Mock 任务查询超时（Promise.race 会选择 timeout）
+      const tasksQueryMock = {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue(
+              new Promise((resolve) => setTimeout(resolve, 10000)) // 10秒延迟，触发超时
+            )
+          })
+        })
+      };
+      
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'tasks') return tasksQueryMock;
+        return {};
+      });
+      
+      const result = await service.pushConnection(connection, 'project-1');
+      
+      // 超时应该导致推送失败（因为无法验证任务存在）
+      expect(result).toBe(false);
+      expect(mockClient.from).toHaveBeenCalledWith('tasks');
+      expect(mockClient.from).not.toHaveBeenCalledWith('connections');
     });
   });
   
@@ -392,8 +516,23 @@ describe('SimpleSyncService', () => {
       const connection = createMockConnection();
       let attempts = 0;
       
+      // Mock 任务存在性查询
+      const tasksQueryMock = {
+        select: vi.fn().mockReturnValue({
+          in: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              data: [
+                { id: connection.source },
+                { id: connection.target }
+              ],
+              error: null
+            })
+          })
+        })
+      };
+      
       // 模拟 429 错误后成功
-      mockClient.from = vi.fn().mockReturnValue({
+      const connectionsQueryMock = {
         upsert: vi.fn().mockImplementation(() => {
           attempts++;
           if (attempts === 1) {
@@ -401,6 +540,12 @@ describe('SimpleSyncService', () => {
           }
           return Promise.resolve({ error: null });
         })
+      };
+      
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'tasks') return tasksQueryMock;
+        if (table === 'connections') return connectionsQueryMock;
+        return {};
       });
       
       const result = await service.pushConnection(connection, 'project-1');
@@ -513,8 +658,12 @@ describe('SimpleSyncService', () => {
       
       const result = await service.pushTask(task, 'project-1');
       
-      // 应该成功返回（跳过推送不算失败）
-      expect(result).toBe(true);
+      // 【关键修复】tombstone 跳过时应返回 false，防止被标记为成功推送
+      // 这样 saveProjectToCloud 不会将此任务加入 successfulTaskIds
+      // 从而避免推送引用此任务的连接，防止外键约束违规
+      expect(result).toBe(false);
+      // 不应该加入重试队列（因为这不是失败，只是跳过）
+      expect(service.state().pendingCount).toBe(0);
       // upsert 不应该被调用
       expect(mockClient.from).toHaveBeenCalledWith('task_tombstones');
     });
@@ -543,6 +692,39 @@ describe('SimpleSyncService', () => {
       expect(result).toBe(true);
       expect(mockClient.from).toHaveBeenCalledWith('task_tombstones');
       expect(mockClient.from).toHaveBeenCalledWith('tasks');
+    });
+    
+    it('pushTask tombstone 跳过时不应加入重试队列', async () => {
+      // 验证 tombstone 跳过不会导致任务被加入重试队列
+      const task = createMockTask({ id: 'tombstone-task' });
+      
+      // 模拟 tombstones 中存在该任务
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'task_tombstones') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ 
+                  data: { task_id: 'tombstone-task' }, 
+                  error: null 
+                })
+              })
+            })
+          };
+        }
+        return {
+          upsert: vi.fn().mockResolvedValue({ error: null })
+        };
+      });
+      
+      // 先确认初始状态
+      expect(service.state().pendingCount).toBe(0);
+      
+      const result = await service.pushTask(task, 'project-1');
+      
+      // tombstone 跳过返回 false，但不应加入重试队列
+      expect(result).toBe(false);
+      expect(service.state().pendingCount).toBe(0);
     });
   });
   
@@ -684,6 +866,130 @@ describe('SimpleSyncService', () => {
       // 验证包含 isRetryable 标签
       const callArgs = mockCaptureException.mock.calls[0];
       expect((callArgs[1] as any)?.tags).toHaveProperty('isRetryable');
+    });
+  });
+
+  describe('RetryQueue Dependency Logic', () => {
+    beforeEach(() => {
+      mockSupabase.isConfigured = true;
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+    });
+
+    it('should skip connection if source task fails to sync in the same batch', async () => {
+      const task1 = createMockTask({ id: 'task-1' }); // Will fail
+      const task2 = createMockTask({ id: 'task-2' }); // Will succeed
+      const conn = createMockConnection({ id: 'conn-1', source: 'task-1', target: 'task-2' });
+
+      // Mock task-1 failure
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'task_tombstones') {
+            return {
+                select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({
+                        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+                    })
+                })
+            };
+        }
+        if (table === 'tasks') {
+          return {
+            upsert: vi.fn().mockImplementation((data) => {
+              if (data.id === 'task-1') {
+                return Promise.resolve({ error: new Error('Sync failed') });
+              }
+              return Promise.resolve({ error: null });
+            })
+          };
+        }
+        return {
+          upsert: vi.fn().mockResolvedValue({ error: null }),
+          delete: vi.fn().mockResolvedValue({ error: null }),
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              gt: vi.fn().mockResolvedValue({ data: [], error: null })
+            })
+          })
+        };
+      });
+
+      // Add to retry queue manually
+      (service as any).addToRetryQueue('task', 'upsert', task1, 'project-1');
+      (service as any).addToRetryQueue('task', 'upsert', task2, 'project-1');
+      (service as any).addToRetryQueue('connection', 'upsert', conn, 'project-1');
+
+      // Trigger processing
+      await (service as any).processRetryQueue();
+
+      // Verify task-1 failed, task-2 succeeded
+      // Verify connection was NOT attempted (because source task-1 failed)
+      const calls = mockClient.from.mock.calls;
+      const connectionCalls = calls.filter((call: any[]) => call[0] === 'connections');
+      expect(connectionCalls.length).toBe(0);
+
+      // Verify connection remains in queue
+      expect((service as any).retryQueue.length).toBeGreaterThan(0);
+      const queuedConn = (service as any).retryQueue.find((item: any) => item.type === 'connection');
+      expect(queuedConn).toBeDefined();
+      expect(queuedConn.data.id).toBe('conn-1');
+    });
+
+    it('should sync connection if both tasks succeed', async () => {
+      const task1 = createMockTask({ id: 'task-1' });
+      const task2 = createMockTask({ id: 'task-2' });
+      const conn = createMockConnection({ id: 'conn-1', source: 'task-1', target: 'task-2' });
+
+      // 使用更通用的 mock，所有 select 查询都返回任务存在
+      mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'task_tombstones') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
+        if (table === 'tasks') {
+          return {
+            upsert: vi.fn().mockResolvedValue({ error: null }),
+            select: vi.fn().mockReturnValue({
+              in: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({
+                  data: [{ id: 'task-1' }, { id: 'task-2' }],
+                  error: null
+                }),
+                // 也处理没有 eq 的情况（批量查询）
+                then: (resolve: Function) => resolve({
+                  data: [{ id: 'task-1' }, { id: 'task-2' }],
+                  error: null
+                })
+              })
+            })
+          };
+        }
+        if (table === 'connections') {
+          return {
+            upsert: vi.fn().mockResolvedValue({ error: null })
+          };
+        }
+        return {
+          upsert: vi.fn().mockResolvedValue({ error: null }),
+          select: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({ data: [], error: null })
+          })
+        };
+      });
+
+      (service as any).addToRetryQueue('task', 'upsert', task1, 'project-1');
+      (service as any).addToRetryQueue('task', 'upsert', task2, 'project-1');
+      (service as any).addToRetryQueue('connection', 'upsert', conn, 'project-1');
+
+      await (service as any).processRetryQueue();
+
+      const calls = mockClient.from.mock.calls;
+      const connectionCalls = calls.filter((call: any[]) => call[0] === 'connections');
+      expect(connectionCalls.length).toBe(1);
+      expect((service as any).retryQueue.length).toBe(0);
     });
   });
 });

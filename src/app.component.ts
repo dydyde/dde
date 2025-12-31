@@ -111,7 +111,8 @@ export class AppComponent implements OnInit, OnDestroy {
   /** 项目/任务数据 */
   get projects() { return this.projectState.projects; }
   get activeProject() { return this.projectState.activeProject; }
-  get activeProjectId() { return this.projectState.activeProjectId; }
+  // 直接暴露 signal，而不是 getter - 模板中需要调用 activeProjectId()
+  readonly activeProjectId = this.projectState.activeProjectId;
   get deletedTasks() { return this.projectState.deletedTasks; }
   get currentUserId() { return this.userSession.currentUserId; }
   

@@ -490,6 +490,9 @@ export class SimpleSyncService {
       return false;
     }
     
+    // 【关键修复】用于跟踪 tombstone 跳过情况，避免将未推送的任务标记为成功
+    let skippedDueToTombstone = false;
+    
     try {
       await this.throttle.execute(
         `push-task:${task.id}`,
@@ -503,10 +506,12 @@ export class SimpleSyncService {
           
           if (tombstone) {
             // 任务已被永久删除，跳过推送，防止复活
+            // 【关键修复】标记为 tombstone 跳过，外层应返回 false 以防止连接推送
             this.logger.info('跳过推送已删除任务（tombstone 保护）', { 
               taskId: task.id, 
               projectId 
             });
+            skippedDueToTombstone = true;
             return; // 直接返回，不执行 upsert
           }
           
@@ -535,6 +540,12 @@ export class SimpleSyncService {
         },
         { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 30秒超时，平衡用户体验
       );
+      
+      // 【关键修复】tombstone 跳过时返回 false，防止该任务被标记为成功
+      // 这样连接过滤器会跳过引用此任务的连接，避免外键约束违规
+      if (skippedDueToTombstone) {
+        return false;
+      }
       
       // Circuit Breaker: 记录成功
       this.recordCircuitSuccess();
@@ -921,6 +932,8 @@ export class SimpleSyncService {
    * - 对于可重试错误（5xx, 429, 408, 网络错误），立即重试 3 次（指数退避：1s, 2s, 4s）
    * - 重试失败后加入持久化重试队列，等待网络恢复后重试
    * - 使用限流服务控制并发请求数量
+   * 
+   * 【关键修复】推送前验证引用的任务存在，防止外键约束违规
    */
   async pushConnection(connection: Connection, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -930,6 +943,93 @@ export class SimpleSyncService {
     }
     
     try {
+      // 【关键修复】推送前验证引用的任务存在性，防止外键约束违规
+      // 【超时保护】5秒超时，防止数据库查询挂起阻塞同步
+      // 【重要】不过滤 deleted_at，因为数据库外键约束只检查任务行是否存在，不管软删除状态
+      // 软删除的任务仍然在 tasks 表中，满足外键约束
+      const queryPromise = client
+        .from('tasks')
+        .select('id')
+        .in('id', [connection.source, connection.target])
+        .eq('project_id', projectId);
+      
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Task existence check timeout')), 5000)
+      );
+      
+      let existingTasks: Array<{ id: string }> | null = null;
+      try {
+        const result = await Promise.race([
+          queryPromise,
+          timeoutPromise
+        ]) as { data: Array<{ id: string }> | null; error: unknown };
+        
+        // 【关键修复】检查 Supabase 查询错误
+        if (result.error) {
+          this.logger.warn('任务存在性查询失败，跳过连接推送', {
+            connectionId: connection.id,
+            source: connection.source,
+            target: connection.target,
+            error: result.error
+          });
+          return false; // fail-safe: 查询失败时不推送连接
+        }
+        
+        existingTasks = result.data;
+      } catch (timeoutError) {
+        // 【超时处理】查询超时视为任务不存在（fail-safe），不推送连接
+        this.logger.warn('任务存在性查询超时，跳过连接推送', {
+          connectionId: connection.id,
+          source: connection.source,
+          target: connection.target,
+          error: timeoutError instanceof Error ? timeoutError.message : String(timeoutError)
+        });
+        
+        Sentry.captureMessage('任务存在性查询超时', {
+          level: 'warning',
+          tags: { operation: 'pushConnection', errorType: 'QUERY_TIMEOUT' },
+          extra: {
+            connectionId: connection.id,
+            projectId,
+            source: connection.source,
+            target: connection.target
+          }
+        });
+        
+        return false; // 超时不加入重试队列，避免累积
+      }
+      
+      const existingTaskIds = new Set((existingTasks || []).map(t => t.id));
+      
+      if (!existingTaskIds.has(connection.source) || !existingTaskIds.has(connection.target)) {
+        this.logger.warn('跳过推送连接（引用的任务不存在）', {
+          connectionId: connection.id,
+          source: connection.source,
+          target: connection.target,
+          sourceExists: existingTaskIds.has(connection.source),
+          targetExists: existingTaskIds.has(connection.target)
+        });
+        
+        // 【关键】外键约束违规不可重试，直接失败而不加入重试队列
+        Sentry.captureMessage('连接引用的任务不存在', {
+          level: 'warning',
+          tags: { 
+            operation: 'pushConnection',
+            errorType: 'FOREIGN_KEY_VIOLATION'
+          },
+          extra: {
+            connectionId: connection.id,
+            projectId,
+            source: connection.source,
+            target: connection.target,
+            sourceExists: existingTaskIds.has(connection.source),
+            targetExists: existingTaskIds.has(connection.target)
+          }
+        });
+        
+        return false;
+      }
+      
       await this.throttle.execute(
         `push-connection:${connection.id}`,
         async () => {
@@ -955,15 +1055,60 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       const enhanced = supabaseErrorToError(e);
-      this.logger.error('推送连接失败', {
-        error: enhanced,
-        connectionId: connection.id,
-        projectId,
-        source: connection.source,
-        target: connection.target,
-        isRetryable: enhanced.isRetryable,
-        errorType: enhanced.errorType
-      });
+      
+      // 【关键修复】外键约束错误不可重试
+      const isForeignKeyError = enhanced.errorType === 'ForeignKeyError' ||
+                               enhanced.message?.includes('foreign key constraint') || 
+                               enhanced.message?.includes('violates foreign key') ||
+                               enhanced.code === '23503' || enhanced.code === 23503;
+      
+      if (isForeignKeyError) {
+        this.logger.error('连接推送失败（外键约束违规）', {
+          connectionId: connection.id,
+          projectId,
+          source: connection.source,
+          target: connection.target,
+          error: enhanced.message,
+          errorCode: enhanced.code
+        });
+        
+        Sentry.captureException(enhanced, {
+          tags: { 
+            operation: 'pushConnection',
+            errorType: 'FOREIGN_KEY_VIOLATION',
+            isRetryable: 'false'
+          },
+          level: 'error',
+          extra: {
+            connectionId: connection.id,
+            projectId,
+            source: connection.source,
+            target: connection.target,
+            errorCode: enhanced.code
+          }
+        });
+        
+        // 外键错误不加入重试队列
+        return false;
+      }
+      
+      // 根据错误类型选择日志级别
+      if (enhanced.isRetryable) {
+        this.logger.debug(`推送连接失败 (${enhanced.errorType})，已加入重试队列`, {
+          message: enhanced.message,
+          connectionId: connection.id
+        });
+      } else {
+        this.logger.error('推送连接失败', {
+          error: enhanced,
+          connectionId: connection.id,
+          projectId,
+          source: connection.source,
+          target: connection.target,
+          isRetryable: enhanced.isRetryable,
+          errorType: enhanced.errorType
+        });
+      }
       
       Sentry.captureException(enhanced, {
         tags: { 
@@ -971,6 +1116,7 @@ export class SimpleSyncService {
           errorType: enhanced.errorType,
           isRetryable: String(enhanced.isRetryable)
         },
+        level: enhanced.isRetryable ? 'info' : 'error',
         extra: {
           connectionId: connection.id,
           projectId,
@@ -1037,13 +1183,108 @@ export class SimpleSyncService {
           return true;
         });
         
+        // 【关键修复】清理连接超过最大重试次数的项
+        // 防止无效连接永久占用队列空间
+        items = items.filter((item: RetryQueueItem) => {
+          if (item.type === 'connection' && item.retryCount >= this.MAX_RETRIES) {
+            this.logger.debug('移除超过重试次数的连接', {
+              connectionId: item.data.id,
+              retryCount: item.retryCount
+            });
+            return false;
+          }
+          return true;
+        });
+        
         this.retryQueue = items;
         this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
         this.logger.info(`从存储恢复 ${this.retryQueue.length} 个待同步项`);
+        
+        // 【关键修复】异步清理无效连接（引用不存在的任务）
+        // 在后台进行，不阻塞应用启动
+        if (this.retryQueue.some(item => item.type === 'connection')) {
+          this.cleanupInvalidConnections().catch(e => {
+            this.logger.error('清理无效连接失败', e);
+          });
+        }
       }
     } catch (e) {
       this.logger.error('加载重试队列失败', e);
       localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+    }
+  }
+  
+  /**
+   * 异步清理重试队列中引用不存在任务的连接
+   * 防止外键约束错误累积导致 localStorage 溢出
+   * 
+   * 【并发保护】检查同步状态，避免与 processRetryQueue 冲突
+   */
+  private async cleanupInvalidConnections(): Promise<void> {
+    // 【并发保护】如果正在同步，跳过清理（避免竞态条件）
+    if (this.state().isSyncing) {
+      this.logger.debug('跳过无效连接清理（正在同步中）');
+      return;
+    }
+    
+    const client = this.getSupabaseClient();
+    if (!client) return;
+    
+    const connectionItems = this.retryQueue.filter(item => item.type === 'connection');
+    if (connectionItems.length === 0) return;
+    
+    try {
+      // 批量查询所有引用的任务
+      const allReferencedTaskIds = new Set<string>();
+      for (const item of connectionItems) {
+        const conn = item.data as Connection;
+        allReferencedTaskIds.add(conn.source);
+        allReferencedTaskIds.add(conn.target);
+      }
+      
+      const { data: existingTasks } = await client
+        .from('tasks')
+        .select('id')
+        .in('id', Array.from(allReferencedTaskIds))
+        .is('deleted_at', null);
+      
+      const existingTaskIds = new Set((existingTasks || []).map(t => t.id));
+      
+      // 过滤掉引用不存在任务的连接
+      const originalLength = this.retryQueue.length;
+      this.retryQueue = this.retryQueue.filter(item => {
+        if (item.type !== 'connection') return true;
+        
+        const conn = item.data as Connection;
+        const sourceExists = existingTaskIds.has(conn.source);
+        const targetExists = existingTaskIds.has(conn.target);
+        
+        if (!sourceExists || !targetExists) {
+          this.logger.info('清理无效连接（引用的任务不存在）', {
+            connectionId: conn.id,
+            source: conn.source,
+            target: conn.target,
+            sourceExists,
+            targetExists
+          });
+          return false;
+        }
+        return true;
+      });
+      
+      const removedCount = originalLength - this.retryQueue.length;
+      if (removedCount > 0) {
+        this.logger.info(`清理了 ${removedCount} 个无效连接`);
+        this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
+        this.saveRetryQueueToStorage();
+        
+        Sentry.captureMessage('清理无效连接', {
+          level: 'info',
+          tags: { removedCount: String(removedCount) }
+        });
+      }
+    } catch (e) {
+      this.logger.error('批量查询任务存在性失败', e);
     }
   }
   
@@ -1132,8 +1373,58 @@ export class SimpleSyncService {
       return order[a.type] - order[b.type];
     });
     
+    // 【关键修复】追踪本批次尝试同步的任务 ID
+    const taskIdsInBatch = new Set<string>(
+      sortedItems
+        .filter(item => item.type === 'task' && item.operation === 'upsert')
+        .map(item => item.data.id)
+    );
+    
     // 【关键修复】追踪成功推送的任务 ID
     const successfulTaskIds = new Set<string>();
+    
+    // 【性能优化】批量查询所有连接引用的任务是否存在
+    const connectionItems = sortedItems.filter(item => item.type === 'connection');
+    const allReferencedTaskIds = new Set<string>();
+    for (const item of connectionItems) {
+      const conn = item.data as Connection;
+      allReferencedTaskIds.add(conn.source);
+      allReferencedTaskIds.add(conn.target);
+    }
+    
+    // 批量查询数据库中存在的任务 ID（带超时保护）
+    let existingTaskIdsInDb = new Set<string>();
+    if (allReferencedTaskIds.size > 0) {
+      const client = this.getSupabaseClient();
+      if (client) {
+        try {
+          // 5秒超时保护
+          const queryPromise = client
+            .from('tasks')
+            .select('id')
+            .in('id', Array.from(allReferencedTaskIds));
+          
+          const timeoutPromise = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Query timeout')), 5000)
+          );
+          
+          const { data: existingTasks } = await Promise.race([
+            queryPromise,
+            timeoutPromise
+          ]);
+          
+          existingTaskIdsInDb = new Set((existingTasks || []).map(t => t.id));
+          
+          this.logger.debug('批量查询任务存在性完成', {
+            queried: allReferencedTaskIds.size,
+            found: existingTaskIdsInDb.size
+          });
+        } catch (e) {
+          this.logger.error('批量查询任务存在性失败', e);
+          // 查询失败时使用空集合，所有连接都会被跳过
+        }
+      }
+    }
     
     for (const item of sortedItems) {
       let success = false;
@@ -1153,11 +1444,18 @@ export class SimpleSyncService {
         } else if (item.type === 'connection') {
           // 【关键修复】验证连接引用的任务是否存在
           const conn = item.data as Connection;
-          if (!successfulTaskIds.has(conn.source) && !successfulTaskIds.has(conn.target)) {
-            this.logger.warn('跳过连接重试（引用的任务未在本批次成功）', {
+          
+          // 1. 检查引用的任务是否在本批次中失败
+          const sourceFailed = taskIdsInBatch.has(conn.source) && !successfulTaskIds.has(conn.source);
+          const targetFailed = taskIdsInBatch.has(conn.target) && !successfulTaskIds.has(conn.target);
+          
+          if (sourceFailed || targetFailed) {
+            this.logger.warn('跳过连接重试（引用的任务在本批次中失败）', {
               connectionId: conn.id,
               source: conn.source,
-              target: conn.target
+              target: conn.target,
+              sourceFailed,
+              targetFailed
             });
             // 仍然加回队列，等待下次重试
             item.retryCount++;
@@ -1166,6 +1464,46 @@ export class SimpleSyncService {
             }
             continue;
           }
+          
+          // 2. 【关键增强】使用批量查询结果验证任务存在性
+          const sourceExists = successfulTaskIds.has(conn.source) || existingTaskIdsInDb.has(conn.source);
+          const targetExists = successfulTaskIds.has(conn.target) || existingTaskIdsInDb.has(conn.target);
+          
+          if (!sourceExists || !targetExists) {
+            this.logger.warn('跳过连接重试（引用的任务不存在）', {
+              connectionId: conn.id,
+              source: conn.source,
+              target: conn.target,
+              sourceExists,
+              targetExists
+            });
+            
+            // 任务不存在，增加重试次数但仍然保留
+            // 任务可能稍后被其他设备同步过来
+            item.retryCount++;
+            if (item.retryCount < this.MAX_RETRIES) {
+              this.retryQueue.push(item);
+            } else {
+              // 超过最大重试次数，记录错误并丢弃
+              this.logger.error('连接引用的任务持续不存在，已丢弃', {
+                connectionId: conn.id,
+                source: conn.source,
+                target: conn.target
+              });
+              Sentry.captureMessage('连接引用的任务不存在', {
+                level: 'warning',
+                tags: { operation: 'processRetryQueue' },
+                extra: {
+                  connectionId: conn.id,
+                  source: conn.source,
+                  target: conn.target,
+                  projectId: item.projectId
+                }
+              });
+            }
+            continue;
+          }
+          
           success = await this.pushConnection(conn, item.projectId!);
         }
       } catch (e) {
@@ -1210,6 +1548,55 @@ export class SimpleSyncService {
       level: 'info',
       tags: { clearedCount: String(count) }
     });
+  }
+  
+  /**
+   * 拓扑排序任务，确保父任务在子任务之前
+   * 防止推送时违反外键约束 tasks_parent_id_fkey
+   */
+  private topologicalSortTasks(tasks: Task[]): Task[] {
+    const taskMap = new Map(tasks.map(t => [t.id, t]));
+    const sorted: Task[] = [];
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    
+    const visit = (taskId: string): void => {
+      if (visited.has(taskId)) return;
+      
+      const task = taskMap.get(taskId);
+      if (!task) return;
+      
+      // 检测循环依赖：断开循环但仍然添加任务
+      if (visiting.has(taskId)) {
+        this.logger.warn('检测到任务循环依赖，断开循环', { taskId });
+        // 标记为已访问，但不再继续递归，防止无限循环
+        // 任务会在外层循环中被添加
+        return;
+      }
+      
+      visiting.add(taskId);
+      
+      // 先访问父任务
+      if (task.parentId && taskMap.has(task.parentId)) {
+        visit(task.parentId);
+      }
+      
+      visiting.delete(taskId);
+      visited.add(taskId);
+      sorted.push(task);
+    };
+    
+    // 访问所有任务
+    for (const task of tasks) {
+      visit(task.id);
+    }
+    
+    this.logger.debug('拓扑排序完成', {
+      original: tasks.length,
+      sorted: sorted.length
+    });
+    
+    return sorted;
   }
   
   // ==================== 数据转换 ====================
@@ -1585,15 +1972,18 @@ export class SimpleSyncService {
       await this.pushProject(project);
       
       // 2. 批量保存任务（请求间延迟 100ms 防止速率限制）
+      // 【关键修复】拓扑排序确保父任务在子任务之前推送，防止外键约束违反
+      const sortedTasks = this.topologicalSortTasks(tasksToSync);
+      
       // 【关键修复】收集成功推送的任务 ID，用于后续连接验证
       const successfulTaskIds = new Set<string>();
-      for (let i = 0; i < tasksToSync.length; i++) {
+      for (let i = 0; i < sortedTasks.length; i++) {
         if (i > 0) {
           await this.delay(100); // 防止连续请求触发 504/429
         }
-        const success = await this.pushTask(tasksToSync[i], project.id);
+        const success = await this.pushTask(sortedTasks[i], project.id);
         if (success) {
-          successfulTaskIds.add(tasksToSync[i].id);
+          successfulTaskIds.add(sortedTasks[i].id);
         }
       }
       
@@ -1638,9 +2028,11 @@ export class SimpleSyncService {
       // 【数据漂移检测】来自高级顾问建议
       // 每 50 次同步检查本地和远程行数差异，上报 Sentry 警告
       // 【修复】使用过滤后的连接数，与远程查询逻辑保持一致
+      // 【修复数据漂移误报】过滤软删除任务，与远程查询 `deleted_at IS NULL` 一致
       this.syncCounter++;
       if (this.syncCounter % 50 === 0) {
-        this.checkDataDrift(project.id, tasksToSync.length, connectionsToSync.length);
+        const activeTasksCount = tasksToSync.filter(t => !t.deletedAt).length;
+        this.checkDataDrift(project.id, activeTasksCount, connectionsToSync.length);
       }
       
       return { success: true, newVersion: project.version };
@@ -1689,7 +2081,11 @@ export class SimpleSyncService {
           if (error) throw error;
           return data;
         },
-        { deduplicate: true, priority: 'normal' }
+        { 
+          deduplicate: true, 
+          priority: 'normal',
+          timeout: REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT
+        }
       );
       
       // 【修复】顺序加载任务和连接，避免绕过限流服务的并发控制
@@ -1709,7 +2105,11 @@ export class SimpleSyncService {
             .eq('project_id', projectId);
           return data || [];
         },
-        { deduplicate: true, priority: 'normal' }
+        { 
+          deduplicate: true, 
+          priority: 'normal',
+          timeout: REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT
+        }
       );
       
       // 转换连接数据，保留 deletedAt 字段
@@ -1755,79 +2155,115 @@ export class SimpleSyncService {
     const client = this.getSupabaseClient();
     if (!client) return [];
     
-    return this.throttle.execute(
-      `tasks:${projectId}`,
+    Sentry.addBreadcrumb({
+      category: 'sync',
+      message: 'Loading tasks with tombstones',
+      level: 'info',
+      data: { projectId }
+    });
+    
+    // 【修复】移除嵌套 throttle 调用，避免超时叠加和并发槽位浪费
+    // 每个查询独立通过 throttle 包装，使用 BATCH_SYNC_TIMEOUT (90秒)
+    const tasksResult = await this.throttle.execute(
+      `tasks-data:${projectId}`,
       async () => {
-        // 【修复】顺序加载任务和 tombstones，避免绕过限流服务的并发控制
-        // 原来使用 Promise.all 会导致限流服务认为只有 1 个请求，实际发起 2 个 HTTP 请求
-        // 这会导致连接池耗尽，出现 "Failed to fetch" 错误
-        const tasksResult = await client
+        return await client
           .from('tasks')
           .select('*')
           .eq('project_id', projectId);
-        
-        const tombstonesResult = await client
+      },
+      { 
+        deduplicate: true,
+        timeout: REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT 
+      }
+    );
+    
+    const tombstonesResult = await this.throttle.execute(
+      `task-tombstones:${projectId}`,
+      async () => {
+        return await client
           .from('task_tombstones')
           .select('task_id')
           .eq('project_id', projectId);
-        
-        if (tasksResult.error) throw supabaseErrorToError(tasksResult.error);
-        
-        // 2. 构建 tombstone ID 集合（云端 + 本地）
-        // tombstones 查询失败时降级：只依赖本地 tombstone 和 deleted_at 过滤
-        const tombstoneIds = new Set<string>();
-        
-        // 添加云端 tombstones
-        if (tombstonesResult.error) {
-          this.logger.warn('加载云端 tombstones 失败，使用本地缓存', tombstonesResult.error);
-        } else {
-          for (const t of (tombstonesResult.data || [])) {
-            tombstoneIds.add(t.task_id);
-          }
-        }
-        
-        // 【关键修复】合并本地 tombstones（用于 RPC 不可用时的保护）
-        const localTombstones = this.getLocalTombstones(projectId);
-        for (const id of localTombstones) {
-          tombstoneIds.add(id);
-        }
-        
-        if (localTombstones.size > 0) {
-          this.logger.debug('合并本地 tombstones', { 
-            projectId, 
-            localCount: localTombstones.size,
-            cloudCount: tombstoneIds.size - localTombstones.size
-          });
-        }
-        
-        // 3. 【关键修复】返回所有任务，包括已删除的
-        // 同步查询必须返回已删除记录，由客户端处理删除逻辑
-        // 否则其他设备无法知道某个任务已被删除，导致任务"复活"
-        const allTasks = (tasksResult.data as TaskRow[] || []).map(row => this.rowToTask(row));
-        
-        // 标记 tombstone 任务（永久删除）
-        const markedTasks = allTasks.map(task => {
-          if (tombstoneIds.has(task.id)) {
-            this.logger.debug('标记 tombstone 任务', { taskId: task.id });
-            return { ...task, deletedAt: task.deletedAt || new Date().toISOString() };
-          }
-          return task;
-        });
-        
-        const deletedCount = markedTasks.filter(t => t.deletedAt).length;
-        if (tombstoneIds.size > 0 || deletedCount > 0) {
-          this.logger.info(`任务同步信息`, {
-            projectId,
-            totalCount: allTasks.length,
-            tombstoneCount: tombstoneIds.size,
-            softDeletedCount: deletedCount - tombstoneIds.size
-          });
-        }
-        
-        return markedTasks;
       },
-      { deduplicate: true, priority: 'normal' }
+      { 
+        deduplicate: true,
+        timeout: REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT 
+      }
     );
+    
+    if (tasksResult.error) throw supabaseErrorToError(tasksResult.error);
+    
+    const tasksCount = (tasksResult.data as TaskRow[] || []).length;
+    const tombstonesCount = (tombstonesResult.data || []).length;
+    
+    // 2. 构建 tombstone ID 集合（云端 + 本地）
+    // tombstones 查询失败时降级：只依赖本地 tombstone 和 deleted_at 过滤
+    const tombstoneIds = new Set<string>();
+    
+    // 添加云端 tombstones
+    if (tombstonesResult.error) {
+      this.logger.warn('加载云端 tombstones 失败，使用本地缓存', tombstonesResult.error);
+    } else {
+      for (const t of (tombstonesResult.data || [])) {
+        tombstoneIds.add(t.task_id);
+      }
+    }
+    
+    // 【关键修复】合并本地 tombstones（用于 RPC 不可用时的保护）
+    const localTombstones = this.getLocalTombstones(projectId);
+    for (const id of localTombstones) {
+      tombstoneIds.add(id);
+    }
+    
+    if (localTombstones.size > 0) {
+      this.logger.debug('合并本地 tombstones', { 
+        projectId, 
+        localCount: localTombstones.size,
+        cloudCount: tombstoneIds.size - localTombstones.size
+      });
+    }
+    
+    // 3. 【关键修复】返回所有任务，包括已删除的
+    // 同步查询必须返回已删除记录，由客户端处理删除逻辑
+    // 否则其他设备无法知道某个任务已被删除，导致任务"复活"
+    const allTasks = (tasksResult.data as TaskRow[] || []).map(row => this.rowToTask(row));
+    
+    // 标记 tombstone 任务（永久删除）
+    const markedTasks = allTasks.map(task => {
+      if (tombstoneIds.has(task.id)) {
+        this.logger.debug('标记 tombstone 任务', { taskId: task.id });
+        return { ...task, deletedAt: task.deletedAt || new Date().toISOString() };
+      }
+      return task;
+    });
+    
+    const deletedCount = markedTasks.filter(t => t.deletedAt).length;
+    
+    Sentry.addBreadcrumb({
+      category: 'sync',
+      message: 'Tasks loaded successfully',
+      level: 'info',
+      data: { 
+        projectId, 
+        tasksCount, 
+        tombstonesCount,
+        totalCount: allTasks.length,
+        tombstoneCount: tombstoneIds.size,
+        deletedCount 
+      }
+    });
+    
+    if (tombstoneIds.size > 0 || deletedCount > 0) {
+      this.logger.info(`任务同步信息`, {
+        projectId,
+        totalCount: allTasks.length,
+        tombstoneCount: tombstoneIds.size,
+        softDeletedCount: deletedCount - tombstoneIds.size
+      });
+    }
+    
+    return markedTasks;
   }
   
   /**
@@ -1974,7 +2410,13 @@ export class SimpleSyncService {
           if (error) throw supabaseErrorToError(error);
           return data || [];
         },
-        { deduplicate: true, priority: 'high' }
+        { 
+          deduplicate: true, 
+          priority: 'high',
+          // 【修复】增加超时时间和重试次数，防止在网络拥堵或队列积压时加载失败
+          timeout: REQUEST_THROTTLE_CONFIG.BATCH_SYNC_TIMEOUT, 
+          retries: 5 
+        }
       );
       
       // 2. 【优化】使用 Promise.allSettled 配合限流服务实现有限并行

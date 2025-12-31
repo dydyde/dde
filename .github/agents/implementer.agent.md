@@ -1,7 +1,7 @@
 ---
 name: Implementer
 description: "Make code changes safely, verify, and keep diffs small."
-tools: ['vscode', 'execute', 'read', 'tavily/search', 'filesystem/*', 'structured-thinking/*', 'edit', 'search', 'todo']
+tools: ['vscode', 'execute', 'read', 'tavily/search', 'structured-thinking/*', 'edit', 'search', 'todo']
 handoffs:
   - label: Review
     agent: Reviewer

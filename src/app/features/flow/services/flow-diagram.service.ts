@@ -198,6 +198,14 @@ export class FlowDiagramService {
         "toolManager.hoverDelay": 200
       });
 
+      // 【关键】在设置模板之前先配置 ToolManager
+      // 某些移动端环境（Android 6.0 / Chrome Mobile）在 setupLinkTemplate 创建 contextMenu 时
+      // 会内部访问 contextMenuTool.isEnabled，如果此时未初始化会抛出错误
+      // 参见 Sentry: "Trying to set undefined property contextMenuTool.isEnabled"
+      if (this.diagram.toolManager.contextMenuTool) {
+        this.diagram.toolManager.contextMenuTool.isEnabled = false;
+      }
+      
       // 委托给 FlowTemplateService 设置图层和模板
       this.templateService.ensureDiagramLayers(this.diagram);
       this.templateService.setupNodeTemplate(this.diagram);
@@ -208,8 +216,6 @@ export class FlowDiagramService {
       // 桌面端通过 Shift/Ctrl/Cmd + 点击实现多选
       this.diagram.toolManager.dragSelectingTool.isEnabled = false;
       this.diagram.toolManager.panningTool.isEnabled = true;
-      // 禁用 GoJS 默认的上下文菜单（移动端长按会出现 Copy/Cut/Select All 等按钮）
-      this.diagram.toolManager.contextMenuTool.isEnabled = false;
       this.setupMultiSelectClickTool(this.diagram);
       
       // 初始化模型
@@ -455,7 +461,7 @@ export class FlowDiagramService {
         const isMobile = containerWidth < 768 || 'ontouchstart' in window;
         
         // 记录设备 pixelRatio 用于调试（但不用于 Overview 配置）
-        const devicePixelRatio = window.devicePixelRatio || 1;
+        const _devicePixelRatio = window.devicePixelRatio || 1;
         
         // 确保容器有明确的尺寸设置
         container.style.width = `${containerWidth}px`;

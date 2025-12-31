@@ -198,6 +198,13 @@ export class GlobalErrorHandler implements ErrorHandler {
   handleError(error: unknown, forceSeverity?: ErrorSeverity): void {
     // 提取错误信息
     const errorMessage = this.extractErrorMessage(error);
+
+    // 特殊处理：Chunk 加载失败（通常是版本更新导致），尝试刷新页面
+    if (/ChunkLoadError|Failed to fetch.*chunk|Loading chunk.*failed|Failed to fetch dynamically imported module/i.test(errorMessage)) {
+      this.handleChunkLoadError(errorMessage);
+      return;
+    }
+
     const errorStack = error instanceof Error ? error.stack : undefined;
 
     // 确定错误级别
@@ -304,6 +311,28 @@ export class GlobalErrorHandler implements ErrorHandler {
       current.resolve('dismiss');
       this.recoverableError.set(null);
     }
+  }
+
+  /**
+   * 处理 Chunk 加载失败
+   * 尝试刷新页面，但防止死循环
+   */
+  private handleChunkLoadError(errorMessage: string): void {
+    const KEY = 'chunk_load_error_reload_timestamp';
+    const lastReload = parseInt(sessionStorage.getItem(KEY) || '0', 10);
+    const now = Date.now();
+
+    // 如果 10 秒内已经刷新过，不再刷新，避免死循环
+    if (now - lastReload < 10000) {
+      this.logger.error('Chunk load error persisted after reload', { message: errorMessage });
+      // 降级为 FATAL 错误，提示用户
+      this.handleFatalError('应用版本过旧或文件丢失，请尝试手动刷新页面', undefined, new Error(errorMessage));
+      return;
+    }
+
+    this.logger.warn('Chunk load error detected, reloading page...', { message: errorMessage });
+    sessionStorage.setItem(KEY, now.toString());
+    window.location.reload();
   }
 
   // ========== 私有方法 ==========

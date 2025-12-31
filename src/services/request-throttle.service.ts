@@ -332,7 +332,9 @@ export class RequestThrottleService {
       message.includes('unauthorized') ||
       message.includes('forbidden') ||
       message.includes('row level security') ||
-      message.includes('unique constraint')
+      message.includes('unique constraint') ||
+      message.includes('foreign key') ||
+      message.includes('23503')
     ) {
       return false;
     }

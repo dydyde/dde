@@ -2,6 +2,7 @@ import { Component, input, output, computed, inject, HostListener, ElementRef, V
 import { CommonModule } from '@angular/common';
 import { UiStateService } from '../../../../services/ui-state.service';
 import { ProjectStateService } from '../../../../services/project-state.service';
+import { UserSessionService } from '../../../../services/user-session.service';
 import { Task } from '../../../../models';
 
 /**
@@ -171,7 +172,7 @@ import { Task } from '../../../../models';
                 </svg>
                 导出 SVG
               </button>
-              @if (projectState.currentUserId()) {
+              @if (userSession.currentUserId()) {
                 <div class="border-t border-stone-100 my-1"></div>
                 <button 
                   (click)="onSaveToCloud()"
@@ -216,6 +217,7 @@ export class FlowToolbarComponent {
   // P2-1 迁移：直接注入子服务
   readonly uiState = inject(UiStateService);
   readonly projectState = inject(ProjectStateService);
+  readonly userSession = inject(UserSessionService);
   private readonly elementRef = inject(ElementRef);
   
   @ViewChild('exportMenu') exportMenuRef!: ElementRef;

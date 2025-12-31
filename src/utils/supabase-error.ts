@@ -28,6 +28,8 @@ const RETRYABLE_ERROR_TYPES = new Set([
   'OfflineError',
   'RateLimitError',  // 429 速率限制错误应该重试
   'UnknownServerError',  // 504 等服务端错误返回非 JSON 响应时的回退类型
+  // 【关键修复】外键约束错误不可重试（意味着引用的数据不存在）
+  // 'ForeignKeyError', // 23503 已移除
 ]);
 
 /**
@@ -109,6 +111,10 @@ export function supabaseErrorToError(error: unknown): EnhancedError {
   } else if (code === 403 || code === '403') {
     message = '权限不足 (403 Forbidden)';
     errorType = 'PermissionError';
+  } else if (code === '23503' || code === 23503) {
+    // Postgres 外键约束错误
+    message = '关联数据尚未同步 (Foreign Key Violation)';
+    errorType = 'ForeignKeyError';
   } else if (message && typeof message === 'string') {
     // 如果没有状态码，尝试从消息中识别错误类型
     const lowerMsg = message.toLowerCase();
@@ -190,6 +196,8 @@ export function getFriendlyErrorMessage(error: unknown): string {
         return '当前离线，数据将在恢复连接后同步';
       case 'UnknownServerError':
         return '服务器响应异常，已加入重试队列';
+      case 'ForeignKeyError':
+        return '关联数据尚未同步，已加入重试队列';
       default:
         return '操作失败，已加入重试队列';
     }
