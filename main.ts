@@ -9,6 +9,12 @@ import { routes } from './src/app.routes';
 import { GlobalErrorHandler } from './src/services/global-error-handler.service';
 
 // ============= Sentry 错误监控初始化 =============
+// 生产环境采样率配置（PLAN.md 建议：降低采样率以减少性能开销）
+const IS_DEV = isDevMode();
+const TRACES_SAMPLE_RATE = IS_DEV ? 1.0 : 0.1;           // 生产 10%，开发 100%
+const SESSION_REPLAY_RATE = IS_DEV ? 1.0 : 0.0;          // 生产关闭，开发 100%
+const ERROR_REPLAY_RATE = 1.0;                           // 报错时 100% 录屏
+
 Sentry.init({
   dsn: 'https://020afcbad58675a58fb58aa2e2cc8662@o4510578675941376.ingest.us.sentry.io/4510578712969216',
   integrations: [
@@ -22,14 +28,14 @@ Sentry.init({
   ],
   // 只允许来自我们域名的请求被追踪
   tracePropagationTargets: ['localhost', /^https:\/\/dde-psi\.vercel\.app/],
-  // 采样率：个人项目全量采集
-  tracesSampleRate: 1.0,
-  // 正常会话 100% 录制（个人项目，方便随时回看操作过程）
-  replaysSessionSampleRate: 1.0,
+  // 采样率：生产环境降低以减少性能开销
+  tracesSampleRate: TRACES_SAMPLE_RATE,
+  // 正常会话录制
+  replaysSessionSampleRate: SESSION_REPLAY_RATE,
   // 报错时 100% 录屏
-  replaysOnErrorSampleRate: 1.0,
+  replaysOnErrorSampleRate: ERROR_REPLAY_RATE,
   // 环境标识
-  environment: isDevMode() ? 'development' : 'production',
+  environment: IS_DEV ? 'development' : 'production',
 });
 
 // ============= BUILD ID: 2025-12-04-v15-CACHE-FIX =============

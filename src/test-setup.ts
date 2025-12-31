@@ -1,22 +1,58 @@
 /**
  * Vitest 测试设置文件
  * 配置全局模拟和测试环境
+ * 
+ * 优化策略（参考 PLAN.md 架构审核）：
+ * - 全局 Sentry mock：避免每个测试文件重复定义
+ * - 轻量级浏览器 API mock
+ * - Angular TestBed 全局初始化（仅一次）
  */
 import { vi } from 'vitest';
+
+// ============================================
+// 🔒 全局模块 Mock（在任何导入之前）
+// ============================================
+
+// 全局 Sentry Mock - 避免 SDK 初始化和网络调用
+vi.mock('@sentry/angular', () => ({
+  init: vi.fn(),
+  captureException: vi.fn().mockReturnValue('mock-event-id'),
+  captureMessage: vi.fn().mockReturnValue('mock-event-id'),
+  addBreadcrumb: vi.fn(),
+  withScope: vi.fn((callback: (scope: unknown) => void) => 
+    callback({ setExtras: vi.fn(), setTag: vi.fn(), setLevel: vi.fn() })
+  ),
+  setUser: vi.fn(),
+  setTag: vi.fn(),
+  setExtra: vi.fn(),
+  setContext: vi.fn(),
+  browserTracingIntegration: vi.fn(() => ({})),
+  replayIntegration: vi.fn(() => ({})),
+  ErrorBoundary: vi.fn(({ children }: { children: unknown }) => children),
+  TraceService: class MockTraceService {},
+}));
+
+// ============================================
+// Angular TestBed 环境
+// ============================================
 import 'zone.js';
 import 'zone.js/testing';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 import { 
   BrowserDynamicTestingModule, 
   platformBrowserDynamicTesting 
 } from '@angular/platform-browser-dynamic/testing';
 
-// 初始化 Angular TestBed 环境 (全局只初始化一次)
-TestBed.initTestEnvironment(
-  BrowserDynamicTestingModule,
-  platformBrowserDynamicTesting(),
-  { teardown: { destroyAfterEach: true } }
-);
+// 初始化 Angular TestBed 环境 (全局只初始化一次，带条件检查)
+const testBed = getTestBed();
+if (!(testBed as any)._initCalled) {
+  (testBed as any)._initCalled = true;
+  TestBed.initTestEnvironment(
+    BrowserDynamicTestingModule,
+    platformBrowserDynamicTesting(),
+    { teardown: { destroyAfterEach: true } }
+  );
+}
 
 // 模拟 localStorage
 const createLocalStorageMock = () => {

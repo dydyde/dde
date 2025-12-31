@@ -25,7 +25,8 @@ const mockSyncCoordinator = {
 
 const mockOptimisticState = {
   createTaskSnapshot: vi.fn(() => ({ id: 'snapshot-1', taskId: 'task-1', timestamp: Date.now() })),
-  rollbackSnapshot: vi.fn()
+  rollbackSnapshot: vi.fn(),
+  discardSnapshot: vi.fn()
 };
 
 const mockUiState = {
@@ -89,6 +90,7 @@ describe('撤销功能集成测试', () => {
           provide: ProjectStateService,
           useValue: {
             activeProject: () => projectsSignal()[0],
+            activeProjectId: () => projectsSignal()[0]?.id || null,
             updateProjects: (fn: (projects: Project[]) => Project[]) => {
               projectsSignal.update(fn);
             }

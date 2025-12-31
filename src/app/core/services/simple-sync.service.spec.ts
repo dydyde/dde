@@ -19,18 +19,7 @@ import { ToastService } from '../../../services/toast.service';
 import { RequestThrottleService } from '../../../services/request-throttle.service';
 import { Task, Project, Connection } from '../../../models';
 
-// Mock Sentry 模块 - 使用闭包捕获 mock 函数
-vi.mock('@sentry/angular', () => {
-  const captureException = vi.fn().mockReturnValue('mock-event-id');
-  return {
-    captureException,
-    init: vi.fn(),
-    browserTracingIntegration: vi.fn(),
-    replayIntegration: vi.fn(),
-  };
-});
-
-// 获取 mocked Sentry 以便在测试中访问
+// 使用全局 Sentry mock（来自 test-setup.ts）
 import * as Sentry from '@sentry/angular';
 const mockCaptureException = vi.mocked(Sentry.captureException);
 
@@ -375,14 +364,17 @@ describe('SimpleSyncService', () => {
     });
     
     it('pushConnection 应该在任务查询超时时跳过推送', async () => {
+      // 使用 fake timers 加速超时测试
+      vi.useFakeTimers();
+      
       const connection = createMockConnection();
       
-      // Mock 任务查询超时（Promise.race 会选择 timeout）
+      // Mock 任务查询超时（Promise 永不 resolve，让超时生效）
       const tasksQueryMock = {
         select: vi.fn().mockReturnValue({
           in: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue(
-              new Promise((resolve) => setTimeout(resolve, 10000)) // 10秒延迟，触发超时
+              new Promise(() => {}) // 永不 resolve，等待超时
             )
           })
         })
@@ -393,12 +385,20 @@ describe('SimpleSyncService', () => {
         return {};
       });
       
-      const result = await service.pushConnection(connection, 'project-1');
+      // 启动 pushConnection（不 await，让超时先触发）
+      const resultPromise = service.pushConnection(connection, 'project-1');
+      
+      // 快进 5001ms 触发超时
+      await vi.advanceTimersByTimeAsync(5001);
+      
+      const result = await resultPromise;
       
       // 超时应该导致推送失败（因为无法验证任务存在）
       expect(result).toBe(false);
       expect(mockClient.from).toHaveBeenCalledWith('tasks');
       expect(mockClient.from).not.toHaveBeenCalledWith('connections');
+      
+      vi.useRealTimers();
     });
   });
   
@@ -474,6 +474,9 @@ describe('SimpleSyncService', () => {
     });
     
     it('应该对 504 错误进行立即重试（指数退避）', async () => {
+      // 使用 fake timers 加速指数退避延迟（1s, 2s, 4s）
+      vi.useFakeTimers();
+      
       mockSupabase.isConfigured = true;
       mockSupabase.client = vi.fn().mockReturnValue(mockClient);
       
@@ -503,13 +506,25 @@ describe('SimpleSyncService', () => {
         };
       });
       
-      const result = await service.pushTask(task, 'project-1');
+      const resultPromise = service.pushTask(task, 'project-1');
+      
+      // 快进第一次重试延迟 (1000ms)
+      await vi.advanceTimersByTimeAsync(1001);
+      // 快进第二次重试延迟 (2000ms)
+      await vi.advanceTimersByTimeAsync(2001);
+      
+      const result = await resultPromise;
       
       expect(upsertAttempts).toBe(3); // 验证重试了 2 次后成功
       expect(result).toBe(true);
+      
+      vi.useRealTimers();
     });
     
     it('应该对 429 错误进行立即重试', async () => {
+      // 使用 fake timers 加速重试延迟
+      vi.useFakeTimers();
+      
       mockSupabase.isConfigured = true;
       mockSupabase.client = vi.fn().mockReturnValue(mockClient);
       
@@ -548,10 +563,17 @@ describe('SimpleSyncService', () => {
         return {};
       });
       
-      const result = await service.pushConnection(connection, 'project-1');
+      const resultPromise = service.pushConnection(connection, 'project-1');
+      
+      // 快进第一次重试延迟 (1000ms)
+      await vi.advanceTimersByTimeAsync(1001);
+      
+      const result = await resultPromise;
       
       expect(attempts).toBe(2); // 验证重试了 1 次后成功
       expect(result).toBe(true);
+      
+      vi.useRealTimers();
     });
     
     it('非可重试错误应该立即失败（无重试）', async () => {
@@ -621,7 +643,21 @@ describe('SimpleSyncService', () => {
       expect(service['onRemoteChangeCallback']).toBe(callback);
     });
     
-    it('subscribeToProject 应该创建 Realtime 通道', async () => {
+    it('subscribeToProject 默认应该启动轮询而非 Realtime（流量优化）', async () => {
+      // 【流量优化】默认使用轮询，不创建 Realtime 通道
+      await service.subscribeToProject('project-1', 'user-123');
+      
+      // 默认不调用 channel（使用轮询）
+      expect(mockClient.channel).not.toHaveBeenCalled();
+      // 验证当前项目 ID 已设置
+      expect(service['currentProjectId']).toBe('project-1');
+    });
+    
+    it('setRealtimeEnabled(true) 后 subscribeToProject 应该创建 Realtime 通道', async () => {
+      // 手动启用 Realtime
+      service.setRealtimeEnabled(true);
+      expect(service.isRealtimeEnabled()).toBe(true);
+      
       await service.subscribeToProject('project-1', 'user-123');
       
       expect(mockClient.channel).toHaveBeenCalled();
@@ -755,6 +791,9 @@ describe('SimpleSyncService', () => {
     });
     
     it('pushTask 失败时应该调用 Sentry.captureException 并包含正确的 tags', async () => {
+      // 使用 fake timers 加速重试延迟
+      vi.useFakeTimers();
+      
       const task = createMockTask({ id: 'fail-task' });
       const networkError = new Error('Network error');
       
@@ -775,7 +814,12 @@ describe('SimpleSyncService', () => {
         };
       });
       
-      const result = await service.pushTask(task, 'project-1');
+      const resultPromise = service.pushTask(task, 'project-1');
+      
+      // 快进所有重试延迟 (1s + 2s + 4s = 7s)
+      await vi.advanceTimersByTimeAsync(8000);
+      
+      const result = await resultPromise;
       
       // 验证返回失败
       expect(result).toBe(false);
@@ -790,9 +834,14 @@ describe('SimpleSyncService', () => {
           operation: 'pushTask'
         })
       });
+      
+      vi.useRealTimers();
     });
     
     it('pushTask 失败时应该将任务加入 RetryQueue', async () => {
+      // 使用 fake timers 加速重试延迟
+      vi.useFakeTimers();
+      
       const task = createMockTask({ id: 'retry-task' });
       const networkError = new Error('Network error');
       
@@ -811,10 +860,17 @@ describe('SimpleSyncService', () => {
         };
       });
       
-      await service.pushTask(task, 'project-1');
+      const resultPromise = service.pushTask(task, 'project-1');
+      
+      // 快进所有重试延迟
+      await vi.advanceTimersByTimeAsync(8000);
+      
+      await resultPromise;
       
       // 验证 pendingCount 增加（任务被加入重试队列）
       expect(service.state().pendingCount).toBeGreaterThan(0);
+      
+      vi.useRealTimers();
     });
     
     it('deleteTask 失败时应该调用 Sentry.captureException', async () => {

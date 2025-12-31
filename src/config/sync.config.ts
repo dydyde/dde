@@ -10,6 +10,11 @@
  * - 较长的防抖延迟，避免频繁同步导致冲突
  * - 本地优先，云端作为备份
  * - 永不主动丢弃用户数据
+ * 
+ * 【流量优化】2024-12-31
+ * - 默认禁用 Realtime，改用轮询
+ * - 字段筛选替代 SELECT *
+ * - 增量同步优化
  */
 export const SYNC_CONFIG = {
   /** 防抖延迟（毫秒）- 增加到3秒，确保用户完成一轮编辑后再同步 */
@@ -38,10 +43,58 @@ export const SYNC_CONFIG = {
   CIRCUIT_BREAKER_TIMEOUT: 2 * 60 * 1000,
   /** 断路器：半开状态重试次数 */
   CIRCUIT_BREAKER_HALF_OPEN_RETRIES: 3,
-  /** 重试队列最大大小（防止 localStorage 溢出）*/
-  MAX_RETRY_QUEUE_SIZE: 500,
+  /** 
+   * 重试队列最大大小（防止 localStorage 溢出）
+   * 【2024-12-31 修复】从 500 降低到 100，因为每个 Task 可能包含大量内容
+   * localStorage 配额约 5-10MB，100 个大型任务约占用 1-2MB
+   */
+  MAX_RETRY_QUEUE_SIZE: 100,
   /** 重试项最大年龄（毫秒，24 小时）*/
   MAX_RETRY_ITEM_AGE: 24 * 60 * 60 * 1000,
+  /**
+   * 存储配额警告阈值（字节）
+   * 当重试队列序列化后超过此大小时触发缩减
+   * 默认 1MB，留出余量给其他 localStorage 使用
+   */
+  RETRY_QUEUE_SIZE_LIMIT_BYTES: 1 * 1024 * 1024,
+  
+  // ==================== Realtime 配置（流量优化）====================
+  /**
+   * 是否启用 Realtime 订阅
+   * 【流量优化】默认禁用，改用轮询节省 WebSocket 流量
+   * 对于个人 PWA，轮询足够且更节省流量
+   */
+  REALTIME_ENABLED: false,
+  /** 轮询间隔（毫秒）- 替代 Realtime 的轮询频率 */
+  POLLING_INTERVAL: 30000,
+  /** 轮询活跃状态判定时间（毫秒）- 用户活跃时使用较短间隔 */
+  POLLING_ACTIVE_INTERVAL: 15000,
+  /** 用户活跃超时（毫秒）- 用户无操作后视为不活跃 */
+  USER_ACTIVE_TIMEOUT: 60000,
+  
+  // ==================== 增量同步配置 ====================
+  /** Tombstone 缓存有效期（毫秒）- 5 分钟 */
+  TOMBSTONE_CACHE_TTL: 5 * 60 * 1000,
+} as const;
+
+/**
+ * 字段筛选配置 - 替代 SELECT * 节省流量
+ * 
+ * 【流量优化】2024-12-31
+ * - 任务列表查询只返回元数据，不包含 content
+ * - content 仅在查看任务详情时按需加载
+ */
+export const FIELD_SELECT_CONFIG = {
+  /** 任务列表字段（不含 content，节省 60-70% 流量） */
+  TASK_LIST_FIELDS: 'id,title,stage,parent_id,order,rank,status,x,y,updated_at,deleted_at,short_id',
+  /** 任务详情字段（包含 content） */
+  TASK_DETAIL_FIELDS: 'id,title,content,stage,parent_id,order,rank,status,x,y,updated_at,deleted_at,short_id,attachments',
+  /** 连接字段 */
+  CONNECTION_FIELDS: 'id,source_id,target_id,title,description,deleted_at,updated_at',
+  /** 项目列表字段 */
+  PROJECT_LIST_FIELDS: 'id,title,description,created_date,updated_at,version,owner_id',
+  /** Tombstone 字段 */
+  TOMBSTONE_FIELDS: 'task_id',
 } as const;
 
 /**

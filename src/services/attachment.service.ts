@@ -270,10 +270,11 @@ export class AttachmentService {
       // 上传文件到 Supabase Storage
       // 注意：Supabase Storage JS SDK 目前不原生支持 AbortController
       // 我们通过在上传前后检查信号状态来实现取消
+      // 【Egress 优化】cacheControl 设为 1 年，利用 Smart CDN 降低缓存 egress 成本
       const uploadPromise = this.supabase.client().storage
         .from(ATTACHMENT_CONFIG.BUCKET_NAME)
         .upload(filePath, file, {
-          cacheControl: '3600',
+          cacheControl: String(ATTACHMENT_CONFIG.CACHE_CONTROL_MAX_AGE),
           upsert: false
         });
 
@@ -304,9 +305,10 @@ export class AttachmentService {
       }
 
       // 获取公开 URL 或签名 URL
+      // 【流量优化】使用配置的签名有效期（30 天）
       const { data: urlData } = await this.supabase.client().storage
         .from(ATTACHMENT_CONFIG.BUCKET_NAME)
-        .createSignedUrl(filePath, 60 * 60 * 24 * 7); // 7 天有效期
+        .createSignedUrl(filePath, ATTACHMENT_CONFIG.SIGNED_URL_EXPIRY);
 
       const url = urlData?.signedUrl || '';
 
@@ -323,10 +325,11 @@ export class AttachmentService {
       };
 
       // 如果是图片，尝试生成缩略图 URL
+      // 【流量优化】使用配置的签名有效期（30 天）
       if (this.isImage(file.type)) {
         const { data: thumbData } = await this.supabase.client().storage
           .from(ATTACHMENT_CONFIG.BUCKET_NAME)
-          .createSignedUrl(filePath, 60 * 60 * 24 * 7, {
+          .createSignedUrl(filePath, ATTACHMENT_CONFIG.SIGNED_URL_EXPIRY, {
             transform: {
               width: ATTACHMENT_CONFIG.THUMBNAIL_MAX_SIZE,
               height: ATTACHMENT_CONFIG.THUMBNAIL_MAX_SIZE,
@@ -556,9 +559,10 @@ export class AttachmentService {
     const filePath = `${userId}/${projectId}/${taskId}/${attachment.id}.${fileExt}`;
 
     try {
+      // 【流量优化】使用配置的签名有效期（30 天）
       const { data: urlData } = await this.supabase.client().storage
         .from(ATTACHMENT_CONFIG.BUCKET_NAME)
-        .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+        .createSignedUrl(filePath, ATTACHMENT_CONFIG.SIGNED_URL_EXPIRY);
 
       if (!urlData?.signedUrl) {
         return null;
@@ -569,10 +573,11 @@ export class AttachmentService {
       };
 
       // 如果是图片，也刷新缩略图 URL
+      // 【流量优化】使用配置的签名有效期（30 天）
       if (attachment.type === 'image' && attachment.mimeType) {
         const { data: thumbData } = await this.supabase.client().storage
           .from(ATTACHMENT_CONFIG.BUCKET_NAME)
-          .createSignedUrl(filePath, 60 * 60 * 24 * 7, {
+          .createSignedUrl(filePath, ATTACHMENT_CONFIG.SIGNED_URL_EXPIRY, {
             transform: {
               width: ATTACHMENT_CONFIG.THUMBNAIL_MAX_SIZE,
               height: ATTACHMENT_CONFIG.THUMBNAIL_MAX_SIZE,

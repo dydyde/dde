@@ -290,6 +290,9 @@ describe('ActionQueueService', () => {
     });
     
     it('重试成功后应该从队列移除', async () => {
+      // 使用 fake timers 加速重试延迟测试
+      vi.useFakeTimers();
+      
       let callCount = 0;
       const processor = vi.fn().mockImplementation(async () => {
         callCount++;
@@ -309,12 +312,14 @@ describe('ActionQueueService', () => {
       await service.processQueue();
       expect(service.queueSize()).toBe(1);
       
-      // 等待重试延迟后再次处理（成功）
-      await new Promise(r => setTimeout(r, 1100));
+      // 快进重试延迟时间后再次处理（成功）
+      await vi.advanceTimersByTimeAsync(1100);
       await service.processQueue();
       
       expect(callCount).toBe(2);
       expect(service.queueSize()).toBe(0);
+      
+      vi.useRealTimers();
     });
   });
 

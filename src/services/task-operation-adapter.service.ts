@@ -463,31 +463,71 @@ export class TaskOperationAdapterService {
     beforeTaskId?: string | null, 
     newParentId?: string | null
   ): Result<void, OperationError> {
+    // 获取移动前的项目和任务状态，用于检查是否真正发生了移动
+    const projectIdBefore = this.projectState.activeProjectId();
+    const project = this.projectState.activeProject();
+    const taskBefore = project?.tasks.find(t => t.id === taskId);
+    const stageBefore = taskBefore?.stage ?? null;
+    const parentIdBefore = taskBefore?.parentId ?? null;
+    
     // 创建乐观更新快照
     const snapshot = this.optimisticState.createTaskSnapshot(taskId, '移动');
     
     const result = this.taskOps.moveTaskToStage({ taskId, newStage, beforeTaskId, newParentId });
     
     if (result.ok) {
-      // 显示带撤回按钮的 Toast
-      const stageName = newStage === null ? '待分配区' : `阶段 ${newStage}`;
-      this.toastService.success(
-        `已移动到${stageName}`,
-        undefined,
-        {
-          duration: 5000,
-          action: {
-            label: '撤销',
-            onClick: () => {
-              this.logger.info('用户撤回移动操作', { taskId, newStage });
-              this.performUndo();
+      // 检查项目是否在操作期间被切换（防止竞态条件）
+      const projectIdAfter = this.projectState.activeProjectId();
+      if (projectIdAfter !== projectIdBefore) {
+        this.logger.warn('项目在操作期间被切换，丢弃移动结果', {
+          projectIdBefore,
+          projectIdAfter,
+          taskId
+        });
+        this.optimisticState.discardSnapshot(snapshot.id);
+        return result;
+      }
+      
+      // 获取移动后的任务状态
+      const projectAfter = this.projectState.activeProject();
+      const taskAfter = projectAfter?.tasks.find(t => t.id === taskId);
+      
+      // 检查任务是否真正发生了移动（stage 或 parentId 改变）
+      const stageChanged = taskAfter?.stage !== stageBefore;
+      const parentChanged = taskAfter?.parentId !== parentIdBefore;
+      const actuallyMoved = stageChanged || parentChanged;
+      
+      // 只有真正移动时才显示 Toast 和设置快照
+      if (actuallyMoved) {
+        const stageName = newStage === null ? '待分配区' : `阶段 ${newStage}`;
+        this.toastService.success(
+          `已移动到${stageName}`,
+          undefined,
+          {
+            duration: 5000,
+            action: {
+              label: '撤销',
+              onClick: () => {
+                this.logger.info('用户撤回移动操作', { taskId, newStage });
+                this.performUndo();
+              }
             }
           }
-        }
-      );
-      
-      this.activeStructureSnapshot = snapshot.id;
-      this.setupSyncResultHandler(snapshot.id);
+        );
+        
+        this.activeStructureSnapshot = snapshot.id;
+        this.setupSyncResultHandler(snapshot.id);
+      } else {
+        // 没有实际移动，丢弃快照（注意：不是回滚，因为没有实际状态变更）
+        this.optimisticState.discardSnapshot(snapshot.id);
+        this.logger.debug('任务未发生实际移动，跳过 Toast 提示', { 
+          taskId, 
+          stageBefore, 
+          stageAfter: taskAfter?.stage,
+          parentIdBefore,
+          parentIdAfter: taskAfter?.parentId
+        });
+      }
     } else {
       this.optimisticState.rollbackSnapshot(snapshot.id);
     }

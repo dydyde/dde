@@ -488,19 +488,60 @@ export class FlowTaskDetailComponent implements OnDestroy {
   private drawerStartY = 0;
   private drawerStartHeight = 0;
   
+  // 跟踪当前任务 ID，用于检测任务切换
+  private currentTaskId: string | null = null;
+  
   constructor() {
     // Split-Brain 核心逻辑：仅在输入框非聚焦时从 Store 同步到本地
     effect(() => {
       const task = this.task();
       if (task) {
-        // 仅当标题输入框未聚焦时才同步标题
-        if (!this.isTitleFocused) {
+        // 检测任务切换：如果任务 ID 变化，强制重置本地状态（清除聚焦锁定）
+        const taskChanged = this.currentTaskId !== task.id;
+        if (taskChanged) {
+          // 显式解锁旧任务的字段（避免依赖自动超时）
+          if (this.currentTaskId) {
+            const projectId = this.projectState.activeProjectId();
+            if (projectId) {
+              this.unlockTaskFields(this.currentTaskId, ['title', 'content']);
+            }
+          }
+          
+          this.currentTaskId = task.id;
+          // 任务切换时，强制更新本地状态（无论是否聚焦）
           this.localTitle.set(task.title || '');
-        }
-        // 仅当内容输入框未聚焦时才同步内容
-        if (!this.isContentFocused) {
           this.localContent.set(task.content || '');
+          // 重置聚焦状态
+          this.isTitleFocused = false;
+          this.isContentFocused = false;
+          // 清理所有解锁定时器
+          this.unlockTimers.forEach(timer => clearTimeout(timer));
+          this.unlockTimers.clear();
+        } else {
+          // 同一任务：仅当输入框未聚焦时才同步
+          if (!this.isTitleFocused) {
+            this.localTitle.set(task.title || '');
+          }
+          if (!this.isContentFocused) {
+            this.localContent.set(task.content || '');
+          }
         }
+      } else {
+        // 任务为 null，显式解锁并重置状态
+        if (this.currentTaskId) {
+          const projectId = this.projectState.activeProjectId();
+          if (projectId) {
+            this.unlockTaskFields(this.currentTaskId, ['title', 'content']);
+          }
+        }
+        
+        this.currentTaskId = null;
+        this.localTitle.set('');
+        this.localContent.set('');
+        this.isTitleFocused = false;
+        this.isContentFocused = false;
+        this.unlockTimers.forEach(timer => clearTimeout(timer));
+        this.unlockTimers.clear();
       }
     });
   }
