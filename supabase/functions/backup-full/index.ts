@@ -409,7 +409,7 @@ async function exportAllData(
     
     // 过滤属于目标项目的任务
     const filteredTasks = userId 
-      ? data.filter(t => projectIds.has(t.project_id))
+      ? data.filter((t: Record<string, unknown>) => projectIds.has(t.project_id as string))
       : data;
     
     tasks.push(...filteredTasks.map(mapTask));
@@ -437,7 +437,7 @@ async function exportAllData(
     
     // 过滤属于目标项目的连接
     const filteredConnections = userId
-      ? data.filter(c => projectIds.has(c.project_id))
+      ? data.filter((c: Record<string, unknown>) => projectIds.has(c.project_id as string))
       : data;
     
     connections.push(...filteredConnections.map(mapConnection));

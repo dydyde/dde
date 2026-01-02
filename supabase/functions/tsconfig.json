@@ -11,10 +11,12 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "jsx": "react-jsx",
-    "jsxImportSource": "https://esm.sh/react@18"
+    "jsxImportSource": "https://esm.sh/react@18",
+    "types": []
   },
   "include": [
-    "./**/*.ts"
+    "./**/*.ts",
+    "./_shared/deno.d.ts"
   ],
   "exclude": []
 }

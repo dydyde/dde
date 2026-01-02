@@ -311,7 +311,9 @@ async function scanWithClamAv(fileBytes: Uint8Array, filename: string): Promise<
   try {
     // 构建 multipart 请求
     const formData = new FormData();
-    const blob = new Blob([fileBytes]);
+    // 使用 ArrayBuffer 确保类型兼容
+    const fileBuffer = fileBytes.buffer.slice(fileBytes.byteOffset, fileBytes.byteOffset + fileBytes.byteLength) as ArrayBuffer;
+    const blob = new Blob([new Uint8Array(fileBuffer)]);
     formData.append('file', blob, filename);
 
     const response = await fetch(`${CLAMAV_API_URL}/scan`, {

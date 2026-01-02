@@ -46,6 +46,18 @@ interface RecoveryRequest {
   userId: string; // 必须传入，用于权限校验
 }
 
+interface RecoveryPointRow {
+  id: string;
+  type: 'full' | 'incremental';
+  backup_completed_at: string;
+  project_count: number;
+  task_count: number;
+  connection_count: number;
+  size_bytes: number;
+  encrypted: boolean;
+  validation_passed: boolean;
+}
+
 interface RecoveryPoint {
   id: string;
   type: 'full' | 'incremental';
@@ -186,7 +198,7 @@ async function listRecoveryPoints(
     throw new Error(`Failed to list recovery points: ${error.message}`);
   }
   
-  const recoveryPoints: RecoveryPoint[] = (data || []).map(row => ({
+  const recoveryPoints: RecoveryPoint[] = (data || []).map((row: RecoveryPointRow) => ({
     id: row.id,
     type: row.type,
     timestamp: row.backup_completed_at,
@@ -564,7 +576,7 @@ async function deleteUserData(
     return;
   }
   
-  const projectIds = projects.map(p => p.id);
+  const projectIds = projects.map((p: { id: string }) => p.id);
   
   // 按顺序删除：连接 → 任务 → 项目
   await supabase.from("connections").delete().in("project_id", projectIds);

@@ -412,7 +412,7 @@ async function exportIncrementalData(
       .select("id")
       .eq("user_id", userId);
     
-    projectIds = new Set(allProjects?.map(p => p.id) || []);
+    projectIds = new Set(allProjects?.map((p: { id: string }) => p.id) || []);
   }
   
   // 导出更新的任务
@@ -432,7 +432,7 @@ async function exportIncrementalData(
     if (!data || data.length === 0) break;
     
     const filteredTasks = projectIds
-      ? data.filter(t => projectIds!.has(t.project_id))
+      ? data.filter((t: Record<string, unknown>) => projectIds!.has(t.project_id as string))
       : data;
     
     tasks.push(...filteredTasks.map(mapTask));
@@ -458,7 +458,7 @@ async function exportIncrementalData(
     if (!data || data.length === 0) break;
     
     const filteredConnections = projectIds
-      ? data.filter(c => projectIds!.has(c.project_id))
+      ? data.filter((c: Record<string, unknown>) => projectIds!.has(c.project_id as string))
       : data;
     
     connections.push(...filteredConnections.map(mapConnection));

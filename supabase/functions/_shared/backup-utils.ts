@@ -200,10 +200,11 @@ export async function encryptData(data: string, keyBase64: string): Promise<stri
     throw new Error('Invalid encryption key length. Expected 256 bits (32 bytes).');
   }
   
-  // 导入密钥
+  // 导入密钥 - 使用 ArrayBuffer 确保类型兼容
+  const keyBuffer = keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) as ArrayBuffer;
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    keyBytes,
+    keyBuffer,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt']
@@ -244,10 +245,11 @@ export async function decryptData(encryptedBase64: string, keyBase64: string): P
     throw new Error('Invalid encryption key length. Expected 256 bits (32 bytes).');
   }
   
-  // 导入密钥
+  // 导入密钥 - 使用 ArrayBuffer 确保类型兼容
+  const keyBuffer = keyBytes.buffer.slice(keyBytes.byteOffset, keyBytes.byteOffset + keyBytes.byteLength) as ArrayBuffer;
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    keyBytes,
+    keyBuffer,
     { name: 'AES-GCM', length: 256 },
     false,
     ['decrypt']
@@ -286,7 +288,9 @@ export async function calculateChecksum(data: string | Uint8Array): Promise<stri
     ? new TextEncoder().encode(data) 
     : data;
   
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  // 使用 ArrayBuffer 确保类型兼容
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   const hashArray = new Uint8Array(hashBuffer);
   
   return Array.from(hashArray)
@@ -318,7 +322,9 @@ export async function compressData(data: string): Promise<Uint8Array> {
   // 使用 Web Streams API 的 CompressionStream
   const cs = new CompressionStream('gzip');
   const writer = cs.writable.getWriter();
-  writer.write(dataBytes);
+  // 使用 ArrayBuffer 确保类型兼容
+  const dataBuffer = dataBytes.buffer.slice(dataBytes.byteOffset, dataBytes.byteOffset + dataBytes.byteLength) as ArrayBuffer;
+  writer.write(new Uint8Array(dataBuffer) as unknown as BufferSource);
   writer.close();
   
   const chunks: Uint8Array[] = [];
@@ -350,7 +356,9 @@ export async function compressData(data: string): Promise<Uint8Array> {
 export async function decompressData(data: Uint8Array): Promise<string> {
   const ds = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
-  writer.write(data);
+  // 使用 ArrayBuffer 确保类型兼容
+  const dataBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+  writer.write(new Uint8Array(dataBuffer) as unknown as BufferSource);
   writer.close();
   
   const chunks: Uint8Array[] = [];
