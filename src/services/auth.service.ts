@@ -1,10 +1,12 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { SupabaseClientService } from './supabase-client.service';
 import { 
   Result, OperationError, ErrorCodes, success, failure, humanizeErrorMessage 
 } from '../utils/result';
 import { supabaseErrorToError } from '../utils/supabase-error';
 import { environment } from '../environments/environment';
+import { ToastService } from './toast.service';
+import { LoggerService } from './logger.service';
 
 export interface AuthState {
   isCheckingSession: boolean;
@@ -39,9 +41,21 @@ export interface AuthResult {
 })
 export class AuthService {
   private supabase = inject(SupabaseClientService);
+  private toast = inject(ToastService);
+  private logger = inject(LoggerService).category('AuthService');
+  private destroyRef = inject(DestroyRef);
   
   /** 是否已尝试过开发环境自动登录 */
   private devAutoLoginAttempted = false;
+  
+  /** 是否为用户主动登出（区分 Token 过期） */
+  private isManualSignOut = false;
+  
+  /** 会话是否已过期 */
+  readonly sessionExpired = signal(false);
+  
+  /** 认证状态变更订阅的取消函数 */
+  private authStateSubscription: { unsubscribe: () => void } | null = null;
   
   /** Supabase 是否已配置 */
   get isConfigured(): boolean {
@@ -62,6 +76,16 @@ export class AuthService {
   
   /** 当前用户邮箱 */
   readonly sessionEmail = signal<string | null>(null);
+  
+  constructor() {
+    // 初始化认证状态监听
+    this.initAuthStateListener();
+    
+    // 组件销毁时清理订阅
+    this.destroyRef.onDestroy(() => {
+      this.authStateSubscription?.unsubscribe();
+    });
+  }
 
   /**
    * 检查并恢复会话
@@ -383,9 +407,13 @@ export class AuthService {
    * 这样可以确保即使 Supabase 调用失败，本地状态也已被清理
    */
   async signOut(): Promise<void> {
+    // 标记为手动登出，避免触发 sessionExpired 提示
+    this.isManualSignOut = true;
+    
     // 先清理本地状态
     this.currentUserId.set(null);
     this.sessionEmail.set(null);
+    this.sessionExpired.set(false);
     this.authState.update(s => ({
       ...s,
       userId: null,
@@ -420,6 +448,8 @@ export class AuthService {
   reset(): void {
     this.currentUserId.set(null);
     this.sessionEmail.set(null);
+    this.sessionExpired.set(false);
+    this.isManualSignOut = false;
     this.authState.set({
       isCheckingSession: false,
       isLoading: false,
@@ -427,5 +457,128 @@ export class AuthService {
       email: null,
       error: null
     });
+  }
+  
+  // ==================== 私有方法 ====================
+  
+  /**
+   * 初始化认证状态监听
+   * 
+   * 监听 Supabase 的 onAuthStateChange 事件：
+   * - SIGNED_OUT: 用户登出（检测是否为 Token 过期）
+   * - TOKEN_REFRESHED: Token 刷新成功
+   * - SIGNED_IN: 用户登录
+   * - USER_UPDATED: 用户信息更新
+   */
+  private initAuthStateListener(): void {
+    if (!this.supabase.isConfigured) {
+      this.logger.debug('Supabase 未配置，跳过认证状态监听');
+      return;
+    }
+    
+    const client = this.supabase.client();
+    if (!client) return;
+    
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      this.logger.debug('认证状态变更', { event, hasSession: !!session });
+      
+      switch (event) {
+        case 'SIGNED_OUT':
+          this.handleSignedOut();
+          break;
+          
+        case 'TOKEN_REFRESHED':
+          this.handleTokenRefreshed(session);
+          break;
+          
+        case 'SIGNED_IN':
+          this.handleSignedIn(session);
+          break;
+          
+        case 'USER_UPDATED':
+          if (session?.user) {
+            this.logger.debug('用户信息已更新', { userId: session.user.id });
+          }
+          break;
+      }
+    });
+    
+    this.authStateSubscription = data.subscription;
+  }
+  
+  /**
+   * 处理登出事件
+   * 区分用户主动登出和 Token 过期
+   */
+  private handleSignedOut(): void {
+    if (this.isManualSignOut) {
+      this.logger.info('用户主动登出');
+      // 重置标志
+      this.isManualSignOut = false;
+    } else {
+      // 非主动登出，可能是 Token 过期
+      this.logger.warn('检测到非主动登出，可能是 Token 过期');
+      this.handleSessionExpired();
+    }
+  }
+  
+  /**
+   * 处理会话过期
+   * 
+   * 【Week 8-9 数据保护 - JWT 刷新失败监听】
+   */
+  private handleSessionExpired(): void {
+    this.sessionExpired.set(true);
+    
+    // 清理认证状态
+    this.currentUserId.set(null);
+    this.sessionEmail.set(null);
+    this.authState.update(s => ({
+      ...s,
+      userId: null,
+      email: null,
+      isCheckingSession: false,
+    }));
+    
+    // 显示重新登录提示
+    this.toast.warning('登录已过期', '请重新登录以继续同步数据', { duration: 0 });
+    
+    this.logger.warn('会话已过期，需要重新登录');
+  }
+  
+  /**
+   * 处理 Token 刷新成功
+   */
+  private handleTokenRefreshed(session: { user?: { id: string; email?: string | null } } | null): void {
+    this.logger.debug('Token 刷新成功');
+    
+    // 清除过期标记
+    if (this.sessionExpired()) {
+      this.sessionExpired.set(false);
+    }
+    
+    // 更新会话信息
+    if (session?.user) {
+      this.currentUserId.set(session.user.id);
+      this.sessionEmail.set(session.user.email ?? null);
+    }
+  }
+  
+  /**
+   * 处理登录成功
+   */
+  private handleSignedIn(session: { user?: { id: string; email?: string | null } } | null): void {
+    if (session?.user) {
+      this.logger.info('用户已登录', { userId: session.user.id });
+      this.currentUserId.set(session.user.id);
+      this.sessionEmail.set(session.user.email ?? null);
+      this.sessionExpired.set(false);
+      this.authState.update(s => ({
+        ...s,
+        userId: session.user!.id,
+        email: session.user!.email ?? null,
+        isCheckingSession: false,
+      }));
+    }
   }
 }

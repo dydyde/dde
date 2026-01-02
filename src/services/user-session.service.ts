@@ -145,13 +145,105 @@ export class UserSessionService {
   }
 
   /**
-   * 清空本地数据
+   * 清空本地数据（内存状态）
+   * 注意：此方法仅清理内存状态，完整的登出清理使用 clearAllLocalData()
    */
   clearLocalData(): void {
     this.projectState.clearData();
     this.uiState.clearAllState();
     this.undoService.clearHistory();
     this.syncCoordinator.clearOfflineCache();
+  }
+
+  /**
+   * 【Critical #11 & #12】完整的本地数据清理
+   * 登出时必须调用此方法，清理所有本地存储的用户数据
+   * 防止多用户共享设备时的数据泄露
+   */
+  async clearAllLocalData(userId?: string): Promise<void> {
+    this.logger.info('执行完整的本地数据清理', { userId });
+    
+    // 1. 清理内存状态（原有逻辑）
+    this.clearLocalData();
+    
+    // 2. 清理 localStorage 中的所有 NanoFlow 相关数据
+    const localStorageKeysToRemove = [
+      CACHE_CONFIG.OFFLINE_CACHE_KEY,       // 'nanoflow.offline-cache-v2' - 离线项目缓存
+      'nanoflow.offline-cache',              // 旧版缓存键（兼容）
+      'nanoflow.retry-queue',                // 待同步队列
+      'nanoflow.local-tombstones',           // 本地 tombstone 缓存
+      'nanoflow.auth-cache',                 // 认证缓存
+      'nanoflow.escape-pod',                 // 紧急逃生数据
+      'nanoflow.safari-warning-time',        // Safari 警告显示时间
+      'nanoflow.guest-data',                 // 访客数据缓存
+    ];
+    
+    localStorageKeysToRemove.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+      } catch (e) {
+        this.logger.warn(`清理 localStorage 键失败: ${key}`, e);
+      }
+    });
+    
+    // 3. 清理用户偏好键（带 userId 前缀的）
+    if (userId) {
+      const prefixToRemove = `nanoflow.preference.${userId}`;
+      try {
+        Object.keys(localStorage)
+          .filter(key => key.startsWith(prefixToRemove))
+          .forEach(key => localStorage.removeItem(key));
+      } catch (e) {
+        this.logger.warn('清理用户偏好键失败', e);
+      }
+    }
+    
+    // 也清理不带用户前缀的旧偏好键（兼容迁移）
+    try {
+      Object.keys(localStorage)
+        .filter(key => key.startsWith('nanoflow.preference.') && !key.includes('.user-'))
+        .forEach(key => localStorage.removeItem(key));
+    } catch (e) {
+      this.logger.warn('清理旧偏好键失败', e);
+    }
+    
+    // 4. 清理 IndexedDB（主数据库）
+    await this.clearIndexedDB('nanoflow-db');
+    await this.clearIndexedDB('nanoflow-queue-backup');
+    
+    this.logger.info('本地数据清理完成');
+  }
+  
+  /**
+   * 清理指定的 IndexedDB 数据库
+   */
+  private async clearIndexedDB(dbName: string): Promise<void> {
+    if (typeof indexedDB === 'undefined') return;
+    
+    return new Promise<void>((resolve) => {
+      try {
+        const request = indexedDB.deleteDatabase(dbName);
+        
+        request.onsuccess = () => {
+          this.logger.debug(`IndexedDB ${dbName} 已删除`);
+          resolve();
+        };
+        
+        request.onerror = () => {
+          this.logger.warn(`删除 IndexedDB ${dbName} 失败`, request.error);
+          resolve(); // 不阻塞流程
+        };
+        
+        request.onblocked = () => {
+          // 数据库被其他连接占用，记录日志但继续
+          this.logger.warn(`IndexedDB ${dbName} 删除被阻塞，可能存在未关闭的连接`);
+          resolve(); // 不阻塞流程
+        };
+      } catch (e) {
+        this.logger.warn(`清理 IndexedDB ${dbName} 异常`, e);
+        resolve();
+      }
+    });
   }
 
   /**

@@ -5,11 +5,13 @@
 
 import { TestBed } from '@angular/core/testing';
 import { UndoService } from './undo.service';
+import { ToastService } from './toast.service';
 import { Project, Task } from '../models';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('UndoService', () => {
   let service: UndoService;
+  let mockToastService: { show: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn> };
   
   const now = new Date().toISOString();
   
@@ -42,14 +44,23 @@ describe('UndoService', () => {
   });
 
   beforeEach(() => {
+    mockToastService = {
+      show: vi.fn(),
+      info: vi.fn(),
+    };
+    
     TestBed.configureTestingModule({
-      providers: [UndoService]
+      providers: [
+        UndoService,
+        { provide: ToastService, useValue: mockToastService },
+      ]
     });
     service = TestBed.inject(UndoService);
   });
 
   afterEach(() => {
     service.clearHistory();
+    vi.clearAllMocks();
   });
 
   describe('基本撤销功能', () => {
@@ -327,6 +338,78 @@ describe('UndoService', () => {
       service.endBatch(afterProject1);
       
       expect(service.undoCount()).toBe(1);
+    });
+  });
+  
+  describe('栈截断通知', () => {
+    it('栈未满时不应触发截断', () => {
+      const project = createTestProject();
+      const beforeSnapshot = service.createProjectSnapshot(project);
+      const afterSnapshot = service.createProjectSnapshot({
+        ...project,
+        tasks: [createTask({ id: 'task-new', title: '新任务' })]
+      });
+      
+      // 记录一个操作
+      service.recordAction({
+        type: 'task-update',
+        projectId: project.id,
+        data: { before: beforeSnapshot, after: afterSnapshot }
+      });
+      
+      // truncatedCount 应该保持为 0
+      expect(service.truncatedCount()).toBe(0);
+    });
+    
+    it('栈溢出时应该增加截断计数', () => {
+      // 记录超过 MAX_HISTORY_SIZE 的操作
+      // UNDO_CONFIG.MAX_HISTORY_SIZE = 50
+      // 使用不同的 projectId 避免合并逻辑
+      for (let i = 0; i < 55; i++) {
+        const project = createTestProject({ id: `project-${i}` });
+        const beforeSnapshot = service.createProjectSnapshot(project);
+        const afterSnapshot = service.createProjectSnapshot({
+          ...project,
+          tasks: [createTask({ id: `task-${i}`, title: `任务${i}` })]
+        });
+        
+        service.recordAction({
+          type: 'task-update',
+          projectId: project.id,
+          data: { before: beforeSnapshot, after: afterSnapshot }
+        });
+      }
+      
+      // 应该触发截断
+      expect(service.truncatedCount()).toBeGreaterThan(0);
+      // 栈大小不应超过 MAX_HISTORY_SIZE
+      expect(service.undoCount()).toBeLessThanOrEqual(50);
+    });
+    
+    it('登出后应重置截断计数', () => {
+      // 触发截断 - 使用不同的 projectId 避免合并逻辑
+      for (let i = 0; i < 55; i++) {
+        const project = createTestProject({ id: `project-${i}` });
+        const beforeSnapshot = service.createProjectSnapshot(project);
+        const afterSnapshot = service.createProjectSnapshot({
+          ...project,
+          tasks: [createTask({ id: `task-${i}`, title: `任务${i}` })]
+        });
+        
+        service.recordAction({
+          type: 'task-update',
+          projectId: project.id,
+          data: { before: beforeSnapshot, after: afterSnapshot }
+        });
+      }
+      
+      expect(service.truncatedCount()).toBeGreaterThan(0);
+      
+      // 登出
+      service.onUserLogout();
+      
+      // 截断计数应重置
+      expect(service.truncatedCount()).toBe(0);
     });
   });
 });

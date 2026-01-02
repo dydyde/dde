@@ -260,6 +260,15 @@ describe('SimpleSyncService', () => {
     it('pushConnection 应该成功推送', async () => {
       const connection = createMockConnection();
       
+      // Mock connection_tombstones 查询（无 tombstone）
+      const connectionTombstonesQueryMock = {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      };
+      
       // Mock 任务存在性查询（预检查）
       // 注意：移除了 .is('deleted_at', null) 检查，因为外键约束只检查任务行是否存在
       const tasksQueryMock = {
@@ -282,6 +291,7 @@ describe('SimpleSyncService', () => {
       };
       
       mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'connection_tombstones') return connectionTombstonesQueryMock;
         if (table === 'tasks') return tasksQueryMock;
         if (table === 'connections') return connectionsQueryMock;
         return {};
@@ -290,12 +300,22 @@ describe('SimpleSyncService', () => {
       const result = await service.pushConnection(connection, 'project-1');
       
       expect(result).toBe(true);
+      expect(mockClient.from).toHaveBeenCalledWith('connection_tombstones');
       expect(mockClient.from).toHaveBeenCalledWith('tasks');
       expect(mockClient.from).toHaveBeenCalledWith('connections');
     });
     
     it('pushConnection 应该在任务不存在时跳过推送', async () => {
       const connection = createMockConnection();
+      
+      // Mock connection_tombstones 查询（无 tombstone）
+      const connectionTombstonesQueryMock = {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      };
       
       // Mock 任务查询返回空（任务不存在）
       const tasksQueryMock = {
@@ -310,6 +330,7 @@ describe('SimpleSyncService', () => {
       };
       
       mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'connection_tombstones') return connectionTombstonesQueryMock;
         if (table === 'tasks') return tasksQueryMock;
         return {};
       });
@@ -317,12 +338,22 @@ describe('SimpleSyncService', () => {
       const result = await service.pushConnection(connection, 'project-1');
       
       expect(result).toBe(false);
+      expect(mockClient.from).toHaveBeenCalledWith('connection_tombstones');
       expect(mockClient.from).toHaveBeenCalledWith('tasks');
       expect(mockClient.from).not.toHaveBeenCalledWith('connections');
     });
     
     it('pushConnection 应该在外键约束错误时不加入重试队列', async () => {
       const connection = createMockConnection();
+      
+      // Mock connection_tombstones 查询（无 tombstone）
+      const connectionTombstonesQueryMock = {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      };
       
       // Mock 任务查询通过（假装任务存在）
       const tasksQueryMock = {
@@ -350,6 +381,7 @@ describe('SimpleSyncService', () => {
       };
       
       mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'connection_tombstones') return connectionTombstonesQueryMock;
         if (table === 'tasks') return tasksQueryMock;
         if (table === 'connections') return connectionsQueryMock;
         return {};
@@ -369,6 +401,15 @@ describe('SimpleSyncService', () => {
       
       const connection = createMockConnection();
       
+      // Mock connection_tombstones 查询（无 tombstone）
+      const connectionTombstonesQueryMock = {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      };
+      
       // Mock 任务查询超时（Promise 永不 resolve，让超时生效）
       const tasksQueryMock = {
         select: vi.fn().mockReturnValue({
@@ -381,6 +422,7 @@ describe('SimpleSyncService', () => {
       };
       
       mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'connection_tombstones') return connectionTombstonesQueryMock;
         if (table === 'tasks') return tasksQueryMock;
         return {};
       });
@@ -395,6 +437,7 @@ describe('SimpleSyncService', () => {
       
       // 超时应该导致推送失败（因为无法验证任务存在）
       expect(result).toBe(false);
+      expect(mockClient.from).toHaveBeenCalledWith('connection_tombstones');
       expect(mockClient.from).toHaveBeenCalledWith('tasks');
       expect(mockClient.from).not.toHaveBeenCalledWith('connections');
       
@@ -444,6 +487,9 @@ describe('SimpleSyncService', () => {
   
   describe('RetryQueue 重试逻辑', () => {
     it('重试队列应该在网络恢复时自动处理', async () => {
+      // 使用 fake timers 避免等待真实时间
+      vi.useFakeTimers();
+      
       // 1. 离线状态添加任务
       const task = createMockTask();
       await service.pushTask(task, 'project-1');
@@ -456,11 +502,13 @@ describe('SimpleSyncService', () => {
       // 手动触发网络恢复事件
       window.dispatchEvent(new Event('online'));
       
-      // 等待异步处理
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // 快进定时器以处理异步操作
+      await vi.advanceTimersByTimeAsync(100);
       
       // 注意：由于 processRetryQueue 是私有方法，我们通过状态验证行为
       // 在实际实现中，网络恢复会自动触发重试
+      
+      vi.useRealTimers();
     });
     
     it('超过最大重试次数应该放弃并通知用户', async () => {
@@ -531,6 +579,15 @@ describe('SimpleSyncService', () => {
       const connection = createMockConnection();
       let attempts = 0;
       
+      // Mock connection_tombstones 查询（无 tombstone）
+      const connectionTombstonesQueryMock = {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+          })
+        })
+      };
+      
       // Mock 任务存在性查询
       const tasksQueryMock = {
         select: vi.fn().mockReturnValue({
@@ -558,6 +615,7 @@ describe('SimpleSyncService', () => {
       };
       
       mockClient.from = vi.fn().mockImplementation((table: string) => {
+        if (table === 'connection_tombstones') return connectionTombstonesQueryMock;
         if (table === 'tasks') return tasksQueryMock;
         if (table === 'connections') return connectionsQueryMock;
         return {};
@@ -1005,6 +1063,15 @@ describe('SimpleSyncService', () => {
             })
           };
         }
+        if (table === 'connection_tombstones') {
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+              })
+            })
+          };
+        }
         if (table === 'tasks') {
           return {
             upsert: vi.fn().mockResolvedValue({ error: null }),
@@ -1046,6 +1113,78 @@ describe('SimpleSyncService', () => {
       const connectionCalls = calls.filter((call: any[]) => call[0] === 'connections');
       expect(connectionCalls.length).toBe(1);
       expect((service as any).retryQueue.length).toBe(0);
+    });
+  });
+  
+  // ==================== 熔断层测试 ====================
+  
+  describe('softDeleteTasksBatch（服务端批量删除防护）', () => {
+    it('离线模式时应返回任务数量并跳过服务端调用', async () => {
+      // 离线模式：mockSupabase.isConfigured = false 是默认值
+      
+      const result = await service.softDeleteTasksBatch('project-1', ['task-1', 'task-2']);
+      
+      // 离线模式返回任务数量（将由本地处理）
+      expect(result).toBe(2);
+    });
+    
+    it('应成功调用 safe_delete_tasks RPC', async () => {
+      // 启用在线模式
+      mockSupabase.isConfigured = true;
+      mockClient.rpc = vi.fn().mockResolvedValue({ data: 2, error: null });
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const result = await service.softDeleteTasksBatch('project-1', ['task-1', 'task-2']);
+      
+      expect(result).toBe(2);
+      expect(mockClient.rpc).toHaveBeenCalledWith('safe_delete_tasks', {
+        p_task_ids: ['task-1', 'task-2'],
+        p_project_id: 'project-1'
+      });
+    });
+    
+    it('空任务列表应返回 0', async () => {
+      const result = await service.softDeleteTasksBatch('project-1', []);
+      
+      expect(result).toBe(0);
+    });
+    
+    it('服务端熔断阻止时应返回 -1', async () => {
+      mockSupabase.isConfigured = true;
+      mockClient.rpc = vi.fn().mockResolvedValue({ 
+        data: null, 
+        error: { message: 'Bulk delete blocked: attempting to delete 60 tasks (60% of total 100)' } 
+      });
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const result = await service.softDeleteTasksBatch('project-1', ['task-1', 'task-2']);
+      
+      expect(result).toBe(-1);
+    });
+    
+    it('RPC 失败时应降级为逐个软删除', async () => {
+      mockSupabase.isConfigured = true;
+      
+      // 模拟 RPC 失败但非熔断
+      mockClient.rpc = vi.fn().mockResolvedValue({ 
+        data: null, 
+        error: { message: 'Function does not exist', code: '42883' } 
+      });
+      
+      // 模拟降级更新成功
+      mockClient.from = vi.fn().mockReturnValue({ 
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({ error: null })
+          })
+        })
+      });
+      mockSupabase.client = vi.fn().mockReturnValue(mockClient);
+      
+      const result = await service.softDeleteTasksBatch('project-1', ['task-1', 'task-2']);
+      
+      expect(result).toBe(2);
+      expect(mockClient.from).toHaveBeenCalledWith('tasks');
     });
   });
 });

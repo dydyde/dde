@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { requireAuthGuard, projectExistsGuard } from './services/guards';
+import { requireAuthGuard, projectExistsGuard, UnsavedChangesGuard } from './services/guards';
 
 /**
  * 应用路由配置
@@ -42,24 +42,28 @@ export const routes: Routes = [
       { 
         path: ':projectId', 
         canActivate: [projectExistsGuard],
+        canDeactivate: [UnsavedChangesGuard],
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       },
       // 文本视图模式
       { 
         path: ':projectId/text',
         canActivate: [projectExistsGuard],
+        canDeactivate: [UnsavedChangesGuard],
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       },
       // 流程图模式
       { 
         path: ':projectId/flow',
         canActivate: [projectExistsGuard],
+        canDeactivate: [UnsavedChangesGuard],
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       },
       // 定位到特定任务（深度链接）
       { 
         path: ':projectId/task/:taskId',
         canActivate: [projectExistsGuard],
+        canDeactivate: [UnsavedChangesGuard],
         loadComponent: () => import('./components/project-shell.component').then(m => m.ProjectShellComponent)
       }
     ]

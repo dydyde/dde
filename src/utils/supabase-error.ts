@@ -16,6 +16,11 @@ export interface EnhancedError extends Error {
 }
 
 /**
+ * Supabase 错误类型别名（用于类型兼容）
+ */
+export type SupabaseError = EnhancedError;
+
+/**
  * 可重试的错误类型
  */
 const RETRYABLE_ERROR_TYPES = new Set([
@@ -115,6 +120,12 @@ export function supabaseErrorToError(error: unknown): EnhancedError {
     // Postgres 外键约束错误
     message = '关联数据尚未同步 (Foreign Key Violation)';
     errorType = 'ForeignKeyError';
+  } else if (code === 'P0001' || code === 'PGRST' || 
+             (message && typeof message === 'string' && 
+              message.toLowerCase().includes('version regression not allowed'))) {
+    // Postgres raise_exception - 乐观锁版本冲突
+    message = '版本冲突：数据已被修改，请刷新后重试';
+    errorType = 'VersionConflictError';
   } else if (message && typeof message === 'string') {
     // 如果没有状态码，尝试从消息中识别错误类型
     const lowerMsg = message.toLowerCase();
@@ -198,6 +209,8 @@ export function getFriendlyErrorMessage(error: unknown): string {
         return '服务器响应异常，已加入重试队列';
       case 'ForeignKeyError':
         return '关联数据尚未同步，已加入重试队列';
+      case 'VersionConflictError':
+        return '版本冲突，数据已被修改，请刷新后重试';
       default:
         return '操作失败，已加入重试队列';
     }

@@ -540,6 +540,21 @@ export class SyncCoordinatorService {
   }
   
   /**
+   * 安全批量软删除任务（服务端防护）
+   * 
+   * 【P0 熔断层】使用 safe_delete_tasks RPC 确保批量删除不会超过限制：
+   * - 单次删除不能超过 50% 或 50 条任务
+   * - 项目任务数 > 10 时，不允许删到 0
+   * 
+   * @param projectId 项目 ID
+   * @param taskIds 要删除的任务 ID 列表
+   * @returns 实际删除的任务数量，-1 表示被服务端拒绝
+   */
+  async softDeleteTasksBatch(projectId: string, taskIds: string[]): Promise<number> {
+    return this.syncService.softDeleteTasksBatch(projectId, taskIds);
+  }
+
+  /**
    * 加载单个项目
    * @deprecated 使用 this.core.loadSingleProject() 替代
    */

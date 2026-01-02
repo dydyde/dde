@@ -36,7 +36,8 @@
   ],
   "exclude": [
     "e2e/**/*",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "supabase/**/*"
   ],
   "angularCompilerOptions": {
     "disableTypeScriptVersionCheck": true

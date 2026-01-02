@@ -23,6 +23,7 @@
 import { Injectable, inject, signal, DestroyRef } from '@angular/core';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
+import { BeforeUnloadManagerService } from './before-unload-manager.service';
 
 /**
  * 操作类型
@@ -69,15 +70,13 @@ export class PersistenceFailureHandlerService {
   private readonly logger = this.loggerService.category('PersistenceFailure');
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly beforeUnloadManager = inject(BeforeUnloadManagerService);
 
   /** 当前脏数据记录（内存中） */
   readonly dirtyRecords = signal<DirtyDataRecord[]>([]);
 
   /** 是否有未保存的脏数据 */
   readonly hasDirtyData = signal(false);
-
-  /** beforeunload 监听器引用 */
-  private beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null;
 
   constructor() {
     this.setupBeforeUnloadListener();
@@ -276,26 +275,22 @@ export class PersistenceFailureHandlerService {
 
   /**
    * 设置 beforeunload 监听器
-   * 在页面离开前将脏数据写入 localStorage 逃生舱
+   * 使用统一的 BeforeUnloadManagerService，在页面离开前将脏数据写入 localStorage 逃生舱
    */
   private setupBeforeUnloadListener(): void {
-    if (typeof window === 'undefined') return;
-
-    this.beforeUnloadHandler = (e: BeforeUnloadEvent) => {
+    // 使用统一的 beforeunload 管理器注册回调
+    // 优先级 15 - 在核心数据保存（优先级 1）之后执行
+    this.beforeUnloadManager.register('persistence-escape-pod', () => {
       const records = this.dirtyRecords();
       
       if (records.length > 0) {
         // 写入逃生舱
         this.saveToEscapePod(records);
-
-        // 显示浏览器确认对话框
-        e.preventDefault();
-        e.returnValue = '您有未保存的内容，确定要离开吗？';
-        return e.returnValue;
+        // 返回 true 表示需要显示确认对话框
+        return true;
       }
-    };
-
-    window.addEventListener('beforeunload', this.beforeUnloadHandler);
+      return false;
+    }, 15);
   }
 
   /**
@@ -380,10 +375,8 @@ export class PersistenceFailureHandlerService {
    * 清理资源
    */
   private cleanup(): void {
-    if (typeof window !== 'undefined' && this.beforeUnloadHandler) {
-      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
-      this.beforeUnloadHandler = null;
-    }
+    // 取消注册 beforeunload 回调
+    this.beforeUnloadManager.unregister('persistence-escape-pod');
 
     // 如果有脏数据，保存到逃生舱
     const records = this.dirtyRecords();

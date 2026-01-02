@@ -19,8 +19,9 @@ import { DynamicModalService } from './services/dynamic-modal.service';
 import { SyncCoordinatorService } from './services/sync-coordinator.service';
 import { SimpleSyncService } from './app/core/services/simple-sync.service';
 import { SearchService } from './services/search.service';
+import { BeforeUnloadManagerService } from './services/before-unload-manager.service';
 import { ModalLoaderService } from './app/core/services/modal-loader.service';
-import { enableLocalMode, disableLocalMode } from './services/guards';
+import { enableLocalMode, disableLocalMode, BeforeUnloadGuardService } from './services/guards';
 import { ToastContainerComponent } from './app/shared/components/toast-container.component';
 import { SyncStatusComponent } from './app/shared/components/sync-status.component';
 import { OfflineBannerComponent } from './app/shared/components/offline-banner.component';
@@ -145,6 +146,8 @@ export class AppComponent implements OnInit, OnDestroy {
   dynamicModal = inject(DynamicModalService);
   private syncCoordinator = inject(SyncCoordinatorService);
   private simpleSync = inject(SimpleSyncService);
+  private beforeUnloadManager = inject(BeforeUnloadManagerService);
+  private beforeUnloadGuard = inject(BeforeUnloadGuardService);
   
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -326,9 +329,6 @@ export class AppComponent implements OnInit, OnDestroy {
   // 搜索防抖定时器
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly SEARCH_DEBOUNCE_DELAY = 300; // 300ms 搜索防抖
-  
-  /** beforeunload 监听器引用 */
-  private beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null;
 
   constructor() {
     // 启动流程：先执行必要的同步初始化，再异步恢复会话
@@ -375,11 +375,11 @@ export class AppComponent implements OnInit, OnDestroy {
     // 移除全局事件监听器
     window.removeEventListener('toggle-sidebar', this.handleToggleSidebar);
     
-    // 移除 beforeunload 监听器
-    if (this.beforeUnloadHandler) {
-      window.removeEventListener('beforeunload', this.beforeUnloadHandler);
-      this.beforeUnloadHandler = null;
-    }
+    // 取消注册 beforeunload 回调
+    // 注意：BeforeUnloadManagerService 是 providedIn: 'root'，不会随组件销毁
+    // 但我们仍需取消注册此组件的回调
+    this.beforeUnloadManager.unregister('app-core-save');
+    this.beforeUnloadGuard.disable();
     
     // 清理搜索防抖定时器
     if (this.searchDebounceTimer) {
@@ -390,12 +390,26 @@ export class AppComponent implements OnInit, OnDestroy {
   
   /**
    * 设置页面卸载前的数据保存处理器
-   * 确保用户刷新或关闭页面时，待处理的数据能够保存到本地
+   * 使用统一的 BeforeUnloadManagerService 避免多个监听器冲突
+   * 
+   * 【Critical #4】跨浏览器兼容性
+   * BeforeUnloadManagerService 内部同时监听：
+   * - beforeunload: 标准关闭/刷新事件
+   * - pagehide: Safari/iOS 关闭页面 fallback
+   * - visibilitychange: 后台标签页/最小化时保存
    */
   private setupBeforeUnloadHandler(): void {
     if (typeof window === 'undefined') return;
     
-    this.beforeUnloadHandler = () => {
+    // 初始化统一的 beforeunload 管理器
+    this.beforeUnloadManager.initialize();
+    
+    // 启用未保存更改保护（会提示用户确认离开）
+    // 优先级 5：高于数据保存回调，因为用户确认最重要
+    this.beforeUnloadGuard.enable();
+    
+    // 注册核心数据保存回调（优先级 1 - 最高）
+    this.beforeUnloadManager.register('app-core-save', () => {
       // 立即刷新待处理的持久化数据到本地缓存
       this.syncCoordinator.flushPendingPersist();
       // 同时刷新撤销服务的待处理操作
@@ -403,9 +417,9 @@ export class AppComponent implements OnInit, OnDestroy {
       // 【关键修复】立即保存 SimpleSyncService 的重试队列
       // 防止 3 秒防抖期间关闭页面导致数据丢失
       this.simpleSync.flushRetryQueueSync();
-    };
-    
-    window.addEventListener('beforeunload', this.beforeUnloadHandler);
+      // 不需要显示确认对话框
+      return false;
+    }, 1);
   }
   
   /**
@@ -911,8 +925,11 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
 async signOut() {
-    // 先清空本地敏感数据，防止数据泄漏
-    this.userSession.clearLocalData();
+    // 获取当前用户 ID，用于清理用户特定的数据
+    const currentUserId = this.auth.currentUserId();
+    
+    // 【Critical #11 & #12】完整清理本地数据，防止多用户共享设备时数据泄露
+    await this.userSession.clearAllLocalData(currentUserId ?? undefined);
     
     if (this.auth.isConfigured) {
       await this.auth.signOut();

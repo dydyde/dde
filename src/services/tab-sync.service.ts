@@ -5,6 +5,7 @@
  * 这是一个"点到为止"的轻量级实现：
  * - 使用 BroadcastChannel API 实现跨标签页通信
  * - 当同一项目在多个标签页打开时，显示友好提示
+ * - 【Week 5 增强】添加编辑锁检测，检测并发编辑冲突
  * - **不做强约束**：不禁止编辑，不锁定项目
  * 
  * 为什么不做强约束？
@@ -18,9 +19,21 @@
  * this.tabSync.notifyProjectOpen(projectId, projectName);
  * ```
  * 
+ * 【编辑锁】
+ * ```typescript
+ * // 开始编辑任务时
+ * this.tabSync.acquireEditLock(taskId, 'content');
+ * // 检查是否有其他标签页正在编辑
+ * if (this.tabSync.isBeingEditedByOtherTab(taskId, 'content')) {
+ *   // 显示警告
+ * }
+ * // 结束编辑时
+ * this.tabSync.releaseEditLock(taskId, 'content');
+ * ```
+ * 
  * @see https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel
  */
-import { Injectable, inject, OnDestroy } from '@angular/core';
+import { Injectable, inject, OnDestroy, signal } from '@angular/core';
 import { ToastService } from './toast.service';
 import { LoggerService } from './logger.service';
 
@@ -28,13 +41,37 @@ import { LoggerService } from './logger.service';
  * 跨标签页消息类型
  */
 interface TabMessage {
-  type: 'project-opened' | 'project-closed' | 'heartbeat' | 'data-synced';
+  type: 'project-opened' | 'project-closed' | 'heartbeat' | 'data-synced' | 'edit-lock' | 'edit-unlock';
   tabId: string;
   projectId?: string;
   projectName?: string;
   timestamp: number;
   /** 【新增】同步完成时的项目更新时间戳（用于 data-synced） */
   projectUpdatedAt?: string;
+  /** 【Week 5 新增】编辑锁信息 */
+  editLock?: TabEditLock;
+}
+
+/**
+ * 【Week 5 新增】编辑锁结构
+ */
+export interface TabEditLock {
+  taskId: string;
+  tabId: string;
+  field: string;
+  lockedAt: number;
+  expiresAt: number;
+}
+
+/**
+ * 【Week 5 新增】并发编辑事件
+ */
+export interface ConcurrentEditEvent {
+  taskId: string;
+  field: string;
+  otherTabId: string;
+  ownLockTime: number;
+  otherLockTime: number;
 }
 
 /**
@@ -49,7 +86,10 @@ interface ActiveTab {
 
 /**
  * 配置常量
+ * 【v5.10 增强】从 sync.config.ts 导入配置
  */
+import { TAB_CONCURRENCY_CONFIG } from '../config/sync.config';
+
 const TAB_SYNC_CONFIG = {
   /** BroadcastChannel 名称 */
   CHANNEL_NAME: 'nanoflow-tab-sync',
@@ -59,6 +99,14 @@ const TAB_SYNC_CONFIG = {
   TAB_TIMEOUT: 60000,
   /** Toast 消息 key（用于去重） */
   TOAST_KEY: 'tab-sync-warning',
+  /** 【v5.10】编辑锁超时时间（使用配置）*/
+  EDIT_LOCK_TIMEOUT: TAB_CONCURRENCY_CONFIG.EDIT_LOCK_TIMEOUT,
+  /** 【v5.10】并发编辑检测策略（使用配置）*/
+  CONCURRENT_EDIT_STRATEGY: TAB_CONCURRENCY_CONFIG.CONCURRENT_EDIT_STRATEGY,
+  /** 【v5.10】锁刷新间隔 */
+  LOCK_REFRESH_INTERVAL: TAB_CONCURRENCY_CONFIG.LOCK_REFRESH_INTERVAL,
+  /** 【v5.10】警告冷却时间 */
+  WARNING_COOLDOWN: TAB_CONCURRENCY_CONFIG.WARNING_COOLDOWN,
 } as const;
 
 @Injectable({
@@ -92,6 +140,24 @@ export class TabSyncService implements OnDestroy {
   
   /** 【新增】数据同步回调 - 当其他标签页完成同步时调用 */
   private onDataSyncedCallback: ((projectId: string, updatedAt: string) => void) | null = null;
+  
+  /** 【Week 5 新增】本地编辑锁 - key: taskId:field */
+  private localEditLocks = new Map<string, TabEditLock>();
+  
+  /** 【Week 5 新增】远程编辑锁（其他标签页的锁） - key: taskId:field */
+  private remoteEditLocks = new Map<string, TabEditLock>();
+  
+  /** 【Week 5 新增】并发编辑回调 */
+  private onConcurrentEditCallback: ((event: ConcurrentEditEvent) => void) | null = null;
+  
+  /** 【Week 5 新增】检测到的并发编辑数量 */
+  readonly concurrentEditCount = signal(0);
+  
+  /** 【v5.10 新增】锁刷新定时器 */
+  private lockRefreshTimers = new Map<string, ReturnType<typeof setInterval>>();
+  
+  /** 【v5.10 新增】警告冷却追踪 */
+  private lastWarningTime = new Map<string, number>();
   
   constructor() {
     this.isSupported = typeof BroadcastChannel !== 'undefined';
@@ -244,6 +310,12 @@ export class TabSyncService implements OnDestroy {
       case 'data-synced':
         this.handleDataSynced(message);
         break;
+      case 'edit-lock':
+        this.handleEditLock(message);
+        break;
+      case 'edit-unlock':
+        this.handleEditUnlock(message);
+        break;
     }
   }
   
@@ -352,6 +424,12 @@ export class TabSyncService implements OnDestroy {
     // 通知其他标签页当前标签页关闭
     this.notifyProjectClose();
     
+    // 释放所有本地编辑锁
+    this.releaseAllEditLocks();
+    
+    // 【v5.10】清理并发状态
+    this.cleanupConcurrencyState();
+    
     // 停止心跳
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
@@ -365,5 +443,286 @@ export class TabSyncService implements OnDestroy {
     }
     
     this.activeTabs.clear();
+    this.localEditLocks.clear();
+    this.remoteEditLocks.clear();
+  }
+  
+  // ========== 【Week 5 新增】编辑锁方法 ==========
+  
+  /**
+   * 获取编辑锁
+   * 当开始编辑任务的某个字段时调用
+   * 
+   * 【v5.10 增强】
+   * - 添加锁刷新定时器，持续编辑时自动刷新锁
+   * - 添加警告冷却，避免频繁提示
+   * 
+   * @param taskId 任务 ID
+   * @param field 字段名（如 'title', 'content'）
+   * @returns 是否成功获取锁（如果其他标签页已锁定则返回 false）
+   */
+  acquireEditLock(taskId: string, field: string): boolean {
+    if (!this.isSupported || !this.channel) return true;
+    if (!TAB_CONCURRENCY_CONFIG.DETECT_CONCURRENT_EDIT) return true;
+    
+    const lockKey = `${taskId}:${field}`;
+    const now = Date.now();
+    
+    // 检查是否有其他标签页已持有此锁
+    const remoteLock = this.remoteEditLocks.get(lockKey);
+    if (remoteLock && remoteLock.expiresAt > now) {
+      // 检测到并发编辑
+      this.handleConcurrentEdit(taskId, field, remoteLock);
+      
+      if (TAB_SYNC_CONFIG.CONCURRENT_EDIT_STRATEGY === 'block') {
+        return false;
+      }
+    }
+    
+    // 创建本地锁
+    const lock: TabEditLock = {
+      taskId,
+      tabId: this.tabId,
+      field,
+      lockedAt: now,
+      expiresAt: now + TAB_SYNC_CONFIG.EDIT_LOCK_TIMEOUT,
+    };
+    
+    this.localEditLocks.set(lockKey, lock);
+    
+    // 广播锁
+    this.broadcastEditLock(lock);
+    
+    // 【v5.10】启动锁刷新定时器
+    this.startLockRefresh(lockKey, taskId, field);
+    
+    return true;
+  }
+  
+  /**
+   * 【v5.10 新增】启动锁刷新定时器
+   * 持续编辑时定期刷新锁，防止锁过期
+   */
+  private startLockRefresh(lockKey: string, taskId: string, field: string): void {
+    // 清除已有的刷新定时器
+    this.stopLockRefresh(lockKey);
+    
+    const timer = setInterval(() => {
+      const lock = this.localEditLocks.get(lockKey);
+      if (!lock) {
+        this.stopLockRefresh(lockKey);
+        return;
+      }
+      
+      // 刷新锁
+      const now = Date.now();
+      lock.expiresAt = now + TAB_SYNC_CONFIG.EDIT_LOCK_TIMEOUT;
+      
+      // 重新广播
+      this.broadcastEditLock(lock);
+      this.logger.debug('刷新编辑锁', { taskId, field });
+    }, TAB_SYNC_CONFIG.LOCK_REFRESH_INTERVAL);
+    
+    this.lockRefreshTimers.set(lockKey, timer);
+  }
+  
+  /**
+   * 【v5.10 新增】停止锁刷新定时器
+   */
+  private stopLockRefresh(lockKey: string): void {
+    const timer = this.lockRefreshTimers.get(lockKey);
+    if (timer) {
+      clearInterval(timer);
+      this.lockRefreshTimers.delete(lockKey);
+    }
+  }
+  
+  /**
+   * 释放编辑锁
+   * 当结束编辑任务的某个字段时调用
+   * 
+   * @param taskId 任务 ID
+   * @param field 字段名
+   */
+  releaseEditLock(taskId: string, field: string): void {
+    if (!this.isSupported || !this.channel) return;
+    
+    const lockKey = `${taskId}:${field}`;
+    const lock = this.localEditLocks.get(lockKey);
+    
+    if (lock) {
+      // 【v5.10】停止锁刷新定时器
+      this.stopLockRefresh(lockKey);
+      
+      this.localEditLocks.delete(lockKey);
+      this.broadcastEditUnlock(lock);
+    }
+  }
+  
+  /**
+   * 释放所有本地编辑锁
+   */
+  releaseAllEditLocks(): void {
+    // 【v5.10】清除所有锁刷新定时器
+    for (const timer of this.lockRefreshTimers.values()) {
+      clearInterval(timer);
+    }
+    this.lockRefreshTimers.clear();
+    
+    for (const lock of this.localEditLocks.values()) {
+      this.broadcastEditUnlock(lock);
+    }
+    this.localEditLocks.clear();
+  }
+  
+  /**
+   * 检查任务字段是否正在被其他标签页编辑
+   * 
+   * @param taskId 任务 ID
+   * @param field 字段名（可选，不传则检查所有字段）
+   * @returns 是否正在被其他标签页编辑
+   */
+  isBeingEditedByOtherTab(taskId: string, field?: string): boolean {
+    const now = Date.now();
+    
+    for (const [_key, lock] of this.remoteEditLocks) {
+      if (lock.taskId !== taskId) continue;
+      if (field && lock.field !== field) continue;
+      if (lock.expiresAt <= now) continue;
+      
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * 获取正在编辑指定任务的其他标签页信息
+   */
+  getOtherEditorsForTask(taskId: string): TabEditLock[] {
+    const now = Date.now();
+    const editors: TabEditLock[] = [];
+    
+    for (const lock of this.remoteEditLocks.values()) {
+      if (lock.taskId === taskId && lock.expiresAt > now) {
+        editors.push(lock);
+      }
+    }
+    
+    return editors;
+  }
+  
+  /**
+   * 设置并发编辑回调
+   */
+  setOnConcurrentEditCallback(callback: (event: ConcurrentEditEvent) => void): void {
+    this.onConcurrentEditCallback = callback;
+  }
+  
+  // ========== 编辑锁私有方法 ==========
+  
+  private broadcastEditLock(lock: TabEditLock): void {
+    if (!this.channel) return;
+    
+    const message: TabMessage = {
+      type: 'edit-lock',
+      tabId: this.tabId,
+      timestamp: Date.now(),
+      editLock: lock,
+    };
+    
+    this.channel.postMessage(message);
+    this.logger.debug('广播编辑锁', { taskId: lock.taskId, field: lock.field });
+  }
+  
+  private broadcastEditUnlock(lock: TabEditLock): void {
+    if (!this.channel) return;
+    
+    const message: TabMessage = {
+      type: 'edit-unlock',
+      tabId: this.tabId,
+      timestamp: Date.now(),
+      editLock: lock,
+    };
+    
+    this.channel.postMessage(message);
+    this.logger.debug('广播编辑锁释放', { taskId: lock.taskId, field: lock.field });
+  }
+  
+  private handleEditLock(message: TabMessage): void {
+    if (!message.editLock) return;
+    
+    const lock = message.editLock;
+    const lockKey = `${lock.taskId}:${lock.field}`;
+    
+    // 记录远程锁
+    this.remoteEditLocks.set(lockKey, lock);
+    
+    // 检查是否与本地锁冲突
+    const localLock = this.localEditLocks.get(lockKey);
+    if (localLock) {
+      this.handleConcurrentEdit(lock.taskId, lock.field, lock);
+    }
+  }
+  
+  private handleEditUnlock(message: TabMessage): void {
+    if (!message.editLock) return;
+    
+    const lock = message.editLock;
+    const lockKey = `${lock.taskId}:${lock.field}`;
+    
+    // 移除远程锁
+    this.remoteEditLocks.delete(lockKey);
+  }
+  
+  private handleConcurrentEdit(taskId: string, field: string, remoteLock: TabEditLock): void {
+    const localLock = this.localEditLocks.get(`${taskId}:${field}`);
+    const lockKey = `${taskId}:${field}`;
+    const now = Date.now();
+    
+    const event: ConcurrentEditEvent = {
+      taskId,
+      field,
+      otherTabId: remoteLock.tabId,
+      ownLockTime: localLock?.lockedAt ?? now,
+      otherLockTime: remoteLock.lockedAt,
+    };
+    
+    this.concurrentEditCount.update(c => c + 1);
+    
+    this.logger.warn('检测到并发编辑', event);
+    
+    // 【v5.10】检查警告冷却
+    const lastWarning = this.lastWarningTime.get(lockKey) ?? 0;
+    const shouldWarn = now - lastWarning > TAB_SYNC_CONFIG.WARNING_COOLDOWN;
+    
+    // 根据策略处理
+    if (TAB_SYNC_CONFIG.CONCURRENT_EDIT_STRATEGY === 'warn' && shouldWarn) {
+      this.toast.warning(
+        '并发编辑提醒',
+        `此任务正在其他标签页编辑中，注意同步`,
+        { duration: 3000 }
+      );
+      this.lastWarningTime.set(lockKey, now);
+    }
+    
+    // 触发回调
+    if (this.onConcurrentEditCallback) {
+      this.onConcurrentEditCallback(event);
+    }
+  }
+  
+  /**
+   * 【v5.10 新增】清理资源
+   */
+  private cleanupConcurrencyState(): void {
+    // 清理锁刷新定时器
+    for (const timer of this.lockRefreshTimers.values()) {
+      clearInterval(timer);
+    }
+    this.lockRefreshTimers.clear();
+    
+    // 清理警告冷却追踪
+    this.lastWarningTime.clear();
   }
 }

@@ -19,11 +19,12 @@ import { LoggerService } from '../../../services/logger.service';
 import { ToastService } from '../../../services/toast.service';
 import { RequestThrottleService } from '../../../services/request-throttle.service';
 import { ChangeTrackerService } from '../../../services/change-tracker.service';
+import { CircuitBreakerService } from '../../../services/circuit-breaker.service';
 import { Task, Project, Connection, UserPreferences, ThemeType } from '../../../models';
 import { TaskRow, ProjectRow, ConnectionRow } from '../../../models/supabase-types';
 import { nowISO } from '../../../utils/date';
 import { supabaseErrorToError } from '../../../utils/supabase-error';
-import { REQUEST_THROTTLE_CONFIG, SYNC_CONFIG, CIRCUIT_BREAKER_CONFIG, FIELD_SELECT_CONFIG } from '../../../config';
+import { REQUEST_THROTTLE_CONFIG, SYNC_CONFIG, CIRCUIT_BREAKER_CONFIG, FIELD_SELECT_CONFIG, CACHE_CONFIG } from '../../../config';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/angular';
 
@@ -85,6 +86,7 @@ export class SimpleSyncService {
   private readonly toast = inject(ToastService);
   private readonly throttle = inject(RequestThrottleService);
   private readonly changeTracker = inject(ChangeTrackerService);
+  private readonly circuitBreaker = inject(CircuitBreakerService);
   private readonly destroyRef = inject(DestroyRef);
   
   /**
@@ -301,6 +303,55 @@ export class SimpleSyncService {
     }
     this.saveLocalTombstones();
     this.logger.debug('添加本地 tombstone', { projectId, taskIds });
+  }
+  
+  /**
+   * 删除 Storage 中的附件文件
+   * 
+   * 【v5.7 附件-任务删除联动】
+   * 在任务永久删除时，清理关联的附件文件
+   * 异步执行，不阻塞任务删除操作
+   * 
+   * @param client Supabase 客户端
+   * @param paths 附件存储路径列表
+   */
+  private async deleteAttachmentFilesFromStorage(
+    client: ReturnType<typeof this.getSupabaseClient>,
+    paths: string[]
+  ): Promise<void> {
+    if (!client || paths.length === 0) return;
+    
+    try {
+      // 批量删除，每次最多 100 个
+      const batchSize = 100;
+      for (let i = 0; i < paths.length; i += batchSize) {
+        const batch = paths.slice(i, i + batchSize);
+        const { error } = await client.storage
+          .from('attachments')
+          .remove(batch);
+        
+        if (error) {
+          this.logger.warn('deleteAttachmentFilesFromStorage: 批量删除失败', {
+            batch: batch.slice(0, 5),
+            batchSize: batch.length,
+            error: error.message
+          });
+          // 继续删除下一批，不抛出异常
+        } else {
+          this.logger.debug('deleteAttachmentFilesFromStorage: 批量删除成功', {
+            batchIndex: i / batchSize,
+            batchSize: batch.length
+          });
+        }
+      }
+      
+      this.logger.info('deleteAttachmentFilesFromStorage: 完成', {
+        totalPaths: paths.length
+      });
+    } catch (e) {
+      this.logger.error('deleteAttachmentFilesFromStorage: 异常', e);
+      // 不抛出，因为任务已经删除，附件清理失败只是资源浪费，不影响功能
+    }
   }
   
   /**
@@ -600,6 +651,14 @@ export class SimpleSyncService {
    * - 如果任务已在 tombstones 中，跳过推送避免复活
    */
   async pushTask(task: Task, projectId: string): Promise<boolean> {
+    // 【Critical #1】会话过期检查 - 阻止在会话过期后继续同步
+    if (this.syncState().sessionExpired) {
+      this.logger.warn('会话已过期，同步被阻止', { taskId: task.id });
+      this.toast.warning('登录已过期', '请重新登录以继续同步数据');
+      // 不加入 RetryQueue（会话过期后重试无意义，需要重新登录）
+      return false;
+    }
+    
     // Circuit Breaker 检查：如果熔断中，直接加入重试队列
     if (!this.checkCircuitBreaker()) {
       this.logger.debug('Circuit Breaker: 熔断中，跳过推送', { taskId: task.id });
@@ -808,7 +867,25 @@ export class SimpleSyncService {
    * 本地缓存用于 RPC 不可用时的保护
    */
   async getTombstoneIds(projectId: string): Promise<Set<string>> {
+    const result = await this.getTombstoneIdsWithStatus(projectId);
+    return result.ids;
+  }
+  
+  /**
+   * 【v5.9】获取项目的所有 tombstone 任务 ID（带查询状态）
+   * 用于合并时判断是否需要保守处理
+   * 
+   * @returns TombstoneQueryResult 包含 ID 集合和查询状态
+   */
+  async getTombstoneIdsWithStatus(projectId: string): Promise<{
+    ids: Set<string>;
+    fromRemote: boolean;
+    localCacheOnly: boolean;
+    timestamp: number;
+  }> {
     const tombstoneIds = new Set<string>();
+    let fromRemote = false;
+    let localCacheOnly = true;
     
     // 1. 首先添加本地 tombstone 缓存（即使云端查询失败也能保护）
     const localTombstones = this.getLocalTombstones(projectId);
@@ -823,7 +900,7 @@ export class SimpleSyncService {
         projectId, 
         localCount: localTombstones.size 
       });
-      return tombstoneIds;
+      return { ids: tombstoneIds, fromRemote: false, localCacheOnly: true, timestamp: Date.now() };
     }
     
     try {
@@ -834,13 +911,16 @@ export class SimpleSyncService {
       
       if (error) {
         this.logger.warn('获取云端 tombstones 失败，使用本地缓存', error);
-        return tombstoneIds;
+        return { ids: tombstoneIds, fromRemote: false, localCacheOnly: true, timestamp: Date.now() };
       }
       
       // 添加云端 tombstones
       for (const t of (data || [])) {
         tombstoneIds.add(t.task_id);
       }
+      
+      fromRemote = true;
+      localCacheOnly = false;
       
       if (localTombstones.size > 0 || tombstoneIds.size > localTombstones.size) {
         this.logger.debug('getTombstoneIds: 合并完成', {
@@ -851,9 +931,53 @@ export class SimpleSyncService {
         });
       }
       
-      return tombstoneIds;
+      return { ids: tombstoneIds, fromRemote, localCacheOnly, timestamp: Date.now() };
     } catch (e) {
       this.logger.warn('获取 tombstones 异常，使用本地缓存', e);
+      return { ids: tombstoneIds, fromRemote: false, localCacheOnly: true, timestamp: Date.now() };
+    }
+  }
+  
+  /**
+   * 获取项目的所有 connection tombstone ID
+   * 用于检查连接是否已被永久删除
+   * 
+   * 【P0 防复活】防止已删除连接被旧客户端复活
+   */
+  async getConnectionTombstoneIds(projectId: string): Promise<Set<string>> {
+    const tombstoneIds = new Set<string>();
+    
+    const client = this.getSupabaseClient();
+    if (!client) {
+      this.logger.info('getConnectionTombstoneIds: 离线模式，返回空集', { projectId });
+      return tombstoneIds;
+    }
+    
+    try {
+      const { data, error } = await client
+        .from('connection_tombstones')
+        .select('connection_id')
+        .eq('project_id', projectId);
+      
+      if (error) {
+        this.logger.warn('获取连接 tombstones 失败', error);
+        return tombstoneIds;
+      }
+      
+      for (const t of (data || [])) {
+        tombstoneIds.add(t.connection_id);
+      }
+      
+      if (tombstoneIds.size > 0) {
+        this.logger.debug('getConnectionTombstoneIds: 获取完成', {
+          projectId,
+          count: tombstoneIds.size
+        });
+      }
+      
+      return tombstoneIds;
+    } catch (e) {
+      this.logger.warn('获取连接 tombstones 异常', e);
       return tombstoneIds;
     }
   }
@@ -865,6 +989,7 @@ export class SimpleSyncService {
    * - 调用 purge_tasks_v2 RPC 写入 tombstone 并删除任务
    * - 如果 RPC 不可用，降级为软删除（但这不是理想方案，因为软删除任务仍可能被同步回来）
    * - tombstone 记录会阻止任何后续的 upsert 复活该任务
+   * - v5.7: 新增 purge_tasks_v3 支持返回附件路径，自动清理 Storage 中的附件文件
    * 
    * @returns true 表示成功（包括降级为软删除），false 表示完全失败
    */
@@ -882,8 +1007,41 @@ export class SimpleSyncService {
     }
     
     try {
-      // 优先使用 purge_tasks_v2（支持在 tasks 行不存在时也能写 tombstone）
-      this.logger.debug('purgeTasksFromCloud: 调用 purge_tasks_v2', { projectId, taskIds });
+      // 优先使用 purge_tasks_v3（返回附件路径以便删除）
+      this.logger.debug('purgeTasksFromCloud: 调用 purge_tasks_v3', { projectId, taskIds });
+      const purgeV3Result = await client.rpc('purge_tasks_v3', {
+        p_project_id: projectId,
+        p_task_ids: taskIds
+      });
+      
+      if (!purgeV3Result.error && purgeV3Result.data) {
+        const { purged_count, attachment_paths } = purgeV3Result.data as { 
+          purged_count: number; 
+          attachment_paths: string[] 
+        };
+        
+        this.logger.info('purgeTasksFromCloud: purge_tasks_v3 成功', { 
+          projectId, 
+          taskCount: taskIds.length,
+          taskIds,
+          purgedCount: purged_count,
+          attachmentPathsCount: attachment_paths?.length ?? 0
+        });
+        
+        // 【v5.7】删除附件文件（后台异步，不阻塞返回）
+        if (attachment_paths && attachment_paths.length > 0) {
+          this.deleteAttachmentFilesFromStorage(client, attachment_paths).catch(err => {
+            this.logger.warn('purgeTasksFromCloud: 附件文件删除失败（任务已删除）', err);
+          });
+        }
+        
+        // 【关键】即使 RPC 成功也添加本地 tombstone，确保多设备一致性
+        this.addLocalTombstones(projectId, taskIds);
+        return true;
+      }
+      
+      // v3 失败，降级到 v2（不返回附件路径）
+      this.logger.warn('purgeTasksFromCloud: purge_tasks_v3 失败，尝试 v2', purgeV3Result.error);
       const purgeV2Result = await client.rpc('purge_tasks_v2', {
         p_project_id: projectId,
         p_task_ids: taskIds
@@ -958,6 +1116,98 @@ export class SimpleSyncService {
     }
   }
   
+  /**
+   * 安全批量软删除任务（服务端防护）
+   * 
+   * 【P0 熔断层】使用 safe_delete_tasks RPC 确保批量删除不会超过限制：
+   * - 单次删除不能超过 50% 或 50 条任务
+   * - 项目任务数 > 10 时，不允许删到 0
+   * 
+   * 此方法应在用户触发批量删除时调用，确保服务端也执行相同的保护逻辑。
+   * 客户端 CircuitBreakerService 提供第一层保护，服务端 RPC 提供第二层保护。
+   * 
+   * @param projectId 项目 ID
+   * @param taskIds 要删除的任务 ID 列表
+   * @returns 实际删除的任务数量，-1 表示失败
+   */
+  async softDeleteTasksBatch(projectId: string, taskIds: string[]): Promise<number> {
+    if (taskIds.length === 0) return 0;
+    
+    const client = this.getSupabaseClient();
+    if (!client) {
+      this.logger.warn('softDeleteTasksBatch: 离线模式，跳过服务端删除', { taskIds });
+      // 离线模式下由本地处理删除，后续同步时推送 deletedAt
+      return taskIds.length;
+    }
+    
+    try {
+      this.logger.debug('softDeleteTasksBatch: 调用 safe_delete_tasks RPC', { 
+        projectId, 
+        taskIds,
+        taskCount: taskIds.length 
+      });
+      
+      const { data, error } = await client.rpc('safe_delete_tasks', {
+        p_task_ids: taskIds,
+        p_project_id: projectId
+      });
+      
+      if (error) {
+        // 检查是否是熔断规则阻止
+        if (error.message?.includes('Bulk delete blocked')) {
+          this.logger.warn('softDeleteTasksBatch: 服务端熔断阻止删除', { 
+            projectId, 
+            taskIds,
+            error: error.message 
+          });
+          this.toast.warning('删除被阻止', error.message);
+          Sentry.captureMessage('Server circuit breaker blocked delete', {
+            level: 'warning',
+            tags: { operation: 'softDeleteTasksBatch', projectId },
+            extra: { taskIds, error: error.message }
+          });
+          return -1;
+        }
+        
+        throw supabaseErrorToError(error);
+      }
+      
+      this.logger.info('softDeleteTasksBatch: 删除成功', { 
+        projectId, 
+        requestedCount: taskIds.length,
+        affectedCount: data
+      });
+      
+      return data ?? 0;
+    } catch (e) {
+      this.logger.error('softDeleteTasksBatch 失败', e);
+      Sentry.captureException(e, { 
+        tags: { operation: 'softDeleteTasksBatch' },
+        extra: { projectId, taskIds }
+      });
+      
+      // RPC 失败时降级为逐个软删除
+      this.logger.warn('softDeleteTasksBatch: RPC 失败，降级为逐个更新');
+      try {
+        const { error } = await client
+          .from('tasks')
+          .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('project_id', projectId)
+          .in('id', taskIds);
+        
+        if (error) {
+          this.logger.error('softDeleteTasksBatch: 降级也失败', error);
+          throw supabaseErrorToError(error);
+        }
+        
+        return taskIds.length;
+      } catch (fallbackError) {
+        this.logger.error('softDeleteTasksBatch: 完全失败', fallbackError);
+        return -1;
+      }
+    }
+  }
+  
   // ==================== 项目同步 ====================
   
   /**
@@ -966,6 +1216,14 @@ export class SimpleSyncService {
    * 使用限流服务控制并发请求数量
    */
   async pushProject(project: Project): Promise<boolean> {
+    // 【Critical #6】会话过期检查 - 阻止在会话过期后继续同步
+    if (this.syncState().sessionExpired) {
+      this.logger.warn('会话已过期，项目同步被阻止', { projectId: project.id });
+      this.toast.warning('登录已过期', '请重新登录以继续同步数据');
+      // 不加入 RetryQueue（会话过期后重试无意义，需要重新登录）
+      return false;
+    }
+    
     const client = this.getSupabaseClient();
     if (!client) {
       this.addToRetryQueue('project', 'upsert', project);
@@ -1002,6 +1260,19 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       const enhanced = supabaseErrorToError(e);
+      
+      // 【乐观锁强化】版本冲突错误不加入重试队列，需要用户刷新后重试
+      if (enhanced.errorType === 'VersionConflictError') {
+        this.logger.warn('推送项目版本冲突', { projectId: project.id });
+        this.toast.warning('版本冲突', '数据已被修改，请刷新后重试');
+        Sentry.captureMessage('Optimistic lock conflict in pushProject', {
+          level: 'warning',
+          tags: { operation: 'pushProject', projectId: project.id },
+          extra: { projectVersion: project.version }
+        });
+        // 不加入重试队列，返回 false 让调用者处理
+        return false;
+      }
       
       // 根据错误类型选择日志级别
       if (enhanced.isRetryable) {
@@ -1069,6 +1340,7 @@ export class SimpleSyncService {
    * - 使用限流服务控制并发请求数量
    * 
    * 【关键修复】推送前验证引用的任务存在，防止外键约束违规
+   * 【P0 防复活】推送前检查 connection_tombstones 表，防止已删除连接复活
    */
   async pushConnection(connection: Connection, projectId: string): Promise<boolean> {
     const client = this.getSupabaseClient();
@@ -1078,6 +1350,22 @@ export class SimpleSyncService {
     }
     
     try {
+      // 【P0 防复活】检查连接是否已被永久删除（在 connection_tombstones 中）
+      const { data: tombstone } = await client
+        .from('connection_tombstones')
+        .select('connection_id')
+        .eq('connection_id', connection.id)
+        .maybeSingle();
+      
+      if (tombstone) {
+        // 连接已被永久删除，跳过推送，防止复活
+        this.logger.info('跳过推送已删除连接（tombstone 保护）', { 
+          connectionId: connection.id, 
+          projectId 
+        });
+        return false;
+      }
+      
       // 【关键修复】推送前验证引用的任务存在性，防止外键约束违规
       // 【超时保护】5秒超时，防止数据库查询挂起阻塞同步
       // 【重要】不过滤 deleted_at，因为数据库外键约束只检查任务行是否存在，不管软删除状态
@@ -1639,6 +1927,12 @@ export class SimpleSyncService {
    * 【关键修复】按依赖顺序处理：项目 → 任务 → 连接，防止外键约束违反
    */
   private async processRetryQueue(): Promise<void> {
+    // 【Critical #17】会话过期检查 - 暂停重试队列处理，等待重新登录
+    if (this.syncState().sessionExpired) {
+      this.logger.info('会话已过期，暂停重试队列处理，等待重新登录');
+      return;
+    }
+    
     if (this.state().isSyncing || !this.state().isOnline) return;
     
     this.state.update(s => ({ ...s, isSyncing: true }));
@@ -2051,6 +2345,8 @@ export class SimpleSyncService {
   /**
    * 订阅项目实时变更（Realtime 模式）
    * 仅在用户手动启用时使用
+   * 
+   * 【P2 优化】重连后自动触发增量同步
    */
   private async subscribeToProjectRealtime(projectId: string, userId: string): Promise<void> {
     const client = this.getSupabaseClient();
@@ -2059,6 +2355,9 @@ export class SimpleSyncService {
     const channelName = `project:${projectId}:${userId.substring(0, 8)}`;
     
     this.logger.info('启用 Realtime 订阅', { projectId, channel: channelName });
+    
+    // 追踪之前的连接状态，用于检测重连
+    let previousStatus: string | null = null;
     
     this.realtimeChannel = client
       .channel(channelName)
@@ -2099,7 +2398,25 @@ export class SimpleSyncService {
         }
       )
       .subscribe((status) => {
-        this.logger.info('Realtime 订阅状态', { status, channel: channelName });
+        this.logger.info('Realtime 订阅状态', { status, channel: channelName, previousStatus });
+        
+        // 【P2 优化】检测重连：从非 SUBSCRIBED 状态恢复到 SUBSCRIBED
+        if (status === 'SUBSCRIBED' && previousStatus && previousStatus !== 'SUBSCRIBED') {
+          this.logger.info('Realtime 重连成功，触发增量同步', { previousStatus });
+          
+          // 异步触发增量同步
+          if (this.onRemoteChangeCallback && !this.realtimePaused) {
+            // 使用 'reconnect' 事件类型表明这是重连后的同步
+            this.onRemoteChangeCallback({ 
+              eventType: 'reconnect', 
+              projectId 
+            }).catch(e => {
+              this.logger.warn('重连后增量同步失败', e);
+            });
+          }
+        }
+        
+        previousStatus = status;
       });
   }
   
@@ -2304,11 +2621,40 @@ export class SimpleSyncService {
    * - 每个请求自动重试（pushTask/pushConnection 内置重试机制）
    * 
    * 【关键修复】推送前检查 tombstones，防止已删除任务复活
+   * 【P0 熔断层】推送前进行熔断校验，检测空数据、任务数骤降等异常
    */
   async saveProjectToCloud(
     project: Project,
     _userId: string
   ): Promise<{ success: boolean; conflict?: boolean; remoteData?: Project; newVersion?: number }> {
+    // 【P0 熔断层】同步前校验 - 检测空数据、任务数骤降、必填字段缺失
+    const circuitValidation = this.circuitBreaker.validateBeforeSync(project);
+    if (!circuitValidation.passed && circuitValidation.shouldBlock) {
+      this.logger.error('熔断: 同步被阻止', {
+        projectId: project.id,
+        level: circuitValidation.level,
+        violations: circuitValidation.violations
+      });
+      Sentry.captureMessage('CircuitBreaker: Sync blocked in saveProjectToCloud', {
+        level: 'error',
+        tags: { 
+          operation: 'saveProjectToCloud',
+          projectId: project.id,
+          level: circuitValidation.level
+        },
+        extra: {
+          passed: circuitValidation.passed,
+          level: circuitValidation.level,
+          severity: circuitValidation.severity,
+          shouldBlock: circuitValidation.shouldBlock,
+          suggestedAction: circuitValidation.suggestedAction,
+          violations: circuitValidation.violations,
+        }
+      });
+      // 熔断时不将数据加入重试队列，需要用户确认后才能继续
+      return { success: false };
+    }
+    
     const client = this.getSupabaseClient();
     if (!client) {
       this.addToRetryQueue('project', 'upsert', project);
@@ -2425,6 +2771,9 @@ export class SimpleSyncService {
         const activeTasksCount = tasksToSync.filter(t => !t.deletedAt).length;
         this.checkDataDrift(project.id, activeTasksCount, connectionsToSync.length);
       }
+      
+      // 【P0 熔断层】同步成功后更新已知任务数量（用于下次骤降检测）
+      this.circuitBreaker.updateLastKnownTaskCount(project.id, tasksToSync.length);
       
       return { success: true, newVersion: project.version };
     } catch (e) {
@@ -2660,8 +3009,9 @@ export class SimpleSyncService {
   
   // ==================== 离线快照 ====================
   
-  private readonly OFFLINE_CACHE_KEY = 'nanoflow.offline-cache';
-  private readonly CACHE_VERSION = 2;
+  // 使用配置中的缓存键，确保全局一致
+  private readonly OFFLINE_CACHE_KEY = CACHE_CONFIG.OFFLINE_CACHE_KEY;
+  private readonly CACHE_VERSION = CACHE_CONFIG.CACHE_VERSION;
   
   /**
    * 保存离线快照

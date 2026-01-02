@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ChangeTrackerService } from './change-tracker.service';
 import { Task, Connection } from '../models';
@@ -368,15 +368,20 @@ describe('ChangeTrackerService', () => {
     });
 
     it('应该在超时后自动解锁', async () => {
-      // 锁定 10ms（非常短）
-      service.lockTaskField(taskId, projectId, 'status', 10);
-      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(true);
+      vi.useFakeTimers();
+      try {
+        // 锁定 10ms（非常短）
+        service.lockTaskField(taskId, projectId, 'status', 10);
+        expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(true);
 
-      // 等待超时
-      await new Promise(resolve => setTimeout(resolve, 20));
+        // 快进时间超过锁定时长
+        await vi.advanceTimersByTimeAsync(20);
 
-      // 超时后应该自动解锁
-      expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(false);
+        // 超时后应该自动解锁
+        expect(service.isTaskFieldLocked(taskId, projectId, 'status')).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('应该正确获取被锁定的字段列表', () => {
@@ -412,17 +417,22 @@ describe('ChangeTrackerService', () => {
     });
 
     it('getLockedFields 应该过滤掉超时的锁', async () => {
-      // 锁定两个字段，一个短超时，一个长超时
-      service.lockTaskField(taskId, projectId, 'status', 10); // 10ms
-      service.lockTaskField(taskId, projectId, 'title', 5000); // 5s
+      vi.useFakeTimers();
+      try {
+        // 锁定两个字段，一个短超时，一个长超时
+        service.lockTaskField(taskId, projectId, 'status', 10); // 10ms
+        service.lockTaskField(taskId, projectId, 'title', 5000); // 5s
 
-      // 等待短超时过期
-      await new Promise(resolve => setTimeout(resolve, 20));
+        // 快进时间让短超时过期
+        await vi.advanceTimersByTimeAsync(20);
 
-      const lockedFields = service.getLockedFields(taskId, projectId);
-      expect(lockedFields).toHaveLength(1);
-      expect(lockedFields).toContain('title');
-      expect(lockedFields).not.toContain('status');
+        const lockedFields = service.getLockedFields(taskId, projectId);
+        expect(lockedFields).toHaveLength(1);
+        expect(lockedFields).toContain('title');
+        expect(lockedFields).not.toContain('status');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('clearProjectFieldLocks 应该清除项目所有字段锁', () => {

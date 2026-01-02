@@ -19,8 +19,14 @@ export {
   CIRCUIT_BREAKER_CONFIG,
   CACHE_CONFIG,
   OPTIMISTIC_CONFIG,
+  OPTIMISTIC_LOCK_CONFIG,
   QUEUE_CONFIG,
-  FIELD_SELECT_CONFIG
+  FIELD_SELECT_CONFIG,
+  STORAGE_QUOTA_CONFIG,
+  PERMISSION_DENIED_CONFIG,
+  INDEXEDDB_HEALTH_CONFIG,
+  CLOCK_SYNC_CONFIG,
+  TAB_CONCURRENCY_CONFIG
 } from './sync.config';
 
 // UI 配置
@@ -56,6 +62,43 @@ export {
   TRASH_CONFIG,
   UNDO_CONFIG
 } from './task.config';
+
+// 特性开关配置
+export {
+  FEATURE_FLAGS,
+  isFeatureEnabled,
+  type FeatureFlag
+} from './feature-flags.config';
+
+// Sentry 告警配置
+export {
+  SENTRY_EVENT_TYPES,
+  SENTRY_ALERT_RULES,
+  SENTRY_ALERT_CONFIG,
+  ALERT_LEVELS,
+  type SentryEventType,
+  type AlertLevel
+} from './sentry-alert.config';
+
+// 病毒扫描配置
+export {
+  VIRUS_SCAN_CONFIG,
+  SCAN_STATUS,
+  TOCTOU_PROTECTION,
+  type ScanStatus,
+  type ScanResult,
+  type AttachmentScanMetadata,
+  type VirusScannerService
+} from './virus-scan.config';
+
+// 本地备份配置
+export {
+  LOCAL_BACKUP_CONFIG,
+  type LocalBackupResult,
+  type DirectoryAuthResult,
+  type LocalBackupStatus,
+  type LocalBackupCompatibility
+} from './local-backup.config';
 
 // 流程图样式（独立文件，保持不变）
 export * from './flow-styles';

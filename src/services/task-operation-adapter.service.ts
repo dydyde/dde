@@ -401,16 +401,30 @@ export class TaskOperationAdapterService {
   
   /**
    * 批量删除任务（原子操作）
+   * 
+   * 【P0 熔断层】
+   * 1. 本地立即执行软删除（乐观更新）
+   * 2. 后台异步调用 safe_delete_tasks RPC 进行服务端保护
+   * 3. 如果服务端拒绝，回滚本地状态并显示错误
+   * 
    * @param explicitIds 用户显式选中的任务 ID 列表
    * @returns 实际删除的任务数量（含级联子任务）
    */
   deleteTasksBatch(explicitIds: string[]): number {
     if (explicitIds.length === 0) return 0;
     
+    const projectId = this.projectState.activeProjectId();
+    if (!projectId) return 0;
+    
     // 创建乐观更新快照（使用第一个任务 ID，标记为删除操作）
     const snapshot = this.optimisticState.createTaskSnapshot(explicitIds[0], '删除');
     
+    // 1. 本地立即执行删除（乐观更新）
     const deletedCount = this.taskOps.deleteTasksBatch(explicitIds);
+    
+    // 2. 后台异步调用服务端保护
+    // 收集所有要删除的任务 ID（包括级联子任务）
+    this.triggerServerSideDelete(projectId, explicitIds, snapshot.id, deletedCount);
     
     // 显示带撤回按钮的 Toast
     this.toastService.success(
@@ -432,6 +446,75 @@ export class TaskOperationAdapterService {
     this.setupSyncResultHandler(snapshot.id);
     
     return deletedCount;
+  }
+  
+  /**
+   * 触发服务端删除保护（异步）
+   * 如果服务端拒绝，回滚本地状态
+   */
+  private async triggerServerSideDelete(
+    projectId: string, 
+    explicitIds: string[], 
+    snapshotId: string,
+    _localDeletedCount: number  // 保留参数用于将来日志记录
+  ): Promise<void> {
+    try {
+      // 收集所有要删除的任务 ID（包括级联子任务）
+      const project = this.projectState.activeProject();
+      if (!project) return;
+      
+      // 从删除的任务中提取所有 ID（deletedAt 刚被设置的任务）
+      const justDeletedTaskIds = project.tasks
+        .filter(t => t.deletedAt && explicitIds.some(id => {
+          // 包括显式选中的 + 它们的后代
+          return t.id === id || this.isDescendantOf(t, id, project.tasks);
+        }))
+        .map(t => t.id);
+      
+      if (justDeletedTaskIds.length === 0) {
+        // 如果没有找到刚删除的任务，可能已经被同步，跳过
+        return;
+      }
+      
+      const result = await this.syncCoordinator.softDeleteTasksBatch(projectId, justDeletedTaskIds);
+      
+      if (result === -1) {
+        // 服务端拒绝，需要回滚
+        this.logger.warn('服务端拒绝批量删除，回滚本地状态', { 
+          projectId, 
+          taskIds: justDeletedTaskIds 
+        });
+        
+        // 撤销本地删除（使用乐观更新回滚机制）
+        this.optimisticState.rollbackSnapshot(snapshotId);
+        
+        this.toastService.warning(
+          '删除被服务端阻止',
+          '批量删除超过安全限制，操作已回滚'
+        );
+      }
+    } catch (e) {
+      this.logger.error('服务端删除保护调用失败', e);
+      // 网络错误时不回滚，让本地删除生效，后续同步时会推送
+    }
+  }
+  
+  /**
+   * 检查任务是否是某个 ID 的后代
+   */
+  private isDescendantOf(task: Task, ancestorId: string, allTasks: Task[]): boolean {
+    let current = task;
+    const visited = new Set<string>();
+    
+    while (current.parentId && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (current.parentId === ancestorId) return true;
+      const parent = allTasks.find(t => t.id === current.parentId);
+      if (!parent) break;
+      current = parent;
+    }
+    
+    return false;
   }
   
   /**

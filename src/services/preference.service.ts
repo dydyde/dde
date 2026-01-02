@@ -8,16 +8,27 @@
  * ✓ 冲突自动解决开关管理
  * ✗ UI 布局状态 → UiStateService
  * ✗ 用户会话 → UserSessionService
+ * 
+ * 【v5.7 用户偏好键隔离】
+ * localStorage 键包含 userId 前缀，避免多用户共享设备时偏好混淆
+ * 格式：nanoflow.preference.{userId}.{key}
  */
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, inject, signal, effect } from '@angular/core';
 import { SimpleSyncService } from '../app/core/services/simple-sync.service';
 import { ActionQueueService } from './action-queue.service';
 import { AuthService } from './auth.service';
 import { ThemeService } from './theme.service';
 import { ThemeType, UserPreferences } from '../models';
 
-/** 本地存储键 */
-const AUTO_RESOLVE_STORAGE_KEY = 'nanoflow.autoResolveConflicts';
+/** 本地存储键前缀 */
+const PREFERENCE_KEY_PREFIX = 'nanoflow.preference';
+
+/** 生成用户特定的存储键 */
+function getUserPreferenceKey(userId: string | null, key: string): string {
+  // 未登录时使用 'anonymous' 前缀
+  const userPart = userId || 'anonymous';
+  return `${PREFERENCE_KEY_PREFIX}.${userPart}.${key}`;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -36,10 +47,17 @@ export class PreferenceService {
    * 默认 true：使用 LWW 自动解决冲突
    * false：所有冲突进入仪表盘由用户手动处理
    */
-  private _autoResolveConflicts = signal(this.loadAutoResolveFromStorage());
+  private _autoResolveConflicts = signal(true);
   readonly autoResolveConflicts = this._autoResolveConflicts.asReadonly();
 
-  constructor() {}
+  constructor() {
+    // 当用户登录状态变化时，重新加载该用户的偏好
+    effect(() => {
+      const userId = this.authService.currentUserId();
+      // 每次用户变化时加载对应用户的偏好
+      this._autoResolveConflicts.set(this.loadAutoResolveFromStorage(userId));
+    });
+  }
 
   // ========== 公共方法 ==========
 
@@ -56,7 +74,8 @@ export class PreferenceService {
    */
   setAutoResolveConflicts(enabled: boolean): void {
     this._autoResolveConflicts.set(enabled);
-    this.saveAutoResolveToStorage(enabled);
+    const userId = this.authService.currentUserId();
+    this.saveAutoResolveToStorage(userId, enabled);
   }
 
   /**
@@ -106,10 +125,12 @@ export class PreferenceService {
   
   /**
    * 从 localStorage 加载自动解决冲突设置
+   * @param userId 当前用户ID，用于生成隔离的存储键
    */
-  private loadAutoResolveFromStorage(): boolean {
+  private loadAutoResolveFromStorage(userId: string | null): boolean {
     try {
-      const stored = localStorage.getItem(AUTO_RESOLVE_STORAGE_KEY);
+      const key = getUserPreferenceKey(userId, 'autoResolveConflicts');
+      const stored = localStorage.getItem(key);
       // 默认 true（使用 LWW 自动解决）
       return stored === null ? true : stored === 'true';
     } catch {
@@ -119,10 +140,13 @@ export class PreferenceService {
   
   /**
    * 保存自动解决冲突设置到 localStorage
+   * @param userId 当前用户ID，用于生成隔离的存储键
+   * @param enabled 是否启用自动解决
    */
-  private saveAutoResolveToStorage(enabled: boolean): void {
+  private saveAutoResolveToStorage(userId: string | null, enabled: boolean): void {
     try {
-      localStorage.setItem(AUTO_RESOLVE_STORAGE_KEY, String(enabled));
+      const key = getUserPreferenceKey(userId, 'autoResolveConflicts');
+      localStorage.setItem(key, String(enabled));
     } catch {
       // 忽略存储失败
     }

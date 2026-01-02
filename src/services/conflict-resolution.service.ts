@@ -8,6 +8,7 @@ import { Project, Task } from '../models';
 import {
   Result, OperationError, ErrorCodes, success, failure
 } from '../utils/result';
+import * as Sentry from '@sentry/angular';
 
 /**
  * 冲突解决策略（LWW 简化版）
@@ -33,6 +34,20 @@ export interface MergeResult {
   project: Project;
   issues: string[];
   conflictCount: number;
+}
+
+/**
+ * 【v5.9】Tombstone 查询结果
+ * 用于追踪 tombstone 查询是否成功，以便保守处理
+ */
+export interface TombstoneQueryResult {
+  ids: Set<string>;
+  /** 是否成功从远程查询到 tombstones */
+  fromRemote: boolean;
+  /** 是否仅使用本地缓存（远程查询失败时） */
+  localCacheOnly: boolean;
+  /** 查询时间戳 */
+  timestamp: number;
 }
 
 /**
@@ -113,11 +128,15 @@ export class ConflictResolutionService {
         if (!remoteProject) {
           return failure(ErrorCodes.DATA_NOT_FOUND, '远程项目数据不存在');
         }
-        // 【关键修复】获取 tombstoneIds 防止已删除任务在合并时复活
-        // 注意：这里使用同步方法会阻塞，但 resolveConflict 通常在用户交互后调用
-        // 如果性能有问题，可以考虑将整个 resolveConflict 改为 async
-        const tombstoneIds = await this.syncService.getTombstoneIds(projectId);
-        const mergeResult = this.smartMerge(localProject, remoteProject, tombstoneIds);
+        // 【v5.9 关键修复】获取 tombstoneIds 防止已删除任务在合并时复活
+        // 使用带状态的方法，以便在查询失败时保守处理
+        const tombstoneResult = await this.syncService.getTombstoneIdsWithStatus(projectId);
+        const mergeResult = this.smartMerge(
+          localProject, 
+          remoteProject, 
+          tombstoneResult.ids,
+          tombstoneResult.localCacheOnly // 传入查询状态用于保守处理
+        );
         resolvedProject = mergeResult.project;
         
         if (mergeResult.issues.length > 0) {
@@ -125,6 +144,11 @@ export class ConflictResolutionService {
         }
         if (mergeResult.conflictCount > 0) {
           this.toast.warning('合并提示', `${mergeResult.conflictCount} 个任务存在修改冲突，已使用本地版本`);
+        }
+        
+        // 【v5.9】如果 tombstone 查询失败，警告用户
+        if (tombstoneResult.localCacheOnly && tombstoneResult.ids.size === 0) {
+          this.toast.warning('合并提示', '无法确认远程删除状态，已保守处理');
         }
         
         this.syncService.resolveConflict(projectId, resolvedProject, 'local');
@@ -268,11 +292,21 @@ export class ConflictResolutionService {
    * - 本地存在但远程不存在 + 在 tombstones 中 = 远程已删除，不保留
    * - 本地存在但远程不存在 + 不在 tombstones 中 = 本地新增，保留
    * 
+   * 【v5.9 保守处理】当 tombstone 查询失败时：
+   * - 如果本地任务不在远程中，且本地缓存为空，则保守地不添加（防止复活）
+   * - 记录警告日志和 Sentry 事件
+   * 
    * @param local 本地项目
    * @param remote 远程项目
    * @param tombstoneIds 已永久删除的任务 ID 集合（必需参数，用于防止已删除任务复活）
+   * @param tombstoneQueryFailed 是否 tombstone 查询失败（仅使用本地缓存）
    */
-  smartMerge(local: Project, remote: Project, tombstoneIds: Set<string>): MergeResult {
+  smartMerge(
+    local: Project, 
+    remote: Project, 
+    tombstoneIds: Set<string>,
+    tombstoneQueryFailed: boolean = false
+  ): MergeResult {
     const issues: string[] = [];
     let conflictCount = 0;
     
@@ -291,6 +325,19 @@ export class ConflictResolutionService {
       issues.push('远程项目 tasks 数据异常，已使用空数组');
     }
     
+    // 【v5.9】tombstone 查询失败时的保守处理标记
+    if (tombstoneQueryFailed && tombstoneIds.size === 0) {
+      this.logger.warn('smartMerge: tombstone 查询失败且本地缓存为空，启用保守模式', { 
+        projectId: local.id 
+      });
+      Sentry.captureMessage('smartMerge 启用保守模式', {
+        level: 'warning',
+        tags: { operation: 'smartMerge', projectId: local.id },
+        extra: { reason: 'tombstone 查询失败且本地缓存为空' }
+      });
+      issues.push('无法确认远程删除状态，已启用保守合并模式');
+    }
+    
     // 创建任务映射
     const _localTaskMap = new Map(localTasks.map(t => [t.id, t]));
     const remoteTaskMap = new Map(remoteTasks.map(t => [t.id, t]));
@@ -299,6 +346,7 @@ export class ConflictResolutionService {
     const processedIds = new Set<string>();
     let skippedTombstoneCount = 0;
     let preservedSoftDeleteCount = 0;
+    let conservativeSkipCount = 0; // v5.9: 保守跳过计数
     
     // 处理本地任务
     for (const localTask of localTasks) {
@@ -312,6 +360,28 @@ export class ConflictResolutionService {
       }
       
       const remoteTask = remoteTaskMap.get(localTask.id);
+      
+      // 【v5.9 保守处理】tombstone 查询失败时的特殊处理
+      // 如果本地任务不在远程中，且无法确认 tombstone 状态，保守地不添加
+      if (!remoteTask && tombstoneQueryFailed && tombstoneIds.size === 0) {
+        // 检查任务是否是"旧任务"（可能被远程删除）
+        // 策略：如果任务的 updatedAt 早于一定时间，则视为可能被删除
+        // 或者更保守：只有当任务是最近创建的（例如 5 分钟内）才保留
+        const taskAge = localTask.updatedAt 
+          ? Date.now() - new Date(localTask.updatedAt).getTime() 
+          : Infinity;
+        const RECENT_THRESHOLD = 5 * 60 * 1000; // 5 分钟
+        
+        if (taskAge > RECENT_THRESHOLD) {
+          this.logger.warn('smartMerge: 保守跳过可能已删除的任务', { 
+            taskId: localTask.id, 
+            taskAge: Math.round(taskAge / 1000) + 's'
+          });
+          conservativeSkipCount++;
+          continue; // 保守地不添加可能已被远程删除的任务
+        }
+        // 最近创建的任务则保留（可能是离线新建的）
+      }
       
       // 【BUG 修复】软删除任务的处理
       // 情况 1: 本地软删除，远程不存在 → 保留本地软删除状态
@@ -368,6 +438,20 @@ export class ConflictResolutionService {
       this.logger.info('smartMerge: 保留软删除任务', { 
         count: preservedSoftDeleteCount, 
         projectId: local.id 
+      });
+    }
+    
+    // 【v5.9】记录保守跳过的任务
+    if (conservativeSkipCount > 0) {
+      this.logger.warn('smartMerge: 保守模式跳过任务', { 
+        count: conservativeSkipCount, 
+        projectId: local.id 
+      });
+      issues.push(`保守模式跳过 ${conservativeSkipCount} 个可能已删除的任务`);
+      Sentry.captureMessage('smartMerge 保守跳过任务', {
+        level: 'warning',
+        tags: { operation: 'smartMerge', projectId: local.id },
+        extra: { conservativeSkipCount }
       });
     }
     
@@ -703,22 +787,27 @@ export class ConflictResolutionService {
    * - 如果任一方软删除了连接，最终结果保持软删除状态
    * - 这确保删除操作可以正确同步到所有设备
    * - 恢复操作需要显式清除 deletedAt 字段
+   * 
+   * 【Week 2 修复】使用 id 作为唯一键而非 source→target
+   * 原因：同一 source→target 可能有多个连接（用户意图不同）
    */
   private mergeConnections(
     local: Project['connections'],
     remote: Project['connections']
   ): Project['connections'] {
+    // 【修复】使用 id 作为唯一键，而非 source→target
     const connMap = new Map<string, typeof local[0]>();
     
     // 先添加本地连接
     for (const conn of local) {
-      const key = `${conn.source}->${conn.target}`;
+      // 使用 id 作为唯一键（如果没有 id，降级到 source→target）
+      const key = conn.id || `${conn.source}->${conn.target}`;
       connMap.set(key, conn);
     }
     
     // 合并远程连接
     for (const conn of remote) {
-      const key = `${conn.source}->${conn.target}`;
+      const key = conn.id || `${conn.source}->${conn.target}`;
       const existing = connMap.get(key);
       
       if (!existing) {

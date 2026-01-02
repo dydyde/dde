@@ -1,6 +1,18 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
 import { UndoAction, Project } from '../models';
 import { UNDO_CONFIG } from '../config';
+import { ToastService } from './toast.service';
+
+/**
+ * 持久化数据结构
+ * @internal
+ */
+interface PersistedUndoData {
+  version: number;
+  timestamp: string;
+  projectId: string;
+  undoStack: UndoAction[];
+}
 
 /**
  * 撤销操作结果类型
@@ -23,15 +35,23 @@ export type UndoResult =
  * - 防抖合并：连续的编辑操作会被合并为一个撤销记录
  * - 栈大小限制：避免内存溢出
  * - 版本追踪：与远程同步配合使用
+ * - 【v5.8】sessionStorage 持久化：页面刷新后恢复撤销历史
  */
 @Injectable({
   providedIn: 'root'
 })
 export class UndoService {
+  private readonly toast = inject(ToastService);
+  
   /** 撤销栈 */
   private undoStack = signal<UndoAction[]>([]);
   /** 重做栈 */
   private redoStack = signal<UndoAction[]>([]);
+  
+  /** 持久化防抖计时器 */
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 当前项目 ID（用于持久化） */
+  private currentProjectId: string | null = null;
   
   /** 是否可以撤销 */
   readonly canUndo = computed(() => this.undoStack().length > 0);
@@ -42,6 +62,17 @@ export class UndoService {
   readonly undoCount = computed(() => this.undoStack().length);
   /** 重做栈大小 */
   readonly redoCount = computed(() => this.redoStack().length);
+  
+  /** 
+   * 栈截断事件 
+   * 当撤销历史因达到上限而被截断时触发
+   */
+  private _truncatedCount = signal(0);
+  readonly truncatedCount = this._truncatedCount.asReadonly();
+  
+  /** 上次截断提示时间（防止频繁提示） */
+  private lastTruncationNotifyTime = 0;
+  private readonly TRUNCATION_NOTIFY_COOLDOWN = 30000; // 30秒内不重复提示
   
   /** 是否正在执行撤销/重做操作（防止循环记录） */
   private isUndoRedoing = false;
@@ -202,6 +233,8 @@ export class UndoService {
         const newStack = [...stack, fullAction];
         // 限制栈大小
         if (newStack.length > UNDO_CONFIG.MAX_HISTORY_SIZE) {
+          const truncatedCount = newStack.length - UNDO_CONFIG.MAX_HISTORY_SIZE;
+          this.notifyTruncation(truncatedCount);
           return newStack.slice(-UNDO_CONFIG.MAX_HISTORY_SIZE);
         }
         return newStack;
@@ -211,6 +244,9 @@ export class UndoService {
     // 有新操作时清空重做栈
     this.redoStack.set([]);
     this.lastActionTime = now;
+    
+    // 【v5.8】触发持久化
+    this.schedulePersist();
   }
   
   /**
@@ -320,6 +356,10 @@ export class UndoService {
     this.redoStack.update(s => [...s, action]);
     
     this.isUndoRedoing = false;
+    
+    // 【v5.8】触发持久化
+    this.schedulePersist();
+    
     return action;
   }
   
@@ -339,6 +379,10 @@ export class UndoService {
     this.redoStack.update(s => [...s, action]);
     
     this.isUndoRedoing = false;
+    
+    // 【v5.8】触发持久化
+    this.schedulePersist();
+    
     return action;
   }
 
@@ -373,6 +417,10 @@ export class UndoService {
     this.undoStack.update(s => [...s, action]);
     
     this.isUndoRedoing = false;
+    
+    // 【v5.8】触发持久化
+    this.schedulePersist();
+    
     return action;
   }
 
@@ -553,5 +601,182 @@ export class UndoService {
     // 重置状态
     this.lastActionTime = 0;
     this.isUndoRedoing = false;
+    this._truncatedCount.set(0);
+  }
+  
+  // ==================== 私有方法 ====================
+  
+  /**
+   * 通知撤销历史被截断
+   * 
+   * 使用冷却时间防止频繁提示打扰用户
+   */
+  private notifyTruncation(count: number): void {
+    const now = Date.now();
+    
+    // 累计截断数量
+    this._truncatedCount.update(c => c + count);
+    
+    // 检查冷却时间
+    if (now - this.lastTruncationNotifyTime < this.TRUNCATION_NOTIFY_COOLDOWN) {
+      return;
+    }
+    
+    this.lastTruncationNotifyTime = now;
+    
+    // 显示提示
+    this.toast.info(
+      '撤销历史已达上限',
+      `最早的 ${count} 条记录已被移除`,
+      4000
+    );
+  }
+  
+  // ==================== 持久化方法 (v5.8) ====================
+  
+  /**
+   * 设置当前项目 ID 并尝试恢复历史
+   * 应在项目加载时调用
+   */
+  setCurrentProject(projectId: string): void {
+    if (this.currentProjectId === projectId) return;
+    
+    this.currentProjectId = projectId;
+    this.restoreFromStorage(projectId);
+  }
+  
+  /**
+   * 触发持久化（防抖）
+   * 在撤销栈变化时调用
+   */
+  private schedulePersist(): void {
+    if (!UNDO_CONFIG.PERSISTENCE.ENABLED || !this.currentProjectId) return;
+    
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+    
+    this.persistTimer = setTimeout(() => {
+      this.persistToStorage();
+    }, UNDO_CONFIG.PERSISTENCE.DEBOUNCE_DELAY);
+  }
+  
+  /**
+   * 将撤销历史持久化到 sessionStorage
+   * 
+   * 策略：
+   * - 只保存撤销栈（重做栈页面刷新后无意义）
+   * - 限制条目数以控制存储大小
+   * - 静默失败，不影响功能
+   */
+  private persistToStorage(): void {
+    if (!this.currentProjectId) return;
+    
+    try {
+      const undoItems = this.undoStack();
+      // 只保存最近的 N 条
+      const itemsToPersist = undoItems.slice(
+        -UNDO_CONFIG.PERSISTENCE.MAX_PERSISTED_ITEMS
+      );
+      
+      const data: PersistedUndoData = {
+        version: 1,
+        timestamp: new Date().toISOString(),
+        projectId: this.currentProjectId,
+        undoStack: itemsToPersist.map(item => this.serializeUndoAction(item))
+      };
+      
+      sessionStorage.setItem(
+        UNDO_CONFIG.PERSISTENCE.STORAGE_KEY,
+        JSON.stringify(data)
+      );
+    } catch {
+      // sessionStorage 满或不可用，静默失败
+    }
+  }
+  
+  /**
+   * 从 sessionStorage 恢复撤销历史
+   */
+  private restoreFromStorage(projectId: string): void {
+    if (!UNDO_CONFIG.PERSISTENCE.ENABLED) return;
+    
+    try {
+      const stored = sessionStorage.getItem(UNDO_CONFIG.PERSISTENCE.STORAGE_KEY);
+      if (!stored) return;
+      
+      const data: PersistedUndoData = JSON.parse(stored);
+      
+      // 验证项目匹配
+      if (data.projectId !== projectId) {
+        // 不同项目，清除旧数据
+        sessionStorage.removeItem(UNDO_CONFIG.PERSISTENCE.STORAGE_KEY);
+        return;
+      }
+      
+      // 验证版本和时间戳
+      if (data.version !== 1 || !data.undoStack || !Array.isArray(data.undoStack)) {
+        return;
+      }
+      
+      // 检查数据是否过期（5分钟内有效）
+      const age = Date.now() - new Date(data.timestamp).getTime();
+      if (age > 5 * 60 * 1000) {
+        sessionStorage.removeItem(UNDO_CONFIG.PERSISTENCE.STORAGE_KEY);
+        return;
+      }
+      
+      // 恢复撤销栈
+      const restoredActions = data.undoStack
+        .map(item => this.deserializeUndoAction(item))
+        .filter((item): item is UndoAction => item !== null);
+      
+      if (restoredActions.length > 0) {
+        this.undoStack.set(restoredActions);
+        // 不恢复重做栈，因为刷新后重做无意义
+      }
+    } catch {
+      // 解析失败，静默忽略
+      sessionStorage.removeItem(UNDO_CONFIG.PERSISTENCE.STORAGE_KEY);
+    }
+  }
+  
+  /**
+   * 清除持久化数据
+   */
+  private clearPersistedData(): void {
+    try {
+      sessionStorage.removeItem(UNDO_CONFIG.PERSISTENCE.STORAGE_KEY);
+    } catch {
+      // 静默失败
+    }
+  }
+  
+  /**
+   * 序列化 UndoAction（移除不可序列化的属性）
+   */
+  private serializeUndoAction(action: UndoAction): UndoAction {
+    // 创建深拷贝，确保可序列化
+    return JSON.parse(JSON.stringify(action));
+  }
+  
+  /**
+   * 反序列化 UndoAction
+   */
+  private deserializeUndoAction(data: unknown): UndoAction | null {
+    if (!data || typeof data !== 'object') return null;
+    
+    const action = data as Record<string, unknown>;
+    
+    // 验证必要字段
+    if (
+      typeof action['type'] !== 'string' ||
+      typeof action['projectId'] !== 'string' ||
+      typeof action['timestamp'] !== 'number'
+    ) {
+      return null;
+    }
+    
+    return action as unknown as UndoAction;
   }
 }

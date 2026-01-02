@@ -6,6 +6,7 @@
  * ✓ 处理实时订阅推送的远程任务变更
  * ✓ 增量更新与智能合并
  * ✓ 版本冲突检测
+ * ✓ 权限拒绝处理（v5.8）
  * ✗ 实时订阅建立/断开 → SyncCoordinatorService
  * ✗ 数据持久化 → SyncCoordinatorService
  * ✗ 用户会话管理 → UserSessionService
@@ -19,7 +20,9 @@ import { ToastService } from './toast.service';
 import { AuthService } from './auth.service';
 import { LoggerService } from './logger.service';
 import { ChangeTrackerService } from './change-tracker.service';
+import { PermissionDeniedHandlerService } from './permission-denied-handler.service';
 import { Project, Task } from '../models';
+import { SupabaseError, supabaseErrorToError } from '../utils/supabase-error';
 
 /**
  * 远程项目变更载荷
@@ -55,6 +58,7 @@ export class RemoteChangeHandlerService {
   private toastService = inject(ToastService);
   private authService = inject(AuthService);
   private changeTracker = inject(ChangeTrackerService);
+  private permissionDeniedHandler = inject(PermissionDeniedHandlerService);
   private destroyRef = inject(DestroyRef);
 
   /** 
@@ -591,11 +595,39 @@ export class RemoteChangeHandlerService {
             
             this.logger.info('远程任务更新已应用', { taskId, eventType });
           })
-          .catch(error => {
+          .catch(async error => {
             // 如果请求已过时或服务已销毁，静默忽略错误
             if (requestId !== this.taskUpdateRequestId || this.isDestroyed) return;
             
             this.logger.error('处理远程任务更新失败', error);
+
+            // 【v5.8】处理权限拒绝错误 (401/403)
+            const supabaseError = supabaseErrorToError(error);
+            if (supabaseError.code === '403' || supabaseError.code === '401') {
+              this.logger.warn('权限拒绝，触发数据保全机制', {
+                taskId,
+                projectId: targetProjectId,
+                errorCode: supabaseError.code
+              });
+              
+              // 通知权限拒绝处理器
+              const localProject = this.projectState.projects().find(p => p.id === targetProjectId);
+              if (localProject) {
+                const affectedTasks = [
+                  localProject.tasks.find(t => t.id === taskId)
+                ].filter((t): t is Task => t !== undefined);
+                
+                if (affectedTasks.length > 0) {
+                  await this.permissionDeniedHandler.handlePermissionDenied(
+                    supabaseError as SupabaseError,
+                    affectedTasks,
+                    targetProjectId
+                  );
+                }
+              }
+              return; // 权限拒绝已处理，不再显示通用错误提示
+            }
+            
             // 通知用户远程任务同步失败，提供刷新 action
             this.toastService.warning('同步提示', '远程任务更新失败，点击刷新页面', {
               duration: 8000,

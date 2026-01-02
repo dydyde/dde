@@ -335,7 +335,7 @@ describe('SyncCoordinatorService', () => {
       // 等待异步持久化操作完成
       await vi.waitFor(() => {
         expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalled();
-      });
+      }, { timeout: 200, interval: 10 });
     });
 
     it('连续调用 schedulePersist 应该只触发一次持久化', async () => {
@@ -372,7 +372,7 @@ describe('SyncCoordinatorService', () => {
 
       await vi.waitFor(() => {
         expect(mockSyncService.saveOfflineSnapshot).toHaveBeenCalledTimes(1);
-      });
+      }, { timeout: 500, interval: 20 });
       expect(mockSyncService.saveProjectSmart).not.toHaveBeenCalled();
     });
   });
@@ -575,7 +575,9 @@ describe('SyncCoordinatorService', () => {
 
       const result = service.validateAndRebalanceWithResult(project);
       expect(result.ok).toBe(true);
-      expect(result.value.tasks[0].parentId).toBe(null);
+      if (result.ok) {
+        expect(result.value.tasks[0].parentId).toBe(null);
+      }
     });
 
     it('验证有警告时应该记录日志', () => {

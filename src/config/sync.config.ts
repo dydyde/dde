@@ -37,12 +37,8 @@ export const SYNC_CONFIG = {
   CONNECTIVITY_PROBE_INTERVAL: 15000,
   /** 连通性探测超时（毫秒）- 避免弱网时长时间挂起 */
   CONNECTIVITY_PROBE_TIMEOUT: 5000,
-  /** 断路器：连续失败次数阈值 */
-  CIRCUIT_BREAKER_THRESHOLD: 5,
-  /** 断路器：打开状态持续时间（毫秒）- 2分钟 */
-  CIRCUIT_BREAKER_TIMEOUT: 2 * 60 * 1000,
-  /** 断路器：半开状态重试次数 */
-  CIRCUIT_BREAKER_HALF_OPEN_RETRIES: 3,
+  // 【已清理】CIRCUIT_BREAKER_* 配置已迁移到 CIRCUIT_BREAKER_CONFIG
+  // 详见下方 CIRCUIT_BREAKER_CONFIG 定义
   /** 
    * 重试队列最大大小（防止 localStorage 溢出）
    * 【2024-12-31 修复】从 500 降低到 100，因为每个 Task 可能包含大量内容
@@ -177,6 +173,39 @@ export const OPTIMISTIC_CONFIG = {
 } as const;
 
 /**
+ * 乐观锁配置
+ * 控制版本冲突检测和处理策略
+ * 
+ * 【Week 4 强化】从 warn_and_lww 改为 reject 模式
+ * 服务端触发器 check_version_increment() 已改为 RAISE EXCEPTION
+ */
+export const OPTIMISTIC_LOCK_CONFIG = {
+  /** 
+   * 是否启用严格模式（拒绝版本回退）
+   * true: 服务端和客户端都拒绝版本回退
+   * false: 仅警告，允许覆盖（LWW）
+   */
+  STRICT_MODE: true,
+  
+  /** 
+   * 版本冲突处理策略
+   * 'reject': 拒绝操作，提示用户刷新
+   * 'warn_and_lww': 警告并使用 LWW 覆盖
+   * 'silent_lww': 静默使用 LWW 覆盖
+   */
+  CONFLICT_STRATEGY: 'reject' as const,
+  
+  /** 是否记录版本冲突到日志 */
+  LOG_CONFLICTS: true,
+  
+  /** 版本冲突后的重试间隔（毫秒）*/
+  CONFLICT_RETRY_DELAY: 1000,
+  
+  /** 版本冲突最大重试次数（自动刷新远程数据后重试）*/
+  MAX_CONFLICT_RETRIES: 2,
+} as const;
+
+/**
  * 队列配置
  */
 export const QUEUE_CONFIG = {
@@ -184,4 +213,170 @@ export const QUEUE_CONFIG = {
   RETRY_BASE_DELAY: 1000,
   /** 无处理器超时时间（毫秒）- 5分钟 */
   NO_PROCESSOR_TIMEOUT: 5 * 60 * 1000,
+} as const;
+
+/**
+ * 权限拒绝处理配置
+ * 【v5.8】RLS 权限拒绝时数据保全机制
+ * 
+ * 场景：用户离线编辑 → 管理员撤销权限 → 重连时同步被 401/403 拒绝
+ * 问题：被拒数据直接丢弃，用户无法恢复
+ * 解决：隔离被拒数据到 IndexedDB，提供复制/导出/放弃选项
+ */
+export const PERMISSION_DENIED_CONFIG = {
+  /** 
+   * 权限拒绝时的数据处理策略
+   * - 'discard': 直接丢弃（旧方案，不推荐）
+   * - 'download-and-discard': 触发紧急下载，然后丢弃（用户有备份）
+   * - 'isolate-and-notify': 隔离到 IndexedDB，提供恢复选项（推荐）
+   */
+  ON_PERMISSION_DENIED: 'isolate-and-notify' as const,
+  
+  /** 隔离数据存储 key（用于 IndexedDB） */
+  REJECTED_DATA_STORAGE_KEY: 'nanoflow.rejected-data',
+  
+  /** 隔离数据保留时间（毫秒）- 7 天 */
+  REJECTED_DATA_RETENTION: 7 * 24 * 60 * 60 * 1000,
+  
+  /** 最大可隔离数据大小（字节）- 超过则强制下载 */
+  MAX_ISOLATE_SIZE: 10 * 1024 * 1024, // 10MB（IndexedDB 容量充足）
+  
+  /** 是否在权限拒绝时触发紧急导出 */
+  TRIGGER_EMERGENCY_EXPORT: true,
+  
+  /** 权限拒绝错误代码列表 */
+  PERMISSION_DENIED_CODES: ['403', '401', 'PGRST403', 'PGRST401'] as readonly string[],
+} as const;
+
+/**
+ * 【v5.9】存储配额配置
+ * 用于监控和保护本地存储空间
+ */
+export const STORAGE_QUOTA_CONFIG = {
+  /** localStorage 警告阈值（字节）- 4MB（通常配额 5-10MB） */
+  LOCALSTORAGE_WARNING_THRESHOLD: 4 * 1024 * 1024,
+  
+  /** localStorage 危险阈值（字节）- 4.5MB */
+  LOCALSTORAGE_CRITICAL_THRESHOLD: 4.5 * 1024 * 1024,
+  
+  /** IndexedDB 警告阈值（字节）- 40MB（通常配额 50MB+） */
+  INDEXEDDB_WARNING_THRESHOLD: 40 * 1024 * 1024,
+  
+  /** IndexedDB 危险阈值（字节）- 45MB */
+  INDEXEDDB_CRITICAL_THRESHOLD: 45 * 1024 * 1024,
+  
+  /** 配额检查间隔（毫秒）- 5 分钟 */
+  CHECK_INTERVAL: 5 * 60 * 1000,
+  
+  /** 是否在启动时自动检查 */
+  CHECK_ON_STARTUP: true,
+  
+  /** 配额警告 Toast 显示间隔（毫秒）- 1 小时（避免频繁打扰） */
+  WARNING_COOLDOWN: 60 * 60 * 1000,
+  
+  /** 需要保留的最小可用空间（字节）- 500KB */
+  MIN_FREE_SPACE: 500 * 1024,
+} as const;
+
+/**
+ * IndexedDB 损坏恢复策略类型
+ */
+export type CorruptionRecoveryStrategy = 'auto-cloud' | 'prompt-recovery' | 'notify-only';
+
+/**
+ * 【v5.10】IndexedDB 健康检查配置
+ * 检测和恢复 IndexedDB 损坏问题
+ */
+export const INDEXEDDB_HEALTH_CONFIG = {
+  /** 初始化时检测数据库健康 */
+  CHECK_ON_INIT: true,
+  
+  /** 启动时数据完整性校验 */
+  STARTUP_INTEGRITY_CHECK: {
+    ENABLED: true,
+    /** 抽样校验的记录数量 */
+    SAMPLE_SIZE: 10,
+    /** 校验 JSON 解析 */
+    CHECK_JSON_PARSE: true,
+    /** 校验必填字段 */
+    CHECK_REQUIRED_FIELDS: true,
+    /** 校验校验和（性能开销较大，默认关闭） */
+    CHECK_CHECKSUM: false,
+  },
+  
+  /** 损坏时的恢复策略 */
+  ON_CORRUPTION: 'prompt-recovery' as CorruptionRecoveryStrategy,
+  
+  /** 定期健康检查间隔（毫秒）- 每 30 分钟 */
+  PERIODIC_CHECK_INTERVAL: 30 * 60 * 1000,
+  
+  /** 任务必填字段 */
+  REQUIRED_TASK_FIELDS: ['id', 'title'] as const,
+  
+  /** 项目必填字段 */
+  REQUIRED_PROJECT_FIELDS: ['id', 'name'] as const,
+  
+  /** 连接必填字段 */
+  REQUIRED_CONNECTION_FIELDS: ['id', 'source', 'target'] as const,
+} as const;
+
+/**
+ * 【v5.10】时钟同步配置
+ * 检测客户端与服务端时钟偏移，保护 LWW 策略
+ */
+export const CLOCK_SYNC_CONFIG = {
+  /** 是否启用服务端时间校正 */
+  USE_SERVER_TIME: true,
+  
+  /** 时钟偏移警告阈值（毫秒）- 1 分钟 */
+  CLOCK_DRIFT_WARNING_THRESHOLD: 60 * 1000,
+  
+  /** 时钟偏移错误阈值（毫秒）- 5 分钟 */
+  CLOCK_DRIFT_ERROR_THRESHOLD: 5 * 60 * 1000,
+  
+  /** 网络延迟过大阈值（毫秒）- 超过此值认为检测不可信 */
+  MAX_RELIABLE_RTT: 5000,
+  
+  /** 定期检测间隔（毫秒）- 每 10 分钟 */
+  CHECK_INTERVAL: 10 * 60 * 1000,
+  
+  /** 启动时自动检测 */
+  CHECK_ON_INIT: true,
+  
+  /** 同步操作前检测（如果上次检测超过此时间） */
+  CHECK_BEFORE_SYNC_INTERVAL: 5 * 60 * 1000,
+  
+  /** 缓存有效期（毫秒）*/
+  CACHE_TTL: 5 * 60 * 1000,
+} as const;
+
+/**
+ * 并发编辑策略类型
+ */
+export type ConcurrentEditStrategy = 'block' | 'warn' | 'silent';
+
+/**
+ * 【v5.10】多标签页并发保护配置
+ * 增强 TabSyncService 的编辑锁机制
+ */
+export const TAB_CONCURRENCY_CONFIG = {
+  /** 是否启用并发编辑检测 */
+  DETECT_CONCURRENT_EDIT: true,
+  
+  /** 
+   * 同一任务在多标签页编辑时的处理策略
+   * - 'block': 阻止后来者编辑（最严格）
+   * - 'warn': 警告但允许编辑（默认，平衡体验）
+   * - 'silent': 静默允许（最宽松）
+   */
+  CONCURRENT_EDIT_STRATEGY: 'warn' as ConcurrentEditStrategy,
+  
+  /** 编辑锁超时时间（毫秒）- 30 秒无操作自动释放 */
+  EDIT_LOCK_TIMEOUT: 30000,
+  
+  /** 锁刷新间隔（毫秒）- 持续编辑时定期刷新锁 */
+  LOCK_REFRESH_INTERVAL: 10000,
+  
+  /** 并发编辑警告冷却时间（毫秒）- 避免频繁提示 */
+  WARNING_COOLDOWN: 30000,
 } as const;

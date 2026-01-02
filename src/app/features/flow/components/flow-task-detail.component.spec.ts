@@ -271,6 +271,9 @@ describe('FlowTaskDetailComponent - Task Switching Fix', () => {
 
   describe('编辑模式切换', () => {
     it('应该正确切换编辑模式', async () => {
+      // 使用 fake timers 避免等待真实的 350ms
+      vi.useFakeTimers();
+      
       const task = createMockTask('task-a', 'Task A', 'Content A');
       (component as any)['task'] = signal(task);
       fixture.detectChanges();
@@ -280,11 +283,13 @@ describe('FlowTaskDetailComponent - Task Switching Fix', () => {
       component.toggleEditMode();
       expect(component.isEditMode()).toBe(true);
 
-      // 等待节流时间结束（300ms）
-      await new Promise(resolve => setTimeout(resolve, 350));
+      // 使用 fake timers 快进节流时间（300ms + 余量）
+      await vi.advanceTimersByTimeAsync(350);
 
       component.toggleEditMode();
       expect(component.isEditMode()).toBe(false);
+      
+      vi.useRealTimers();
     });
 
     it('应该防止快速连续切换（节流保护）', () => {

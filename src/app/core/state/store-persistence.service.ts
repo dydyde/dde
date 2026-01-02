@@ -18,6 +18,7 @@ import { Injectable, inject, DestroyRef } from '@angular/core';
 import { TaskStore, ProjectStore, ConnectionStore } from './stores';
 import { LoggerService } from '../../../services/logger.service';
 import { Project, Task, Connection } from '../../../models';
+import { validateProject } from '../../../utils/validation';
 import * as Sentry from '@sentry/angular';
 
 /** 存储键前缀（保留用于未来扩展） */
@@ -210,15 +211,110 @@ export class StorePersistenceService {
         transaction.onerror = () => reject(transaction.error);
       });
       
+      // 【v5.8 新增】写入后完整性校验
+      const verifyResult = await this.verifyWriteIntegrity(db, projectId, tasks.length, connections.length);
+      if (!verifyResult.valid) {
+        this.logger.error('IndexedDB 写入校验失败', { 
+          projectId, 
+          expected: { tasks: tasks.length, connections: connections.length },
+          actual: verifyResult.actual,
+          errors: verifyResult.errors
+        });
+        Sentry.captureMessage('IndexedDB 写入校验失败', {
+          level: 'error',
+          tags: { operation: 'writeIntegrityCheck', projectId },
+          extra: { 
+            expected: { tasks: tasks.length, connections: connections.length },
+            actual: verifyResult.actual,
+            errors: verifyResult.errors
+          }
+        });
+      }
+      
       this.logger.debug('项目数据已保存', { 
         projectId, 
         tasksCount: tasks.length, 
-        connectionsCount: connections.length 
+        connectionsCount: connections.length,
+        verified: verifyResult.valid
       });
     } catch (err) {
       this.logger.error('保存项目数据失败', { projectId, error: err });
       Sentry.captureException(err, { tags: { operation: 'saveProjectData', projectId } });
       // 静默失败，不影响运行时
+    }
+  }
+  
+  /**
+   * 【v5.8 新增】验证 IndexedDB 写入完整性
+   * 回读数据确保写入成功
+   */
+  private async verifyWriteIntegrity(
+    db: IDBDatabase, 
+    projectId: string, 
+    expectedTaskCount: number, 
+    expectedConnectionCount: number
+  ): Promise<{ valid: boolean; actual: { tasks: number; connections: number }; errors: string[] }> {
+    const errors: string[] = [];
+    
+    try {
+      const transaction = db.transaction(
+        [DB_CONFIG.stores.projects, DB_CONFIG.stores.tasks, DB_CONFIG.stores.connections],
+        'readonly'
+      );
+      
+      const projectStore = transaction.objectStore(DB_CONFIG.stores.projects);
+      const taskStore = transaction.objectStore(DB_CONFIG.stores.tasks);
+      const connectionStore = transaction.objectStore(DB_CONFIG.stores.connections);
+      
+      // 1. 验证项目存在
+      const savedProject = await new Promise<Project | undefined>((resolve, reject) => {
+        const request = projectStore.get(projectId);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      
+      if (!savedProject) {
+        errors.push('项目未成功写入');
+      } else if (!savedProject.id || !savedProject.name) {
+        errors.push('项目关键字段丢失');
+      }
+      
+      // 2. 验证任务数量（使用索引计数）
+      const taskIndex = taskStore.index('projectId');
+      const savedTaskCount = await new Promise<number>((resolve, reject) => {
+        const request = taskIndex.count(IDBKeyRange.only(projectId));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      
+      if (savedTaskCount !== expectedTaskCount) {
+        errors.push(`任务数量不匹配：期望 ${expectedTaskCount}，实际 ${savedTaskCount}`);
+      }
+      
+      // 3. 验证连接数量（使用索引计数）
+      const connectionIndex = connectionStore.index('projectId');
+      const savedConnectionCount = await new Promise<number>((resolve, reject) => {
+        const request = connectionIndex.count(IDBKeyRange.only(projectId));
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      
+      if (savedConnectionCount !== expectedConnectionCount) {
+        errors.push(`连接数量不匹配：期望 ${expectedConnectionCount}，实际 ${savedConnectionCount}`);
+      }
+      
+      return {
+        valid: errors.length === 0,
+        actual: { tasks: savedTaskCount, connections: savedConnectionCount },
+        errors
+      };
+    } catch (err) {
+      errors.push(`读取验证失败: ${err instanceof Error ? err.message : String(err)}`);
+      return {
+        valid: false,
+        actual: { tasks: -1, connections: -1 },
+        errors
+      };
     }
   }
   
@@ -262,6 +358,11 @@ export class StorePersistenceService {
   
   /**
    * 从 IndexedDB 恢复项目数据
+   * 
+   * 【Week 2 增强】添加 schema 验证，防止损坏的缓存导致运行时异常
+   * 验证失败时：
+   * - Critical 错误：返回 false，让调用者从云端拉取新数据
+   * - 警告：尝试修复并继续加载
    */
   async loadProject(projectId: string): Promise<boolean> {
     try {
@@ -290,6 +391,46 @@ export class StorePersistenceService {
         'projectId', 
         projectId
       );
+      
+      // 【Week 2 - Schema 验证】验证恢复的数据完整性
+      // 组装完整项目用于验证
+      const fullProject: Partial<Project> = {
+        ...project,
+        tasks: tasks.map(t => {
+          const { projectId: _, ...task } = t;
+          return task as Task;
+        }),
+        connections: connections.map(c => {
+          const { projectId: _, ...conn } = c;
+          return conn as Connection;
+        })
+      };
+      
+      const validation = validateProject(fullProject);
+      
+      // 记录验证结果
+      if (validation.warnings.length > 0) {
+        this.logger.warn('项目数据验证警告', { 
+          projectId, 
+          warnings: validation.warnings.slice(0, 10) // 只记录前 10 个警告
+        });
+      }
+      
+      if (!validation.valid) {
+        // Critical 验证失败 - 返回 false，让调用者从云端重新获取
+        this.logger.error('项目数据验证失败，缓存可能已损坏', { 
+          projectId, 
+          errors: validation.errors.slice(0, 10)
+        });
+        Sentry.captureMessage('IndexedDB 缓存数据验证失败', {
+          level: 'error',
+          tags: { operation: 'loadProject', projectId },
+          extra: { errors: validation.errors }
+        });
+        // 清理损坏的缓存
+        await this.deleteProject(projectId);
+        return false;
+      }
       
       // 恢复到 Store
       this.projectStore.setProject(project);
@@ -544,4 +685,319 @@ export class StorePersistenceService {
       request.onerror = () => reject(request.error);
     });
   }
-}
+  
+  // ============================================================
+  // 【v5.9】离线数据完整性校验
+  // ============================================================
+  
+  /**
+   * 【v5.9】数据完整性校验结果
+   */
+  export interface OfflineIntegrityResult {
+    valid: boolean;
+    issues: OfflineIntegrityIssue[];
+    stats: {
+      projectCount: number;
+      taskCount: number;
+      connectionCount: number;
+      orphanedTasks: number;
+      brokenConnections: number;
+    };
+    timestamp: number;
+  }
+  
+  export interface OfflineIntegrityIssue {
+    type: 'orphaned-task' | 'broken-connection' | 'missing-project' | 'invalid-data' | 'index-mismatch';
+    entityId: string;
+    projectId?: string;
+    message: string;
+    severity: 'error' | 'warning';
+  }
+  
+  /**
+   * 【v5.9】全面验证离线数据完整性
+   * 检查：
+   * 1. 任务是否属于有效项目
+   * 2. 连接是否指向有效任务
+   * 3. 父子关系是否有效
+   * 4. 数据索引一致性
+   */
+  async validateOfflineDataIntegrity(): Promise<{
+    valid: boolean;
+    issues: Array<{
+      type: string;
+      entityId: string;
+      projectId?: string;
+      message: string;
+      severity: 'error' | 'warning';
+    }>;
+    stats: {
+      projectCount: number;
+      taskCount: number;
+      connectionCount: number;
+      orphanedTasks: number;
+      brokenConnections: number;
+    };
+  }> {
+    const issues: Array<{
+      type: string;
+      entityId: string;
+      projectId?: string;
+      message: string;
+      severity: 'error' | 'warning';
+    }> = [];
+    
+    let orphanedTasks = 0;
+    let brokenConnections = 0;
+    
+    try {
+      const db = await this.initDatabase();
+      
+      // 1. 加载所有数据
+      const allProjects = await this.getAllFromStore<Project>(db, DB_CONFIG.stores.projects);
+      const allTasks = await this.getAllFromStore<Task>(db, DB_CONFIG.stores.tasks);
+      const allConnections = await this.getAllFromStore<Connection>(db, DB_CONFIG.stores.connections);
+      
+      const projectIds = new Set(allProjects.map(p => p.id));
+      const tasksByProject = new Map<string, Set<string>>();
+      
+      // 2. 构建任务索引
+      for (const task of allTasks) {
+        const taskProjectId = (task as Task & { projectId?: string }).projectId;
+        if (taskProjectId) {
+          if (!tasksByProject.has(taskProjectId)) {
+            tasksByProject.set(taskProjectId, new Set());
+          }
+          tasksByProject.get(taskProjectId)!.add(task.id);
+        }
+      }
+      
+      // 3. 检查任务
+      for (const task of allTasks) {
+        const taskProjectId = (task as Task & { projectId?: string }).projectId;
+        
+        // 检查任务是否属于有效项目
+        if (!taskProjectId || !projectIds.has(taskProjectId)) {
+          issues.push({
+            type: 'orphaned-task',
+            entityId: task.id,
+            projectId: taskProjectId,
+            message: `任务 "${task.title || task.id}" 不属于任何有效项目`,
+            severity: 'error'
+          });
+          orphanedTasks++;
+          continue;
+        }
+        
+        // 检查父任务是否存在
+        if (task.parentId) {
+          const projectTasks = tasksByProject.get(taskProjectId);
+          if (!projectTasks?.has(task.parentId)) {
+            issues.push({
+              type: 'invalid-data',
+              entityId: task.id,
+              projectId: taskProjectId,
+              message: `任务 "${task.title || task.id}" 的父任务 ${task.parentId} 不存在`,
+              severity: 'warning'
+            });
+          }
+        }
+        
+        // 检查必要字段
+        if (!task.id) {
+          issues.push({
+            type: 'invalid-data',
+            entityId: 'unknown',
+            projectId: taskProjectId,
+            message: '发现无 ID 的任务',
+            severity: 'error'
+          });
+        }
+      }
+      
+      // 4. 检查连接
+      for (const conn of allConnections) {
+        const connProjectId = (conn as Connection & { projectId?: string }).projectId;
+        
+        if (!connProjectId || !projectIds.has(connProjectId)) {
+          issues.push({
+            type: 'broken-connection',
+            entityId: conn.id,
+            projectId: connProjectId,
+            message: `连接 ${conn.id} 不属于任何有效项目`,
+            severity: 'error'
+          });
+          brokenConnections++;
+          continue;
+        }
+        
+        const projectTasks = tasksByProject.get(connProjectId);
+        
+        // 检查源任务
+        if (!projectTasks?.has(conn.source)) {
+          issues.push({
+            type: 'broken-connection',
+            entityId: conn.id,
+            projectId: connProjectId,
+            message: `连接 ${conn.id} 的源任务 ${conn.source} 不存在`,
+            severity: 'warning'
+          });
+          brokenConnections++;
+        }
+        
+        // 检查目标任务
+        if (!projectTasks?.has(conn.target)) {
+          issues.push({
+            type: 'broken-connection',
+            entityId: conn.id,
+            projectId: connProjectId,
+            message: `连接 ${conn.id} 的目标任务 ${conn.target} 不存在`,
+            severity: 'warning'
+          });
+          brokenConnections++;
+        }
+      }
+      
+      // 5. 记录结果
+      const hasErrors = issues.some(i => i.severity === 'error');
+      
+      if (issues.length > 0) {
+        this.logger.warn('离线数据完整性检查发现问题', {
+          issueCount: issues.length,
+          errorCount: issues.filter(i => i.severity === 'error').length,
+          warningCount: issues.filter(i => i.severity === 'warning').length
+        });
+        
+        if (hasErrors) {
+          Sentry.captureMessage('离线数据完整性检查发现严重问题', {
+            level: 'error',
+            tags: { operation: 'validateOfflineDataIntegrity' },
+            extra: { 
+              errorCount: issues.filter(i => i.severity === 'error').length,
+              sampleIssues: issues.slice(0, 5)
+            }
+          });
+        }
+      } else {
+        this.logger.debug('离线数据完整性检查通过', {
+          projectCount: allProjects.length,
+          taskCount: allTasks.length,
+          connectionCount: allConnections.length
+        });
+      }
+      
+      return {
+        valid: !hasErrors,
+        issues,
+        stats: {
+          projectCount: allProjects.length,
+          taskCount: allTasks.length,
+          connectionCount: allConnections.length,
+          orphanedTasks,
+          brokenConnections
+        }
+      };
+    } catch (err) {
+      this.logger.error('离线数据完整性检查失败', err);
+      Sentry.captureException(err, {
+        tags: { operation: 'validateOfflineDataIntegrity' }
+      });
+      
+      return {
+        valid: false,
+        issues: [{
+          type: 'invalid-data',
+          entityId: 'system',
+          message: `检查过程出错: ${err instanceof Error ? err.message : String(err)}`,
+          severity: 'error'
+        }],
+        stats: {
+          projectCount: 0,
+          taskCount: 0,
+          connectionCount: 0,
+          orphanedTasks: 0,
+          brokenConnections: 0
+        }
+      };
+    }
+  }
+  
+  /**
+   * 【v5.9】清理孤立数据
+   * 删除不属于任何项目的任务和连接
+   */
+  async cleanupOrphanedData(): Promise<{ removedTasks: number; removedConnections: number }> {
+    let removedTasks = 0;
+    let removedConnections = 0;
+    
+    try {
+      const db = await this.initDatabase();
+      
+      // 获取有效项目 ID
+      const allProjects = await this.getAllFromStore<Project>(db, DB_CONFIG.stores.projects);
+      const projectIds = new Set(allProjects.map(p => p.id));
+      
+      // 清理孤立任务
+      const allTasks = await this.getAllFromStore<Task>(db, DB_CONFIG.stores.tasks);
+      const orphanedTaskIds: string[] = [];
+      
+      for (const task of allTasks) {
+        const taskProjectId = (task as Task & { projectId?: string }).projectId;
+        if (!taskProjectId || !projectIds.has(taskProjectId)) {
+          orphanedTaskIds.push(task.id);
+        }
+      }
+      
+      if (orphanedTaskIds.length > 0) {
+        const taskTx = db.transaction(DB_CONFIG.stores.tasks, 'readwrite');
+        const taskStore = taskTx.objectStore(DB_CONFIG.stores.tasks);
+        
+        for (const taskId of orphanedTaskIds) {
+          await new Promise<void>((resolve, reject) => {
+            const request = taskStore.delete(taskId);
+            request.onsuccess = () => {
+              removedTasks++;
+              resolve();
+            };
+            request.onerror = () => reject(request.error);
+          });
+        }
+      }
+      
+      // 清理孤立连接
+      const allConnections = await this.getAllFromStore<Connection>(db, DB_CONFIG.stores.connections);
+      const orphanedConnectionIds: string[] = [];
+      
+      for (const conn of allConnections) {
+        const connProjectId = (conn as Connection & { projectId?: string }).projectId;
+        if (!connProjectId || !projectIds.has(connProjectId)) {
+          orphanedConnectionIds.push(conn.id);
+        }
+      }
+      
+      if (orphanedConnectionIds.length > 0) {
+        const connTx = db.transaction(DB_CONFIG.stores.connections, 'readwrite');
+        const connStore = connTx.objectStore(DB_CONFIG.stores.connections);
+        
+        for (const connId of orphanedConnectionIds) {
+          await new Promise<void>((resolve, reject) => {
+            const request = connStore.delete(connId);
+            request.onsuccess = () => {
+              removedConnections++;
+              resolve();
+            };
+            request.onerror = () => reject(request.error);
+          });
+        }
+      }
+      
+      if (removedTasks > 0 || removedConnections > 0) {
+        this.logger.info('孤立数据清理完成', { removedTasks, removedConnections });
+      }
+      
+      return { removedTasks, removedConnections };
+    } catch (err) {
+      this.logger.error('孤立数据清理失败', err);
+      return { removedTasks: 0, removedConnections: 0 };
+    }
+  }

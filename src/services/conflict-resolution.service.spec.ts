@@ -35,6 +35,13 @@ const mockSyncService = {
   resolveConflict: vi.fn(),
   saveProjectToCloud: vi.fn().mockResolvedValue({ success: true }),
   getTombstoneIds: vi.fn().mockResolvedValue(new Set<string>()),
+  // 【v5.9】添加带状态的 tombstone 查询方法
+  getTombstoneIdsWithStatus: vi.fn().mockResolvedValue({
+    ids: new Set<string>(),
+    fromRemote: true,
+    localCacheOnly: false,
+    timestamp: Date.now()
+  }),
 };
 
 const mockLayoutService = {
@@ -347,7 +354,22 @@ describe('ConflictResolutionService', () => {
         expect(result.project.connections).toHaveLength(2);
       });
 
-      it('重复连接应该去重', () => {
+      it('重复连接应该去重（相同 id）', () => {
+        // 【修正】使用相同的 id 测试去重逻辑
+        const localProject = createTestProject({
+          connections: [createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2' })],
+        });
+        const remoteProject = createTestProject({
+          connections: [createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2' })],
+        });
+
+        const result = service.smartMerge(localProject, remoteProject, new Set());
+
+        expect(result.project.connections).toHaveLength(1);
+      });
+      
+      it('不同 id 的连接即使 source→target 相同也应该保留', () => {
+        // 【Week 2 修复】使用 id 作为唯一键，允许同一 source→target 有多个连接
         const localProject = createTestProject({
           connections: [createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2' })],
         });
@@ -357,10 +379,12 @@ describe('ConflictResolutionService', () => {
 
         const result = service.smartMerge(localProject, remoteProject, new Set());
 
-        expect(result.project.connections).toHaveLength(1);
+        // 两个不同 id 的连接应该都保留
+        expect(result.project.connections).toHaveLength(2);
       });
 
       it('软删除的连接应该正确处理 - 删除优先策略', () => {
+        // 【修正】使用相同的 id 测试删除优先策略
         const localProject = createTestProject({
           connections: [
             createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2', deletedAt: null }),
@@ -369,7 +393,7 @@ describe('ConflictResolutionService', () => {
         const deletedTime = new Date().toISOString();
         const remoteProject = createTestProject({
           connections: [
-            createTestConnection({ id: 'conn-2', source: 'task-1', target: 'task-2', deletedAt: deletedTime }),
+            createTestConnection({ id: 'conn-1', source: 'task-1', target: 'task-2', deletedAt: deletedTime }),
           ],
         });
 

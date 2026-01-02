@@ -264,10 +264,10 @@ describe('ActionQueueService', () => {
       // 恢复在线 - 使用事件触发自动处理
       triggerNetworkEvent(true);
       
-      // 等待处理完成
+      // 等待处理完成（使用短超时提高测试速度）
       await vi.waitFor(() => {
         expect(processor).toHaveBeenCalled();
-      }, { timeout: 1000 });
+      }, { timeout: 100, interval: 10 });
     });
   });
 
@@ -383,10 +383,10 @@ describe('ActionQueueService', () => {
       // 重试操作会自动触发 processQueue，等待处理完成
       service.retryDeadLetter(deadLetters[0].action.id);
       
-      // 等待自动处理完成
+      // 等待自动处理完成（使用短超时提高测试速度）
       await vi.waitFor(() => {
         expect(service.queueSize()).toBe(0);
-      }, { timeout: 1000 });
+      }, { timeout: 100, interval: 10 });
       
       expect(service.deadLetterSize()).toBe(0);
     });

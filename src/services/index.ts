@@ -56,6 +56,7 @@ export {
 } from './dynamic-modal.service';
 export { BaseModalComponent, ConfirmModalComponent } from './base-modal.component';
 export { UiStateService } from './ui-state.service';
+export { BeforeUnloadManagerService, type BeforeUnloadCallback } from './before-unload-manager.service';
 
 // 功能服务
 export { UndoService } from './undo.service';
@@ -64,6 +65,73 @@ export { AttachmentService } from './attachment.service';
 export { MigrationService } from './migration.service';
 export { LoggerService } from './logger.service';
 export { SearchService, type SearchResult, type ProjectSearchResult } from './search.service';
+export { 
+  CircuitBreakerService, 
+  CLIENT_CIRCUIT_BREAKER_CONFIG, 
+  type CircuitLevel, 
+  type CircuitBreakerValidation, 
+  type CircuitBreakerViolation 
+} from './circuit-breaker.service';
+export { StorageQuotaService, type StorageUsage, type QuotaAlert } from './storage-quota.service';
+export { PermissionDeniedHandlerService, type RejectedDataRecord } from './permission-denied-handler.service';
+export { 
+  IndexedDBHealthService, 
+  INDEXEDDB_HEALTH_CONFIG,
+  type DatabaseHealthStatus,
+  type DatabaseErrorType,
+  type IntegrityIssue,
+  type HealthCheckResult,
+  type RecoveryResult,
+} from './indexeddb-health.service';
+export { 
+  ClockSyncService, 
+  CLOCK_SYNC_CONFIG,
+  type ClockDriftStatus,
+  type ClockSyncResult,
+} from './clock-sync.service';
+export {
+  FileTypeValidatorService,
+  FILE_TYPE_VALIDATION_CONFIG,
+  ALLOWED_EXTENSIONS,
+  ALLOWED_MIME_TYPES,
+  DANGEROUS_EXTENSIONS,
+  DANGEROUS_MIME_TYPES,
+  type FileValidationResult,
+  type FileValidationErrorCode,
+} from './file-type-validator.service';
+export {
+  VirusScanService,
+  type ScanResponse,
+  type ScanErrorCode,
+} from './virus-scan.service';
+
+// 导入/导出服务
+export { ExportService, type ExportData, type ExportProgress, EXPORT_CONFIG } from './export.service';
+export { ImportService, type ImportProgress, type ImportResult, IMPORT_CONFIG } from './import.service';
+export { 
+  AttachmentImportService, 
+  type AttachmentImportItem, 
+  type AttachmentImportProgress, 
+  type AttachmentImportResult,
+  ATTACHMENT_IMPORT_CONFIG 
+} from './attachment-import.service';
+export { AttachmentExportService, type AttachmentExportProgress, type AttachmentExportResult } from './attachment-export.service';
+
+// 本地备份服务
+export {
+  LocalBackupService,
+} from './local-backup.service';
+
+// 备份恢复服务
+export { 
+  RecoveryService, 
+  type RecoveryPoint, 
+  type RecoveryPreview, 
+  type RecoveryOptions, 
+  type RecoveryResult,
+  type RecoveryStatus,
+  RECOVERY_CONFIG 
+} from './recovery.service';
 
 // 流程图相关服务 - 请从 '@app/features/flow/services' 导入
 // FlowDiagramService, FlowDragDropService, FlowLinkService 等已迁移
@@ -77,3 +145,10 @@ export { LineageColorService, type LineageData, type LineageNodeData, type Linea
 // Guards (注意：authGuard 已移除，请使用 requireAuthGuard)
 export { saveAuthCache, getDataIsolationId } from './guards/auth.guard';
 export { projectExistsGuard } from './guards/project.guard';
+export {
+  UnsavedChangesGuard,
+  BeforeUnloadGuardService,
+  ProjectSwitchGuardService,
+  ROUTE_LEAVE_PROTECTION_CONFIG,
+  type CanLeave,
+} from './guards/unsaved-changes.guard';
