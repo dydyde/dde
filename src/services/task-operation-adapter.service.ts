@@ -309,11 +309,14 @@ export class TaskOperationAdapterService {
       this.activeStructureSnapshot = snapshot.id;
       this.setupSyncResultHandler(snapshot.id);
       
-      // 显示带撤回按钮的 Toast
+      // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+      // 移动端：显示带撤回按钮的 Toast
+      const isMobile = this.uiState.isMobile();
+      
       this.toastService.success(
         `已创建 "${title || '新任务'}"`,
         undefined,
-        {
+        isMobile ? {
           duration: 5000,
           action: {
             label: '撤销',
@@ -322,7 +325,7 @@ export class TaskOperationAdapterService {
               this.performUndo();
             }
           }
-        }
+        } : { duration: 3000 }
       );
     } else {
       // 操作本身失败，立即回滚
@@ -341,11 +344,14 @@ export class TaskOperationAdapterService {
     this.activeStructureSnapshot = snapshot.id;
     this.setupSyncResultHandler(snapshot.id);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       `已创建 "${title || '新任务'}"`,
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -354,7 +360,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
   }
   
@@ -369,11 +375,14 @@ export class TaskOperationAdapterService {
     
     this.taskOps.deleteTask(taskId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       `已删除 "${taskTitle}"`,
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -382,7 +391,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
     
     this.activeStructureSnapshot = snapshot.id;
@@ -426,11 +435,14 @@ export class TaskOperationAdapterService {
     // 收集所有要删除的任务 ID（包括级联子任务）
     this.triggerServerSideDelete(projectId, explicitIds, snapshot.id, deletedCount);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       `已删除 ${deletedCount} 个任务`,
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -439,7 +451,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
     
     this.activeStructureSnapshot = snapshot.id;
@@ -586,10 +598,15 @@ export class TaskOperationAdapterService {
       // 只有真正移动时才显示 Toast 和设置快照
       if (actuallyMoved) {
         const stageName = newStage === null ? '待分配区' : `阶段 ${newStage}`;
+        
+        // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+        // 移动端：显示带撤回按钮的 Toast
+        const isMobile = this.uiState.isMobile();
+        
         this.toastService.success(
           `已移动到${stageName}`,
           undefined,
-          {
+          isMobile ? {
             duration: 5000,
             action: {
               label: '撤销',
@@ -598,7 +615,7 @@ export class TaskOperationAdapterService {
                 this.performUndo();
               }
             }
-          }
+          } : { duration: 3000 }
         );
         
         this.activeStructureSnapshot = snapshot.id;
@@ -649,11 +666,14 @@ export class TaskOperationAdapterService {
     const result = this.taskOps.moveSubtreeToNewParent(taskId, newParentId);
     
     if (result.ok) {
-      // 显示带撤回按钮的 Toast
+      // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+      // 移动端：显示带撤回按钮的 Toast
+      const isMobile = this.uiState.isMobile();
+      
       this.toastService.success(
         '已移动子树',
         undefined,
-        {
+        isMobile ? {
           duration: 5000,
           action: {
             label: '撤销',
@@ -662,7 +682,7 @@ export class TaskOperationAdapterService {
               this.performUndo();
             }
           }
-        }
+        } : { duration: 3000 }
       );
       
       this.activeStructureSnapshot = snapshot.id;
@@ -690,11 +710,14 @@ export class TaskOperationAdapterService {
   detachTaskWithSubtree(taskId: string) {
     const result = this.taskOps.detachTaskWithSubtree(taskId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       '已移动到待分配区',
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -703,7 +726,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
     
     return result;
@@ -739,10 +762,14 @@ export class TaskOperationAdapterService {
         ? '，原子任务已移到待分配区' 
         : '';
       
+      // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+      // 移动端：显示带撤回按钮的 Toast
+      const isMobile = this.uiState.isMobile();
+      
       this.toastService.success(
         `已分配待分配块${detachedInfo}`,
         undefined,
-        {
+        isMobile ? {
           duration: 5000,
           action: {
             label: '撤销',
@@ -751,7 +778,7 @@ export class TaskOperationAdapterService {
               this.performUndo();
             }
           }
-        }
+        } : { duration: 3000 }
       );
       
       this.activeStructureSnapshot = snapshot.id;
@@ -783,10 +810,14 @@ export class TaskOperationAdapterService {
     const result = this.taskOps.assignUnassignedToTask(sourceTaskId, targetUnassignedId);
     
     if (result.ok) {
+      // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+      // 移动端：显示带撤回按钮的 Toast
+      const isMobile = this.uiState.isMobile();
+      
       this.toastService.success(
         '已分配待分配块',
         undefined,
-        {
+        isMobile ? {
           duration: 5000,
           action: {
             label: '撤销',
@@ -795,7 +826,7 @@ export class TaskOperationAdapterService {
               this.performUndo();
             }
           }
-        }
+        } : { duration: 3000 }
       );
       
       this.activeStructureSnapshot = snapshot.id;
@@ -836,11 +867,14 @@ export class TaskOperationAdapterService {
     
     this.taskOps.deleteTaskKeepChildren(taskId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       `已删除 "${taskTitle}"（保留子任务）`,
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -849,7 +883,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
     
     this.activeStructureSnapshot = snapshot.id;
@@ -903,11 +937,14 @@ export class TaskOperationAdapterService {
   addCrossTreeConnection(sourceId: string, targetId: string): void {
     this.taskOps.addCrossTreeConnection(sourceId, targetId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       '已添加关联',
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -916,18 +953,21 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
   }
   
   removeConnection(sourceId: string, targetId: string): void {
     this.taskOps.removeConnection(sourceId, targetId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       '已删除关联',
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -936,7 +976,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
   }
   
@@ -952,11 +992,14 @@ export class TaskOperationAdapterService {
   ): void {
     this.taskOps.relinkCrossTreeConnection(oldSourceId, oldTargetId, newSourceId, newTargetId);
     
-    // 显示带撤回按钮的 Toast
+    // 桌面端：简单提示（使用 Ctrl+Z 撤销）
+    // 移动端：显示带撤回按钮的 Toast
+    const isMobile = this.uiState.isMobile();
+    
     this.toastService.success(
       '已重连关联',
       undefined,
-      {
+      isMobile ? {
         duration: 5000,
         action: {
           label: '撤销',
@@ -965,7 +1008,7 @@ export class TaskOperationAdapterService {
             this.performUndo();
           }
         }
-      }
+      } : { duration: 3000 }
     );
   }
   

@@ -685,35 +685,11 @@ export class StorePersistenceService {
       request.onerror = () => reject(request.error);
     });
   }
-  
+
   // ============================================================
   // 【v5.9】离线数据完整性校验
   // ============================================================
-  
-  /**
-   * 【v5.9】数据完整性校验结果
-   */
-  export interface OfflineIntegrityResult {
-    valid: boolean;
-    issues: OfflineIntegrityIssue[];
-    stats: {
-      projectCount: number;
-      taskCount: number;
-      connectionCount: number;
-      orphanedTasks: number;
-      brokenConnections: number;
-    };
-    timestamp: number;
-  }
-  
-  export interface OfflineIntegrityIssue {
-    type: 'orphaned-task' | 'broken-connection' | 'missing-project' | 'invalid-data' | 'index-mismatch';
-    entityId: string;
-    projectId?: string;
-    message: string;
-    severity: 'error' | 'warning';
-  }
-  
+
   /**
    * 【v5.9】全面验证离线数据完整性
    * 检查：
@@ -1001,3 +977,32 @@ export class StorePersistenceService {
       return { removedTasks: 0, removedConnections: 0 };
     }
   }
+}
+
+// ============================================================
+// 【v5.9】离线数据完整性校验 - 类型定义（导出供外部使用）
+// ============================================================
+
+/**
+ * 【v5.9】数据完整性校验结果
+ */
+export interface OfflineIntegrityResult {
+  valid: boolean;
+  issues: OfflineIntegrityIssue[];
+  stats: {
+    projectCount: number;
+    taskCount: number;
+    connectionCount: number;
+    orphanedTasks: number;
+    brokenConnections: number;
+  };
+  timestamp: number;
+}
+
+export interface OfflineIntegrityIssue {
+  type: 'orphaned-task' | 'broken-connection' | 'missing-project' | 'invalid-data' | 'index-mismatch';
+  entityId: string;
+  projectId?: string;
+  message: string;
+  severity: 'error' | 'warning';
+}

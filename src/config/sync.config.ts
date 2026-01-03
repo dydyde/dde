@@ -71,6 +71,15 @@ export const SYNC_CONFIG = {
   // ==================== 增量同步配置 ====================
   /** Tombstone 缓存有效期（毫秒）- 5 分钟 */
   TOMBSTONE_CACHE_TTL: 5 * 60 * 1000,
+  
+  /**
+   * 是否启用 Delta Sync（增量同步）
+   * 【Stingy Hoarder Protocol】Feature Flag
+   * - true: 使用 updated_at 增量拉取，仅同步变更数据
+   * - false: 使用全量拉取（当前默认，待验证后切换）
+   * @see docs/plan_save.md Phase 2
+   */
+  DELTA_SYNC_ENABLED: false,
 } as const;
 
 /**
