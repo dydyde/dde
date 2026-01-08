@@ -50,12 +50,28 @@ export class PreferenceService {
   private _autoResolveConflicts = signal(true);
   readonly autoResolveConflicts = this._autoResolveConflicts.asReadonly();
 
+  /** 最近一次本机写入偏好的时间戳（用于回声保护，避免 Realtime 循环更新） */
+  private lastLocalPreferencesWriteAt = 0;
+
   constructor() {
     // 当用户登录状态变化时，重新加载该用户的偏好
     effect(() => {
       const userId = this.authService.currentUserId();
       // 每次用户变化时加载对应用户的偏好
       this._autoResolveConflicts.set(this.loadAutoResolveFromStorage(userId));
+    });
+
+    // Realtime：跨端偏好即时同步
+    this.syncService.setUserPreferencesChangeCallback((payload) => {
+      const currentUserId = this.authService.currentUserId();
+      if (!currentUserId || payload.userId !== currentUserId) return;
+
+      // 回声保护：本机刚写入的变更，不需要再被 Realtime 拉回来
+      const ECHO_PROTECTION_WINDOW_MS = 3000;
+      if (Date.now() - this.lastLocalPreferencesWriteAt < ECHO_PROTECTION_WINDOW_MS) return;
+
+      // 目前云端偏好主要承载 theme/layout 等：直接重新加载即可
+      void this.loadUserPreferences();
     });
   }
 
@@ -98,6 +114,7 @@ export class PreferenceService {
    */
   async saveUserPreferences(userId: string, preferences: Partial<UserPreferences>): Promise<boolean> {
     try {
+      this.lastLocalPreferencesWriteAt = Date.now();
       const success = await this.syncService.saveUserPreferences(userId, preferences);
       if (!success) {
         // 离线时加入队列
@@ -111,6 +128,7 @@ export class PreferenceService {
       return success;
     } catch (error) {
       console.error('保存用户偏好失败:', error);
+      this.lastLocalPreferencesWriteAt = Date.now();
       this.actionQueue.enqueue({
         type: 'update',
         entityType: 'preference',

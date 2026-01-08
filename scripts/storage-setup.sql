@@ -29,7 +29,7 @@ DROP POLICY IF EXISTS "Project members can view attachments" ON storage.objects;
 -- 用户可以上传自己的附件
 -- 路径格式: {bucket_id}/{user_id}/{project_id}/{task_id}/{filename}
 CREATE POLICY "Users can upload own attachments"
-ON storage.objects FOR INSERT
+ON storage.objects FOR INSERT TO authenticated
 WITH CHECK (
   bucket_id = 'attachments'
   AND (storage.foldername(name))[1] = auth.uid()::text
@@ -37,7 +37,7 @@ WITH CHECK (
 
 -- 用户可以查看自己的附件
 CREATE POLICY "Users can view own attachments"
-ON storage.objects FOR SELECT
+ON storage.objects FOR SELECT TO authenticated
 USING (
   bucket_id = 'attachments'
   AND (storage.foldername(name))[1] = auth.uid()::text
@@ -45,7 +45,7 @@ USING (
 
 -- 用户可以删除自己的附件
 CREATE POLICY "Users can delete own attachments"
-ON storage.objects FOR DELETE
+ON storage.objects FOR DELETE TO authenticated
 USING (
   bucket_id = 'attachments'
   AND (storage.foldername(name))[1] = auth.uid()::text
@@ -53,7 +53,7 @@ USING (
 
 -- 项目成员可以查看附件（支持协作场景）
 CREATE POLICY "Project members can view attachments"
-ON storage.objects FOR SELECT
+ON storage.objects FOR SELECT TO authenticated
 USING (
   bucket_id = 'attachments'
   AND EXISTS (

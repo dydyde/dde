@@ -80,6 +80,9 @@ export type RemoteChangeCallback = (payload: { eventType?: string; projectId?: s
  */
 export type TaskChangeCallback = (payload: { eventType: string; taskId: string; projectId: string }) => void;
 
+/** 用户偏好变更回调 */
+export type UserPreferencesChangeCallback = (payload: { eventType: string; userId: string }) => void;
+
 @Injectable({
   providedIn: 'root'
 })
@@ -192,6 +195,9 @@ export class SimpleSyncService {
   
   /** Realtime 订阅通道 */
   private realtimeChannel: RealtimeChannel | null = null;
+
+  /** 用户偏好变更回调（Realtime） */
+  private onUserPreferencesChangeCallback: UserPreferencesChangeCallback | null = null;
   
   /** 远程变更回调 */
   private onRemoteChangeCallback: RemoteChangeCallback | null = null;
@@ -2544,6 +2550,14 @@ export class SimpleSyncService {
   setOnRemoteChange(callback: RemoteChangeCallback): void {
     this.onRemoteChangeCallback = callback;
   }
+
+  /**
+   * 设置用户偏好变更回调（Realtime）
+   * 由 PreferenceService 注册，用于跨端即时更新偏好信号。
+   */
+  setUserPreferencesChangeCallback(callback: UserPreferencesChangeCallback | null): void {
+    this.onUserPreferencesChangeCallback = callback;
+  }
   
   /**
    * 启用/禁用 Realtime（运行时切换）
@@ -2730,6 +2744,25 @@ export class SimpleSyncService {
             this.onRemoteChangeCallback({ 
               eventType: payload.eventType, 
               projectId 
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_preferences',
+          filter: userId ? `user_id=eq.${userId}` : undefined
+        },
+        (payload) => {
+          // 偏好不属于项目维度，不走 onRemoteChangeCallback（避免触发项目级 reload）
+          this.logger.debug('收到用户偏好变更', { event: payload.eventType });
+          if (this.onUserPreferencesChangeCallback && !this.realtimePaused && userId) {
+            this.onUserPreferencesChangeCallback({
+              eventType: payload.eventType,
+              userId
             });
           }
         }

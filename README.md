@@ -239,77 +239,110 @@ src/
 
 ## Supabase 部署配置
 
-### 快速开始（一次性导入）
+> 💡 **给新手的说明**：Supabase 是一个云端数据库服务。如果你不需要云端同步功能，可以跳过此部分，应用会以离线模式运行。
 
-在 Supabase SQL Editor 中执行 `scripts/init-database.sql` 即可完成所有数据库配置。
+### 第一步：创建 Supabase 账号和项目
 
-```bash
-# 或者分步执行
-scripts/supabase-setup.sql    # 核心表结构
-scripts/storage-setup.sql     # Storage 策略
-scripts/attachment-rpc.sql    # 附件 RPC 函数
+1. 打开 [supabase.com](https://supabase.com)，用 GitHub 或邮箱注册
+2. 点击「New Project」创建新项目
+3. 输入项目名称（如 `nanoflow`），选择一个靠近你的服务器区域
+4. 设置一个数据库密码（记住它，但本应用用不到）
+5. 等待几分钟，项目创建完成
+
+### 第二步：创建附件存储桶
+
+1. 在 Supabase 控制台左侧，点击「Storage」
+2. 点击「New bucket」
+3. 名称输入 `attachments`
+4. 取消勾选「Public bucket」（保持私有）
+5. 点击「Create bucket」
+
+### 第三步：执行数据库初始化脚本
+
+1. 在左侧菜单点击「SQL Editor」
+2. 打开本项目的 `scripts/init-supabase.sql` 文件，全选复制内容
+3. 粘贴到 SQL 编辑器中
+4. 点击右下角的「Run」按钮
+5. 等待执行完成，看到绿色提示「Success」即可
+
+> 这个脚本会自动创建所有需要的表、函数、安全策略等，你不需要理解里面的内容。
+
+### 第四步：获取连接信息
+
+1. 在左侧点击「Project Settings」（齿轮图标）
+2. 点击「API」
+3. 复制以下两个值：
+   - **Project URL**（类似 `https://xxx.supabase.co`）
+   - **anon public key**（一长串字符）
+
+### 第五步：配置应用环境变量
+
+在项目根目录创建 `.env.local` 文件，填入：
+
+```
+NG_APP_SUPABASE_URL=上面复制的 Project URL
+NG_APP_SUPABASE_ANON_KEY=上面复制的 anon public key
 ```
 
-### 数据库表结构
+> ⚠️ **安全提示**：不要使用 `service_role` 密钥，那是管理员密钥，泄露会很危险。
 
-| 表名 | 用途 | 主要字段 |
-|------|------|----------|
-| `projects` | 项目 | id, owner_id, title, description, updated_at |
-| `tasks` | 任务 | id, project_id, parent_id, title, content, stage, status, x, y, attachments |
-| `connections` | 任务连接 | id, project_id, source_id, target_id, title, description |
-| `project_members` | 项目成员 | id, project_id, user_id, role (viewer/editor/admin) |
-| `user_preferences` | 用户偏好 | id, user_id, theme, layout_direction |
-| `cleanup_logs` | 清理日志 | id, type, details, created_at |
+### 第六步：（可选）启用定时清理
 
-### RPC 函数
+如果你想让系统自动清理 30 天前删除的任务：
 
-| 函数 | 用途 | 调用示例 |
-|------|------|----------|
-| `append_task_attachment(task_id, attachment)` | 原子添加附件 | `supabase.rpc('append_task_attachment', {...})` |
-| `remove_task_attachment(task_id, attachment_id)` | 原子删除附件 | `supabase.rpc('remove_task_attachment', {...})` |
-| `cleanup_old_deleted_tasks()` | 清理软删除任务 | 定时任务调用 |
-| `cleanup_deleted_attachments(days)` | 清理过期附件 | 定时任务调用 |
-
-### Storage 配置
-
-1. 在 Supabase Dashboard > Storage 中创建 `attachments` 桶：
-   - **Public**: false（私有）
-   - **File size limit**: 10MB
-   - **路径格式**: `{user_id}/{project_id}/{task_id}/{filename}`
-
-2. Storage 策略已包含在 `init-database.sql` 中，支持：
-   - 用户上传/查看/删除自己的附件
-   - 项目成员查看共享附件
-
-### 定时任务配置（可选）
-
-需要启用 pg_cron 扩展（Dashboard > Database > Extensions）：
+1. 在控制台左侧点击「Database」→「Extensions」
+2. 搜索 `pg_cron`，点击启用
+3. 回到「SQL Editor」，执行以下命令：
 
 ```sql
--- 每天凌晨 3 点清理软删除任务
-SELECT cron.schedule('cleanup-deleted-tasks', '0 3 * * *', 
-  $$SELECT cleanup_old_deleted_tasks()$$);
-
--- 每周日凌晨调用 Edge Function 清理附件
-SELECT cron.schedule('cleanup-attachments', '0 3 * * 0', $$
-  SELECT net.http_post(
-    url := '<YOUR_PROJECT_URL>/functions/v1/cleanup-attachments',
-    headers := jsonb_build_object('Authorization', 'Bearer <SERVICE_ROLE_KEY>'),
-    body := '{}'::jsonb
-  );
-$$);
+SELECT cron.schedule('cleanup-deleted-tasks', '0 3 * * *', $$SELECT cleanup_old_deleted_tasks()$$);
+SELECT cron.schedule('cleanup-deleted-connections', '0 3 * * *', $$SELECT cleanup_old_deleted_connections()$$);
+SELECT cron.schedule('cleanup-old-logs', '0 4 * * 0', $$SELECT cleanup_old_logs()$$);
+SELECT cron.schedule('cleanup-expired-scan-records', '0 5 * * 0', $$SELECT cleanup_expired_scan_records()$$);
 ```
 
-### 脚本说明
+### 配置完成！
 
-| 脚本 | 用途 | 执行时机 |
-|------|------|----------|
-| `init-database.sql` | **一次性完整初始化** | 新项目部署 |
-| `supabase-setup.sql` | 核心表结构 + RLS | 单独配置时 |
-| `storage-setup.sql` | Storage 桶策略 | 单独配置时 |
-| `attachment-rpc.sql` | 附件操作函数 | 单独配置时 |
-| `migrate-to-v2.sql` | 旧版 JSONB 迁移 | 升级旧数据库 |
-| `purge-deleted-tasks.sql` | 回收站清理 | 配置定时任务 |
+重新启动应用 (`npm start`)，现在你可以：
+- 注册/登录账号
+- 数据自动同步到云端
+- 多设备之间数据保持一致
+
+---
+
+### 附录：数据库对象速查
+
+<details>
+<summary>点击展开详细说明（给开发者）</summary>
+
+**核心表（5 个）**
+- `projects` - 项目
+- `project_members` - 项目成员（协作预留）
+- `tasks` - 任务
+- `connections` - 任务连接
+- `user_preferences` - 用户偏好
+
+**辅助表（8 个）**
+- `task_tombstones` / `connection_tombstones` - 永久删除记录
+- `cleanup_logs` - 清理日志
+- `circuit_breaker_logs` - 安全删除审计
+- `app_config` - 应用配置
+- `purge_rate_limits` - 速率限制
+- `attachment_scans` / `quarantined_files` - 病毒扫描相关
+
+**视图（2 个）**
+- `active_tasks` - 过滤已删除任务
+- `active_connections` - 过滤已删除连接
+
+**常用 RPC 函数**
+- `get_dashboard_stats()` - 获取仪表盘统计
+- `batch_upsert_tasks(tasks, project_id)` - 批量更新任务
+- `purge_tasks_v3(project_id, task_ids)` - 永久删除任务
+- `safe_delete_tasks(task_ids, project_id)` - 安全软删除
+
+完整函数和触发器清单请参考 `scripts/README.md`。
+
+</details>
 
 ---
 
