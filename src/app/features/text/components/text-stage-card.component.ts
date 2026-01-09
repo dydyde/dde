@@ -17,11 +17,11 @@ import { TextTaskCardComponent } from './text-task-card.component';
   template: `
     <article 
       [attr.data-stage-number]="stage.stageNumber"
-      class="flex flex-col bg-retro-cream/70 backdrop-blur border border-retro-muted/20 rounded-xl shadow-sm overflow-visible transition-all flex-shrink-0"
+      class="flex flex-col bg-retro-cream/70 dark:bg-stone-800/70 backdrop-blur border border-retro-muted/20 dark:border-stone-700/50 rounded-xl shadow-sm overflow-visible transition-all flex-shrink-0"
       [ngClass]="{
         'rounded-2xl': !isMobile, 
         'w-full': isMobile,
-        'border-retro-teal border-2 bg-retro-teal/5': isDragOver
+        'border-retro-teal dark:border-retro-teal border-2 bg-retro-teal/5 dark:bg-retro-teal/10': isDragOver
       }"
       (dragover)="onStageDragOver($event)"
       (dragleave)="onStageDragLeave($event)"
@@ -29,21 +29,21 @@ import { TextTaskCardComponent } from './text-task-card.component';
       
       <!-- 阶段标题 -->
       <header 
-        class="px-3 py-2 flex justify-between items-center cursor-pointer hover:bg-retro-cream/90 transition-colors select-none"
+        class="px-3 py-2 flex justify-between items-center cursor-pointer hover:bg-retro-cream/90 dark:hover:bg-stone-700/50 transition-colors select-none"
         [ngClass]="{'px-4 py-3': !isMobile}"
         (click)="toggleCollapse()">
-        <h3 class="font-bold text-retro-olive tracking-tight flex items-center"
+        <h3 class="font-bold text-retro-olive dark:text-retro-olive tracking-tight flex items-center"
             [ngClass]="{'text-sm gap-2': !isMobile, 'text-xs gap-1.5': isMobile}">
-          <span class="rounded-full bg-retro-olive" 
+          <span class="rounded-full bg-retro-olive dark:bg-retro-olive" 
                 [ngClass]="{'w-1 h-4': !isMobile, 'w-0.5 h-3': isMobile}"></span>
           阶段 {{stage.stageNumber}}
         </h3>
         <div class="flex items-center" [ngClass]="{'gap-2': !isMobile, 'gap-1.5': isMobile}">
-          <span class="text-retro-olive font-mono bg-canvas/60 rounded-full"
+          <span class="text-retro-olive dark:text-retro-olive font-mono bg-canvas/60 dark:bg-stone-700/60 rounded-full"
                 [ngClass]="{'text-[10px] px-2': !isMobile, 'text-[9px] px-1.5 py-0.5': isMobile}">
             {{stage.tasks.length}}
           </span>
-          <span class="text-stone-400 text-[10px] transition-transform" 
+          <span class="text-stone-400 dark:text-stone-500 text-[10px] transition-transform" 
                 [class.rotate-180]="!isExpanded">▼</span>
         </div>
       </header>

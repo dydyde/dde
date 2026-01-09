@@ -17,14 +17,12 @@ import { ToastService, ToastMessage } from '../../../services/toast.service';
           <div 
             class="pointer-events-auto animate-toast-in rounded-lg shadow-lg border backdrop-blur-sm p-4 flex items-start gap-3 transition-all duration-300"
             [attr.data-testid]="message.type === 'error' ? 'error-toast' : null"
-            [class.bg-emerald-50]="message.type === 'success'"
-            [class.border-emerald-200]="message.type === 'success'"
-            [class.bg-red-50]="message.type === 'error'"
-            [class.border-red-200]="message.type === 'error'"
-            [class.bg-amber-50]="message.type === 'warning'"
-            [class.border-amber-200]="message.type === 'warning'"
-            [class.bg-blue-50]="message.type === 'info'"
-            [class.border-blue-200]="message.type === 'info'"
+            [ngClass]="{
+              'bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800': message.type === 'success',
+              'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800': message.type === 'error',
+              'bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800': message.type === 'warning',
+              'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800': message.type === 'info'
+            }"
             role="alert">
             
             <!-- Icon -->
@@ -56,18 +54,22 @@ import { ToastService, ToastMessage } from '../../../services/toast.service';
             <!-- Content -->
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium"
-                 [class.text-emerald-800]="message.type === 'success'"
-                 [class.text-red-800]="message.type === 'error'"
-                 [class.text-amber-800]="message.type === 'warning'"
-                 [class.text-blue-800]="message.type === 'info'">
+                 [ngClass]="{
+                   'text-emerald-800 dark:text-emerald-200': message.type === 'success',
+                   'text-red-800 dark:text-red-200': message.type === 'error',
+                   'text-amber-800 dark:text-amber-200': message.type === 'warning',
+                   'text-blue-800 dark:text-blue-200': message.type === 'info'
+                 }">
                 {{ message.title }}
               </p>
               @if (message.message) {
                 <p class="mt-1 text-xs"
-                   [class.text-emerald-600]="message.type === 'success'"
-                   [class.text-red-600]="message.type === 'error'"
-                   [class.text-amber-600]="message.type === 'warning'"
-                   [class.text-blue-600]="message.type === 'info'">
+                   [ngClass]="{
+                     'text-emerald-600 dark:text-emerald-300': message.type === 'success',
+                     'text-red-600 dark:text-red-300': message.type === 'error',
+                     'text-amber-600 dark:text-amber-300': message.type === 'warning',
+                     'text-blue-600 dark:text-blue-300': message.type === 'info'
+                   }">
                   {{ message.message }}
                 </p>
               }
@@ -75,18 +77,12 @@ import { ToastService, ToastMessage } from '../../../services/toast.service';
                 <button
                   (click)="handleAction(message)"
                   class="mt-2 text-xs font-medium px-3 py-1 rounded-md transition-colors"
-                  [class.bg-emerald-100]="message.type === 'success'"
-                  [class.text-emerald-700]="message.type === 'success'"
-                  [class.hover:bg-emerald-200]="message.type === 'success'"
-                  [class.bg-red-100]="message.type === 'error'"
-                  [class.text-red-700]="message.type === 'error'"
-                  [class.hover:bg-red-200]="message.type === 'error'"
-                  [class.bg-amber-100]="message.type === 'warning'"
-                  [class.text-amber-700]="message.type === 'warning'"
-                  [class.hover:bg-amber-200]="message.type === 'warning'"
-                  [class.bg-blue-100]="message.type === 'info'"
-                  [class.text-blue-700]="message.type === 'info'"
-                  [class.hover:bg-blue-200]="message.type === 'info'">
+                  [ngClass]="{
+                    'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800': message.type === 'success',
+                    'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-800': message.type === 'error',
+                    'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800': message.type === 'warning',
+                    'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800': message.type === 'info'
+                  }">
                   {{ message.action.label }}
                 </button>
               }
@@ -96,14 +92,12 @@ import { ToastService, ToastMessage } from '../../../services/toast.service';
             <button 
               (click)="toast.dismiss(message.id)"
               class="flex-shrink-0 p-1 rounded-full transition-colors"
-              [class.text-emerald-400]="message.type === 'success'"
-              [class.hover:bg-emerald-100]="message.type === 'success'"
-              [class.text-red-400]="message.type === 'error'"
-              [class.hover:bg-red-100]="message.type === 'error'"
-              [class.text-amber-400]="message.type === 'warning'"
-              [class.hover:bg-amber-100]="message.type === 'warning'"
-              [class.text-blue-400]="message.type === 'info'"
-              [class.hover:bg-blue-100]="message.type === 'info'"
+              [ngClass]="{
+                'text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900': message.type === 'success',
+                'text-red-400 hover:bg-red-100 dark:hover:bg-red-900': message.type === 'error',
+                'text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900': message.type === 'warning',
+                'text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900': message.type === 'info'
+              }"
               aria-label="关闭">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>

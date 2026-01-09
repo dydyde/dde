@@ -73,7 +73,7 @@ import * as go from 'gojs';
       flex: 1;
       min-height: 0;
       position: relative;
-      background-color: #F5F2E9;
+      background-color: var(--theme-bg, #F5F2E9);
     }
     
     @keyframes slide-up {
@@ -111,7 +111,7 @@ import * as go from 'gojs';
       </app-flow-palette>
 
       <!-- 流程图区域 -->
-      <div class="flex-1 min-h-0 relative overflow-hidden bg-[#F5F2E9] md:border-t md:border-[#78716C]/50">
+      <div class="flex-1 min-h-0 relative overflow-hidden dark:bg-stone-950 md:border-t md:border-[#78716C]/50" [style.backgroundColor]="'var(--theme-bg, #F5F2E9)'">
         @if (!diagram.error()) {
           <div #diagramDiv data-testid="flow-diagram" class="absolute inset-0 w-full h-full z-0 flow-canvas-container"></div>
           
@@ -120,14 +120,14 @@ import * as go from 'gojs';
             @if (uiState.isMobile()) {
               <!-- 移动端：左下角，工具栏上方（不遮挡工具框） -->
               <div class="absolute left-2 z-40 animate-slide-up" style="bottom: 56px;">
-                <div class="bg-white/95 backdrop-blur rounded-lg shadow-lg border border-stone-200 px-2.5 py-1.5 flex items-center gap-1.5">
-                  <span class="text-xs text-stone-600">
-                    已选 <span class="font-semibold text-stone-800">{{ selectionService.selectionCount() }}</span>
+                <div class="bg-white/95 dark:bg-stone-800/95 backdrop-blur rounded-lg shadow-lg border border-stone-200 dark:border-stone-600 px-2.5 py-1.5 flex items-center gap-1.5">
+                  <span class="text-xs text-stone-600 dark:text-stone-300">
+                    已选 <span class="font-semibold text-stone-800 dark:text-stone-100">{{ selectionService.selectionCount() }}</span>
                   </span>
-                  <div class="w-px h-3 bg-stone-200"></div>
+                  <div class="w-px h-3 bg-stone-200 dark:bg-stone-600"></div>
                   <button 
                     (click)="requestBatchDelete()"
-                    class="flex items-center gap-1 px-1.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 rounded transition-colors">
+                    class="flex items-center gap-1 px-1.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors">
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -135,7 +135,7 @@ import * as go from 'gojs';
                   </button>
                   <button 
                     (click)="selectionService.clearSelection()"
-                    class="px-1.5 py-1 text-xs font-medium text-stone-500 hover:bg-stone-100 rounded transition-colors">
+                    class="px-1.5 py-1 text-xs font-medium text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded transition-colors">
                     取消
                   </button>
                 </div>
@@ -143,14 +143,14 @@ import * as go from 'gojs';
             } @else {
               <!-- 桌面端：流程图画布左上角 -->
               <div class="absolute left-4 top-4 z-40 animate-slide-up">
-                <div class="bg-white/95 backdrop-blur rounded-xl shadow-lg border border-stone-200 px-4 py-2.5 flex items-center gap-3">
-                  <span class="text-sm text-stone-600">
-                    已选择 <span class="font-semibold text-stone-800">{{ selectionService.selectionCount() }}</span> 个任务
+                <div class="bg-white/95 dark:bg-stone-800/95 backdrop-blur rounded-xl shadow-lg border border-stone-200 dark:border-stone-600 px-4 py-2.5 flex items-center gap-3">
+                  <span class="text-sm text-stone-600 dark:text-stone-300">
+                    已选择 <span class="font-semibold text-stone-800 dark:text-stone-100">{{ selectionService.selectionCount() }}</span> 个任务
                   </span>
-                  <div class="w-px h-4 bg-stone-200"></div>
+                  <div class="w-px h-4 bg-stone-200 dark:bg-stone-600"></div>
                   <button 
                     (click)="requestBatchDelete()"
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -158,7 +158,7 @@ import * as go from 'gojs';
                   </button>
                   <button 
                     (click)="selectionService.clearSelection()"
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-stone-500 hover:bg-stone-100 rounded-lg transition-colors">
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors">
                     取消选择
                   </button>
                 </div>
@@ -169,10 +169,11 @@ import * as go from 'gojs';
           <!-- 小地图/导航器 -->
           @if (isOverviewVisible()) {
             <div 
-              class="absolute z-50 pointer-events-auto bg-white/90 backdrop-blur rounded-lg shadow-md border border-stone-200/60 select-none"
+              class="absolute z-50 pointer-events-auto bg-white/90 dark:bg-stone-800/90 backdrop-blur rounded-lg shadow-md border border-stone-200/60 dark:border-stone-700/60 select-none"
               style="overflow: hidden;"
-              [class.opacity-40]="isOverviewCollapsed()"
-              [class.hover:opacity-100]="isOverviewCollapsed()"
+              [ngClass]="{
+                'opacity-40 hover:opacity-100': isOverviewCollapsed()
+              }"
               [style.right.px]="uiState.isMobile() ? 8 : 16"
               [style.bottom]="overviewBottomPosition()"
               [style.width.px]="isOverviewCollapsed() ? (uiState.isMobile() ? 24 : 28) : overviewSize().width"
@@ -191,7 +192,7 @@ import * as go from 'gojs';
               <button
                 (pointerdown)="onOverviewTogglePointerDown($event)"
                 type="button"
-                class="absolute top-0.5 right-0.5 z-50 pointer-events-auto rounded bg-white/80 hover:bg-stone-100 flex items-center justify-center transition-colors"
+                class="absolute top-0.5 right-0.5 z-50 pointer-events-auto rounded bg-white/80 dark:bg-stone-700/80 hover:bg-stone-100 dark:hover:bg-stone-600 flex items-center justify-center transition-colors"
                 [class.w-5]="!uiState.isMobile()"
                 [class.h-5]="!uiState.isMobile()"
                  [class.w-6]="uiState.isMobile()"
@@ -202,7 +203,7 @@ import * as go from 'gojs';
                      [class.h-3]="!uiState.isMobile()"
                    [class.w-3]="uiState.isMobile()"
                    [class.h-3]="uiState.isMobile()"
-                     class="text-stone-500">
+                     class="text-stone-500 dark:text-stone-400">
                   @if (isOverviewCollapsed()) {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                   } @else {
@@ -215,14 +216,14 @@ import * as go from 'gojs';
           }
         } @else {
           <!-- 流程图加载失败时的降级 UI -->
-          <div class="absolute inset-0 flex flex-col items-center justify-center bg-stone-50 p-6">
-            <div class="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+          <div class="absolute inset-0 flex flex-col items-center justify-center bg-stone-50 dark:bg-stone-900 p-6">
+            <div class="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
               <svg class="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <h3 class="text-lg font-semibold text-stone-800 mb-2">流程图加载失败</h3>
-            <p class="text-sm text-stone-500 text-center mb-4">{{ diagram.error() }}</p>
+            <h3 class="text-lg font-semibold text-stone-800 dark:text-stone-200 mb-2">流程图加载失败</h3>
+            <p class="text-sm text-stone-500 dark:text-stone-400 text-center mb-4">{{ diagram.error() }}</p>
             <div class="flex gap-3">
               @if (hasReachedRetryLimit()) {
                 <!-- 达到重试上限后显示完全重置按钮 -->
@@ -252,7 +253,7 @@ import * as go from 'gojs';
               }
               <button 
                 (click)="goBackToText.emit()"
-                class="px-4 py-2 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium">
+                class="px-4 py-2 bg-stone-200 dark:bg-stone-700 text-stone-700 dark:text-stone-200 rounded-lg hover:bg-stone-300 dark:hover:bg-stone-600 transition-colors text-sm font-medium">
                 切换到文本视图
               </button>
             </div>
@@ -389,10 +390,10 @@ import * as go from 'gojs';
           
           <!-- Panel Header - 复刻侧边栏头部 -->
           <div class="flex justify-between items-center shrink-0 mx-3 mt-4 mb-3">
-            <h1 class="font-bold text-stone-800 tracking-tight font-serif text-base">NanoFlow</h1>
+            <h1 class="font-bold text-stone-800 dark:text-stone-100 tracking-tight font-serif text-base">NanoFlow</h1>
             <button 
               (click)="isRightPanelOpen.set(false)"
-              class="text-stone-400 hover:text-stone-600 w-6 h-6 flex items-center justify-center rounded-full transition-all active:bg-stone-200"
+              class="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 w-6 h-6 flex items-center justify-center rounded-full transition-all active:bg-stone-200 dark:active:bg-stone-700"
               title="关闭" aria-label="关闭面板">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -405,10 +406,15 @@ import * as go from 'gojs';
             @for (proj of projectState.projects(); track proj.id) {
               <div 
                 (click)="onRightPanelProjectClick(proj.id)"
-                class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100 px-2 py-2"
-                [class.bg-indigo-100]="projectState.activeProjectId() === proj.id"
-                [class.text-indigo-900]="projectState.activeProjectId() === proj.id"
-                [class.text-stone-500]="projectState.activeProjectId() !== proj.id">
+                class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100 dark:hover:bg-stone-700 px-2 py-2"
+                [ngClass]="{
+                  'bg-indigo-100': projectState.activeProjectId() === proj.id,
+                  'dark:bg-indigo-900/30': projectState.activeProjectId() === proj.id,
+                  'text-indigo-900': projectState.activeProjectId() === proj.id,
+                  'dark:text-indigo-200': projectState.activeProjectId() === proj.id,
+                  'text-stone-500': projectState.activeProjectId() !== proj.id,
+                  'dark:text-stone-400': projectState.activeProjectId() !== proj.id
+                }">
                 <div class="flex items-center justify-between gap-1 min-w-0">
                   <div class="font-medium transition-colors flex-1 min-w-0 truncate text-xs">
                     {{ proj.name }}

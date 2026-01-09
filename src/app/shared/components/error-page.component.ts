@@ -23,23 +23,23 @@ interface FatalErrorInfo {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="min-h-screen bg-gradient-to-br from-red-50 to-stone-100 flex items-center justify-center p-4">
+    <div class="min-h-screen bg-gradient-to-br from-red-50 to-stone-100 dark:from-red-950 dark:to-stone-900 flex items-center justify-center p-4">
       <div class="text-center max-w-lg">
         <!-- 错误图标 -->
         <div class="mb-8">
-          <div class="w-32 h-32 mx-auto bg-red-100 rounded-full flex items-center justify-center animate-pulse">
-            <svg class="w-16 h-16 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <div class="w-32 h-32 mx-auto bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center animate-pulse">
+            <svg class="w-16 h-16 text-red-400 dark:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
           </div>
         </div>
         
         <!-- 标题 -->
-        <h1 class="text-3xl font-bold text-stone-800 mb-4">应用出错了</h1>
-        <p class="text-stone-600 mb-2 text-lg">
+        <h1 class="text-3xl font-bold text-stone-800 dark:text-stone-100 mb-4">应用出错了</h1>
+        <p class="text-stone-600 dark:text-stone-300 mb-2 text-lg">
           {{ errorInfo?.userMessage || '抱歉，应用遇到了一个严重错误。' }}
         </p>
-        <p class="text-stone-400 text-sm mb-8">
+        <p class="text-stone-400 dark:text-stone-500 text-sm mb-8">
           我们已记录此问题，正在努力修复中。
         </p>
         
@@ -55,29 +55,29 @@ interface FatalErrorInfo {
           </button>
           <button 
             (click)="goHome()"
-            class="px-6 py-3 bg-white border border-stone-300 rounded-lg text-stone-700 font-medium hover:bg-stone-50 transition-colors shadow-sm">
+            class="px-6 py-3 bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-600 rounded-lg text-stone-700 dark:text-stone-200 font-medium hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors shadow-sm">
             返回首页
           </button>
         </div>
         
         <!-- 错误详情（可折叠） -->
         @if (errorInfo) {
-          <details class="text-left bg-white/50 rounded-lg p-4 border border-stone-200">
-            <summary class="text-sm text-stone-500 cursor-pointer hover:text-stone-700 select-none">
+          <details class="text-left bg-white/50 dark:bg-stone-800/50 rounded-lg p-4 border border-stone-200 dark:border-stone-700">
+            <summary class="text-sm text-stone-500 dark:text-stone-400 cursor-pointer hover:text-stone-700 dark:hover:text-stone-200 select-none">
               查看错误详情
             </summary>
-            <div class="mt-4 text-xs text-stone-400 font-mono overflow-auto max-h-48">
+            <div class="mt-4 text-xs text-stone-400 dark:text-stone-500 font-mono overflow-auto max-h-48">
               <p class="mb-2"><strong>时间：</strong>{{ errorInfo.timestamp | date:'yyyy-MM-dd HH:mm:ss' }}</p>
               <p class="mb-2"><strong>错误：</strong>{{ errorInfo.message }}</p>
               @if (errorInfo.stack) {
-                <pre class="whitespace-pre-wrap break-all bg-stone-100 p-2 rounded mt-2">{{ errorInfo.stack }}</pre>
+                <pre class="whitespace-pre-wrap break-all bg-stone-100 dark:bg-stone-700 p-2 rounded mt-2">{{ errorInfo.stack }}</pre>
               }
             </div>
           </details>
         }
         
         <!-- 帮助信息 -->
-        <div class="mt-8 text-xs text-stone-400">
+        <div class="mt-8 text-xs text-stone-400 dark:text-stone-500">
           <p>如果问题持续存在，请尝试：</p>
           <ul class="mt-2 space-y-1">
             <li>• 清除浏览器缓存后重试</li>

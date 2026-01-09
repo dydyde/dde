@@ -1,13 +1,18 @@
 /**
  * GoJS 图表样式常量配置
  * 集中管理流程图中使用的颜色、字体等样式
- * 支持主题切换
+ * 支持主题切换（色调 + 明暗模式）
  */
 
 /**
- * 主题类型
+ * 主题类型（色调）
  */
 export type FlowTheme = 'default' | 'ocean' | 'forest' | 'sunset' | 'lavender';
+
+/**
+ * 颜色模式（明暗）
+ */
+export type FlowColorMode = 'light' | 'dark';
 
 /**
  * 节点样式配置
@@ -299,9 +304,222 @@ export const FLOW_THEME_STYLES: Record<FlowTheme, FlowStyleConfig> = {
   lavender: LAVENDER_FLOW_STYLES,
 };
 
+// ========== 深色模式样式 ==========
+
+/**
+ * 默认主题深色样式
+ */
+export const DEFAULT_DARK_FLOW_STYLES: FlowStyleConfig = {
+  node: {
+    background: '#2a2a2a',
+    selectedBorder: '#5eadad',
+    defaultBorder: '#525252',
+    unassignedBackground: '#3d3a35',
+    unassignedBorder: '#d97756',
+    completedBackground: '#3d4a2a',
+    searchHighlightBackground: '#a68a3a',
+    searchHighlightBorder: '#d97756',
+  },
+  text: {
+    displayIdColor: '#a8a29e',
+    titleColor: '#e7e5e4',
+    unassignedTitleColor: '#fb923c',
+    font: {
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
+    },
+  },
+  link: {
+    parentChildColor: '#737373',
+    crossTreeColor: '#64748b',
+    descriptionBackground: '#1f1f1f',
+    descriptionBorder: '#5eadad',
+    descriptionText: '#e7e5e4',
+  },
+  port: {
+    hoverColor: '#5eadad',
+    defaultColor: 'transparent',
+  },
+  canvas: {
+    background: '#1a1a1a',
+  },
+};
+
+/**
+ * 海洋主题深色样式
+ */
+export const OCEAN_DARK_FLOW_STYLES: FlowStyleConfig = {
+  node: {
+    background: '#162a44',
+    selectedBorder: '#38bdf8',
+    defaultBorder: '#1e4976',
+    unassignedBackground: '#312e81',
+    unassignedBorder: '#818cf8',
+    completedBackground: '#134e4a',
+    searchHighlightBackground: '#a16207',
+    searchHighlightBorder: '#fbbf24',
+  },
+  text: {
+    displayIdColor: '#7dd3fc',
+    titleColor: '#e0f2fe',
+    unassignedTitleColor: '#a5b4fc',
+    font: {
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
+    },
+  },
+  link: {
+    parentChildColor: '#0369a1',
+    crossTreeColor: '#64748b',
+    descriptionBackground: '#0c1929',
+    descriptionBorder: '#22d3ee',
+    descriptionText: '#e0f2fe',
+  },
+  port: {
+    hoverColor: '#38bdf8',
+    defaultColor: 'transparent',
+  },
+  canvas: {
+    background: '#0c1929',
+  },
+};
+
+/**
+ * 森林主题深色样式
+ */
+export const FOREST_DARK_FLOW_STYLES: FlowStyleConfig = {
+  node: {
+    background: '#1a3820',
+    selectedBorder: '#4ade80',
+    defaultBorder: '#166534',
+    unassignedBackground: '#451a03',
+    unassignedBorder: '#f59e0b',
+    completedBackground: '#14532d',
+    searchHighlightBackground: '#a16207',
+    searchHighlightBorder: '#fbbf24',
+  },
+  text: {
+    displayIdColor: '#86efac',
+    titleColor: '#dcfce7',
+    unassignedTitleColor: '#fcd34d',
+    font: {
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
+    },
+  },
+  link: {
+    parentChildColor: '#15803d',
+    crossTreeColor: '#64748b',
+    descriptionBackground: '#0d1f12',
+    descriptionBorder: '#34d399',
+    descriptionText: '#dcfce7',
+  },
+  port: {
+    hoverColor: '#4ade80',
+    defaultColor: 'transparent',
+  },
+  canvas: {
+    background: '#0d1f12',
+  },
+};
+
+/**
+ * 日落主题深色样式
+ */
+export const SUNSET_DARK_FLOW_STYLES: FlowStyleConfig = {
+  node: {
+    background: '#3a1f15',
+    selectedBorder: '#fb923c',
+    defaultBorder: '#9a3412',
+    unassignedBackground: '#831843',
+    unassignedBorder: '#f472b6',
+    completedBackground: '#14532d',
+    searchHighlightBackground: '#a16207',
+    searchHighlightBorder: '#fbbf24',
+  },
+  text: {
+    displayIdColor: '#fdba74',
+    titleColor: '#ffedd5',
+    unassignedTitleColor: '#f9a8d4',
+    font: {
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
+    },
+  },
+  link: {
+    parentChildColor: '#c2410c',
+    crossTreeColor: '#64748b',
+    descriptionBackground: '#1c1210',
+    descriptionBorder: '#f87171',
+    descriptionText: '#ffedd5',
+  },
+  port: {
+    hoverColor: '#fb923c',
+    defaultColor: 'transparent',
+  },
+  canvas: {
+    background: '#1c1210',
+  },
+};
+
+/**
+ * 薰衣草主题深色样式
+ */
+export const LAVENDER_DARK_FLOW_STYLES: FlowStyleConfig = {
+  node: {
+    background: '#2e1c3f',
+    selectedBorder: '#c084fc',
+    defaultBorder: '#7c3aed',
+    unassignedBackground: '#701a75',
+    unassignedBorder: '#f0abfc',
+    completedBackground: '#134e4a',
+    searchHighlightBackground: '#a16207',
+    searchHighlightBorder: '#fbbf24',
+  },
+  text: {
+    displayIdColor: '#d8b4fe',
+    titleColor: '#f3e8ff',
+    unassignedTitleColor: '#f5d0fe',
+    font: {
+      displayId: 'bold 9px "LXGW WenKai Screen", sans-serif',
+      title: '400 12px "LXGW WenKai Screen", sans-serif',
+    },
+  },
+  link: {
+    parentChildColor: '#9333ea',
+    crossTreeColor: '#64748b',
+    descriptionBackground: '#1a0f24',
+    descriptionBorder: '#e879f9',
+    descriptionText: '#f3e8ff',
+  },
+  port: {
+    hoverColor: '#c084fc',
+    defaultColor: 'transparent',
+  },
+  canvas: {
+    background: '#1a0f24',
+  },
+};
+
+/**
+ * 深色主题样式映射
+ */
+export const FLOW_DARK_THEME_STYLES: Record<FlowTheme, FlowStyleConfig> = {
+  default: DEFAULT_DARK_FLOW_STYLES,
+  ocean: OCEAN_DARK_FLOW_STYLES,
+  forest: FOREST_DARK_FLOW_STYLES,
+  sunset: SUNSET_DARK_FLOW_STYLES,
+  lavender: LAVENDER_DARK_FLOW_STYLES,
+};
+
 /**
  * 获取指定主题的样式配置
+ * @param theme 色调主题
+ * @param colorMode 颜色模式（明暗）
  */
-export function getFlowStyles(theme: FlowTheme = 'default'): FlowStyleConfig {
+export function getFlowStyles(theme: FlowTheme = 'default', colorMode: FlowColorMode = 'light'): FlowStyleConfig {
+  if (colorMode === 'dark') {
+    return FLOW_DARK_THEME_STYLES[theme] || DEFAULT_DARK_FLOW_STYLES;
+  }
   return FLOW_THEME_STYLES[theme] || DEFAULT_FLOW_STYLES;
 }

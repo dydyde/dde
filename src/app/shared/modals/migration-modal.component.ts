@@ -17,35 +17,35 @@ import { ToastService } from '../../../services/toast.service';
   template: `
     <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" 
          (click)="close.emit()">
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in" 
+      <div class="bg-white dark:bg-stone-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in" 
            (click)="$event.stopPropagation()">
         <!-- 标题 -->
-        <div class="px-6 py-4 border-b border-stone-100 bg-gradient-to-r from-indigo-50 to-white">
-          <h2 class="text-lg font-bold text-stone-800 flex items-center gap-2">
-            <svg class="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <div class="px-6 py-4 border-b border-stone-100 dark:border-stone-700 bg-gradient-to-r from-indigo-50 to-white dark:from-indigo-900/30 dark:to-stone-900">
+          <h2 class="text-lg font-bold text-stone-800 dark:text-stone-100 flex items-center gap-2">
+            <svg class="w-5 h-5 text-indigo-500 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
             </svg>
             发现本地数据
           </h2>
-          <p class="text-xs text-stone-500 mt-1">
+          <p class="text-xs text-stone-500 dark:text-stone-400 mt-1">
             检测到您在登录前创建的项目数据，请选择处理方式
           </p>
         </div>
         
         <!-- 数据摘要 -->
-        <div class="px-6 py-4 bg-stone-50 border-b border-stone-100">
+        <div class="px-6 py-4 bg-stone-50 dark:bg-stone-800/50 border-b border-stone-100 dark:border-stone-700">
           <div class="grid grid-cols-2 gap-4 text-center">
-            <div class="p-3 bg-white rounded-lg border border-stone-200">
-              <div class="text-2xl font-bold text-amber-600">{{ summary().localCount }}</div>
-              <div class="text-xs text-stone-500">本地项目</div>
+            <div class="p-3 bg-white dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-stone-600">
+              <div class="text-2xl font-bold text-amber-600 dark:text-amber-400">{{ summary().localCount }}</div>
+              <div class="text-xs text-stone-500 dark:text-stone-400">本地项目</div>
             </div>
-            <div class="p-3 bg-white rounded-lg border border-stone-200">
-              <div class="text-2xl font-bold text-indigo-600">{{ summary().remoteCount }}</div>
-              <div class="text-xs text-stone-500">云端项目</div>
+            <div class="p-3 bg-white dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-stone-600">
+              <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{{ summary().remoteCount }}</div>
+              <div class="text-xs text-stone-500 dark:text-stone-400">云端项目</div>
             </div>
           </div>
           @if (summary().localOnlyCount > 0 || summary().conflictCount > 0) {
-            <div class="mt-3 text-xs text-stone-600 space-y-1">
+            <div class="mt-3 text-xs text-stone-600 dark:text-stone-300 space-y-1">
               @if (summary().localOnlyCount > 0) {
                 <p>• {{ summary().localOnlyCount }} 个项目仅存在于本地</p>
               }
@@ -73,8 +73,8 @@ import { ToastService } from '../../../services/toast.service';
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="font-semibold text-stone-800">上传本地数据</div>
-                <div class="text-xs text-stone-500 mt-0.5">
+                <div class="font-semibold text-stone-800 dark:text-stone-100">上传本地数据</div>
+                <div class="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                   将本地项目上传到云端，保留您的所有工作
                 </div>
               </div>
@@ -96,8 +96,8 @@ import { ToastService } from '../../../services/toast.service';
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="font-semibold text-stone-800">智能合并</div>
-                <div class="text-xs text-stone-500 mt-0.5">
+                <div class="font-semibold text-stone-800 dark:text-stone-100">智能合并</div>
+                <div class="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                   合并本地和云端数据，保留双方的所有内容
                 </div>
               </div>
@@ -119,8 +119,8 @@ import { ToastService } from '../../../services/toast.service';
                 </svg>
               </div>
               <div class="flex-1 min-w-0">
-                <div class="font-semibold text-stone-800">使用云端数据</div>
-                <div class="text-xs text-stone-500 mt-0.5">
+                <div class="font-semibold text-stone-800 dark:text-stone-100">使用云端数据</div>
+                <div class="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
                   丢弃本地数据，仅使用云端已有的项目
                 </div>
               </div>
@@ -164,11 +164,11 @@ import { ToastService } from '../../../services/toast.service';
         }
         
         <!-- 操作按钮 -->
-        <div class="px-6 py-4 border-t border-stone-100 bg-stone-50 flex justify-end gap-3">
+        <div class="px-6 py-4 border-t border-stone-100 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/50 flex justify-end gap-3">
           <button 
             (click)="close.emit()"
             [disabled]="isProcessing()"
-            class="px-4 py-2 text-sm text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors disabled:opacity-50">
+            class="px-4 py-2 text-sm text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors disabled:opacity-50">
             稍后处理
           </button>
           <button 

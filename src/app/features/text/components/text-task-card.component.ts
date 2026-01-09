@@ -27,7 +27,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       (touchmove)="onTouchMove($event)"
       (touchend)="onTouchEnd($event)"
       (touchcancel)="onTouchCancel($event)"
-      class="relative bg-canvas/80 backdrop-blur-sm border rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group stack-card overflow-hidden"
+      class="relative bg-canvas/80 dark:bg-stone-800/80 backdrop-blur-sm border rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-0.5 transition-all group stack-card overflow-hidden"
       [ngClass]="cardClasses">
       
       <!-- 头部信息 -->
@@ -37,7 +37,7 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
               [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
           {{projectState.compressDisplayId(task.displayId)}}
         </span>
-        <span class="text-retro-muted/60 font-light"
+        <span class="text-retro-muted/60 dark:text-stone-500 font-light"
               [ngClass]="{'text-[10px]': !isMobile, 'text-[9px]': isMobile}">
           {{task.createdDate | date:'yyyy/MM/dd HH:mm'}}
         </span>
@@ -45,17 +45,17 @@ import { TextTaskEditorComponent } from './text-task-editor.component';
       
       @if (!isSelected) {
         <!-- 收起状态 -->
-        <div class="font-medium text-retro-dark leading-snug line-clamp-2 cursor-pointer"
+        <div class="font-medium text-retro-dark dark:text-stone-200 leading-snug line-clamp-2 cursor-pointer"
              [ngClass]="{'text-sm mb-1': !isMobile, 'text-xs mb-0.5': isMobile}">
           {{task.title || '未命名任务'}}
         </div>
         @if (task.content) {
-          <div class="text-stone-500 font-light leading-relaxed line-clamp-1 cursor-pointer min-h-[1em] markdown-preview-compact"
+          <div class="text-stone-500 dark:text-stone-400 font-light leading-relaxed line-clamp-1 cursor-pointer min-h-[1em] markdown-preview-compact"
                [ngClass]="{'text-xs': !isMobile, 'text-[10px]': isMobile}"
                [innerHTML]="renderMarkdown(task.content)">
           </div>
         } @else {
-          <div class="text-stone-400 italic font-light leading-relaxed line-clamp-1 cursor-pointer min-h-[1em]"
+          <div class="text-stone-400 dark:text-stone-500 italic font-light leading-relaxed line-clamp-1 cursor-pointer min-h-[1em]"
                [ngClass]="{'text-xs': !isMobile, 'text-[10px]': isMobile}">
             暂无描述
           </div>

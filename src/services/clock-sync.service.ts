@@ -443,6 +443,47 @@ export class ClockSyncService {
     return this.compareTimestamps(localUpdatedAt, remoteUpdatedAt) > 0;
   }
   
+  /**
+   * 【Senior Consultant Clock Skew Guard】记录服务器返回的时间戳
+   * 
+   * 当 pushTask/pushProject 成功后，使用服务器返回的 updated_at 更新本地记录
+   * 这确保了 LWW 策略使用的是服务器时间而非客户端时间
+   * 
+   * @param serverTimestamp 服务器返回的 updated_at 时间戳
+   * @param entityId 实体 ID（用于日志）
+   */
+  recordServerTimestamp(serverTimestamp: string, entityId: string): void {
+    const serverTime = new Date(serverTimestamp);
+    const clientTime = new Date();
+    const drift = clientTime.getTime() - serverTime.getTime();
+    
+    // 仅当偏移显著时记录
+    if (Math.abs(drift) > 1000) { // 超过 1 秒
+      this.logger.debug('记录服务器时间戳偏移', { 
+        entityId, 
+        serverTimestamp,
+        driftMs: drift,
+        driftSeconds: Math.round(drift / 1000)
+      });
+      
+      // 更新偏移估算（使用滑动平均减少噪音）
+      const currentResult = this.lastSyncResult();
+      if (currentResult) {
+        // 加权平均：80% 旧值 + 20% 新值
+        const smoothedDrift = Math.round(currentResult.driftMs * 0.8 + drift * 0.2);
+        
+        // 只有当新的偏移与当前偏移差异较大时才更新
+        if (Math.abs(smoothedDrift - currentResult.driftMs) > 500) {
+          this.lastSyncResult.update(r => r ? {
+            ...r,
+            driftMs: smoothedDrift,
+            checkedAt: new Date()
+          } : r);
+        }
+      }
+    }
+  }
+
   // ========== 工具方法 ==========
   
   private toMilliseconds(timestamp: number | string | Date): number {

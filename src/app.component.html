@@ -6,30 +6,30 @@
   <!-- 启动失败阻断性 UI - 优先级最高，阻止所有其他内容 -->
   @if (bootstrapFailed() && !isCheckingSession()) {
     <div class="fixed inset-0 z-[9999] flex items-center justify-center" style="background-color: var(--theme-bg, #f5f5f4);">
-      <div class="max-w-md mx-4 p-8 bg-white rounded-2xl shadow-2xl border border-red-100 text-center space-y-6">
+      <div class="max-w-md mx-4 p-8 bg-white dark:bg-stone-900 rounded-2xl shadow-2xl border border-red-100 dark:border-red-900 text-center space-y-6">
         <!-- 错误图标 -->
-        <div class="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-          <svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <div class="mx-auto w-16 h-16 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center">
+          <svg class="w-8 h-8 text-red-500 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
         </div>
         
         <!-- 标题 -->
-        <h1 class="text-2xl font-bold text-stone-800">启动失败</h1>
+        <h1 class="text-2xl font-bold text-stone-800 dark:text-stone-100">启动失败</h1>
         
         <!-- 错误信息 -->
         <div class="space-y-2">
-          <p class="text-stone-600">应用初始化时遇到问题，无法建立会话连接。</p>
+          <p class="text-stone-600 dark:text-stone-300">应用初始化时遇到问题，无法建立会话连接。</p>
           @if (bootstrapErrorMessage()) {
-            <div class="mt-3 p-3 bg-red-50 rounded-lg text-left">
-              <p class="text-xs text-red-600 font-mono break-all">{{ bootstrapErrorMessage() }}</p>
+            <div class="mt-3 p-3 bg-red-50 dark:bg-red-900/30 rounded-lg text-left">
+              <p class="text-xs text-red-600 dark:text-red-400 font-mono break-all">{{ bootstrapErrorMessage() }}</p>
             </div>
           }
         </div>
         
         <!-- 可能的原因 -->
-        <div class="text-left text-sm text-stone-500 space-y-1 bg-stone-50 p-4 rounded-lg">
-          <p class="font-medium text-stone-600 mb-2">可能的原因：</p>
+        <div class="text-left text-sm text-stone-500 dark:text-stone-400 space-y-1 bg-stone-50 dark:bg-stone-800 p-4 rounded-lg">
+          <p class="font-medium text-stone-600 dark:text-stone-300 mb-2">可能的原因：</p>
           <ul class="list-disc list-inside space-y-1">
             <li>网络连接中断或不稳定</li>
             <li>本地登录凭证已损坏</li>
@@ -41,7 +41,7 @@
         <button 
           (click)="retryBootstrap()"
           [disabled]="isCheckingSession()"
-          class="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-lg">
+          class="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 dark:disabled:bg-indigo-800 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2 text-lg">
           @if (isCheckingSession()) {
             <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -59,7 +59,7 @@
         <!-- 离线模式入口（备用） -->
         <button 
           (click)="bootstrapFailed.set(false)"
-          class="text-sm text-stone-400 hover:text-stone-600 underline transition-colors">
+          class="text-sm text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 underline transition-colors">
           以离线模式继续（数据仅保存本地）
         </button>
       </div>
@@ -97,11 +97,11 @@
     <!-- Sidebar Header -->
     <div class="flex justify-between items-center shrink-0"
          [ngClass]="{'mx-6 mt-8 mb-6': !isMobile(), 'mx-3 mt-4 mb-3': isMobile()}">
-      <h1 class="font-bold text-stone-800 tracking-tight font-serif"
+      <h1 class="font-bold text-stone-800 dark:text-stone-100 tracking-tight font-serif"
           [ngClass]="{'text-2xl': !isMobile(), 'text-base': isMobile()}">NanoFlow</h1>
       <div class="flex items-center gap-1">
         <button data-testid="create-project-btn" (click)="createNewProject()" 
-                class="text-stone-400 hover:text-stone-800 hover:bg-stone-200/50 flex items-center justify-center rounded-full transition-all font-light" 
+                class="text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-200/50 dark:hover:bg-stone-700/50 flex items-center justify-center rounded-full transition-all font-light" 
                 [ngClass]="{'w-8 h-8 text-xl': !isMobile(), 'w-6 h-6 text-lg': isMobile()}"
                 title="新建项目" aria-label="新建项目">+</button>
         <!-- 移动端关闭侧边栏按钮 -->
@@ -127,7 +127,7 @@
           [ngModel]="unifiedSearchQuery()" 
           (ngModelChange)="onUnifiedSearchChange($event)"
           placeholder="搜索项目或任务..."
-          class="w-full px-3 py-2 text-xs border border-stone-200 rounded-lg bg-white/80 focus:outline-none focus:ring-1 focus:ring-indigo-300 focus:border-indigo-300 transition-all pl-8"
+          class="w-full px-3 py-2 text-xs border border-stone-200 dark:border-stone-600 rounded-lg bg-white/80 dark:bg-stone-800/80 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 focus:border-indigo-300 dark:focus:border-indigo-500 transition-all pl-8 dark:text-stone-200 dark:placeholder-stone-500"
           aria-label="搜索项目或任务">
         <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
@@ -135,7 +135,7 @@
         @if (unifiedSearchQuery()) {
           <button 
             (click)="clearUnifiedSearch()" 
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300"
             aria-label="清除搜索">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -146,32 +146,32 @@
       
       <!-- 搜索结果 -->
       @if (unifiedSearchQuery() && searchResults().length > 0) {
-        <div class="mb-3 p-2 bg-indigo-50 rounded-lg border border-indigo-100 animate-fade-in">
-          <div class="text-[10px] font-semibold text-indigo-600 mb-1.5 uppercase tracking-wide">
+        <div class="mb-3 p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg border border-indigo-100 dark:border-indigo-800 animate-fade-in">
+          <div class="text-[10px] font-semibold text-indigo-600 dark:text-indigo-300 mb-1.5 uppercase tracking-wide">
             任务搜索结果 ({{searchResults().length}})
           </div>
           <div class="space-y-1 max-h-48 overflow-y-auto">
             @for (task of searchResults(); track task.id) {
               <div 
                 (click)="setActiveProjectId(activeProject()?.id ?? null); onFocusFlowNode(task.id)"
-                class="px-2 py-1.5 bg-white rounded-md text-xs cursor-pointer hover:bg-indigo-100 transition-colors group">
+                class="px-2 py-1.5 bg-white dark:bg-stone-700 rounded-md text-xs cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors group">
                 <div class="flex items-center gap-1.5">
-                  <span class="font-mono text-[9px] text-indigo-400">{{task.shortId || compressDisplayId(task.displayId)}}</span>
-                  <span class="font-medium text-stone-700 truncate group-hover:text-indigo-700">{{task.title || '未命名'}}</span>
+                  <span class="font-mono text-[9px] text-indigo-400 dark:text-indigo-300">{{task.shortId || compressDisplayId(task.displayId)}}</span>
+                  <span class="font-medium text-stone-700 dark:text-stone-200 truncate group-hover:text-indigo-700 dark:group-hover:text-indigo-300">{{task.title || '未命名'}}</span>
                 </div>
               </div>
             }
           </div>
         </div>
       } @else if (unifiedSearchQuery() && searchResults().length === 0 && filteredProjects().length === projects().length) {
-        <div class="mb-3 p-2 bg-stone-50 rounded-lg text-xs text-stone-400 text-center">
+        <div class="mb-3 p-2 bg-stone-50 dark:bg-stone-800 rounded-lg text-xs text-stone-400 dark:text-stone-500 text-center">
           未找到匹配的项目或任务
         </div>
       }
       
       <!-- 项目搜索提示 -->
       @if (unifiedSearchQuery() && filteredProjects().length > 0 && filteredProjects().length < projects().length) {
-        <div class="mb-2 text-[10px] text-emerald-600 font-medium">
+        <div class="mb-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
           匹配项目 ({{filteredProjects().length}}/{{projects().length}})
         </div>
       }
@@ -180,17 +180,19 @@
         <div class="space-y-2">
           <div data-testid="project-item" [attr.data-project-id]="proj.id"
                (click)="selectProject(proj.id)" (dblclick)="handleProjectDoubleClick(proj.id, $event)" 
-               class="rounded-lg cursor-pointer transition-all duration-200 group hover:bg-stone-100" 
-               [ngClass]="{'px-4 py-3': !isMobile(), 'px-2 py-2': isMobile()}"
-               [class.bg-indigo-100]="activeProjectId() === proj.id" 
-               [class.text-indigo-900]="activeProjectId() === proj.id" 
-               [class.text-stone-500]="activeProjectId() !== proj.id">
+               class="rounded-lg cursor-pointer transition-all duration-200 group px-2 py-2"
+               [ngClass]="{
+                 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200': activeProjectId() === proj.id,
+                 'text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700': activeProjectId() !== proj.id,
+                 'px-4 py-3': !isMobile(),
+                 'px-2 py-2': isMobile()
+               }">
             <div class="flex items-center justify-between gap-1 min-w-0">
               @if (renamingProjectId() === proj.id) {
                 <!-- 重命名输入框 -->
                 <input 
                   type="text"
-                  class="flex-1 min-w-0 font-medium bg-white border border-indigo-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  class="flex-1 min-w-0 font-medium bg-white dark:bg-stone-700 border border-indigo-300 dark:border-indigo-500 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:focus:ring-indigo-500 dark:text-stone-100"
                   [ngClass]="{'text-sm': !isMobile(), 'text-xs': isMobile()}"
                   [ngModel]="renameProjectName()"
                   (ngModelChange)="renameProjectName.set($event)"
@@ -225,16 +227,16 @@
 
           @if (expandedProjectId() === proj.id) {
             @if (projectDraft(proj.id); as draft) {
-              <div class="mt-1 mb-2 rounded-lg border border-stone-200 bg-white/90 text-stone-600 shadow-sm cursor-default animate-fade-in" 
+              <div class="mt-1 mb-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white/90 dark:bg-stone-800/90 text-stone-600 dark:text-stone-300 shadow-sm cursor-default animate-fade-in" 
                    [ngClass]="{'mx-4 p-3 space-y-2 text-xs rounded-xl': !isMobile(), 'mx-1 p-2 space-y-1.5 text-[10px]': isMobile()}"
                    (click)="$event.stopPropagation()"
                    (touchstart)="$event.stopPropagation()">
                 <!-- 创建时间和简介合并为紧凑布局 -->
-                <div class="flex items-start gap-2 text-stone-400">
+                <div class="flex items-start gap-2 text-stone-400 dark:text-stone-500">
                   <svg class="w-3 h-3 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                   </svg>
-                  <span class="text-stone-500 text-[11px]">{{ proj.createdDate | date:'yyyy-MM-dd HH:mm' }}</span>
+                  <span class="text-stone-500 dark:text-stone-400 text-[11px]">{{ proj.createdDate | date:'yyyy-MM-dd HH:mm' }}</span>
                 </div>
                 <!-- 简介 -->
                 <div class="flex flex-col gap-0.5">
@@ -242,7 +244,7 @@
                     <div class="animate-fade-in flex gap-1.5 items-end" (click)="$event.stopPropagation()" (touchstart)="$event.stopPropagation()">
                       <textarea
                         [rows]="isMobile() ? 2 : 2"
-                        class="flex-1 border border-stone-200 rounded text-stone-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-300 resize-none touch-manipulation text-[11px]"
+                        class="flex-1 border border-stone-200 dark:border-stone-600 rounded text-stone-600 dark:text-stone-300 bg-transparent dark:bg-stone-700 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 resize-none touch-manipulation text-[11px] dark:placeholder-stone-500"
                         [ngClass]="{'px-2 py-1.5': !isMobile(), 'px-2 py-1 text-[10px]': isMobile()}"
                         [ngModel]="draft.description"
                         (ngModelChange)="updateProjectDraft(proj.id, 'description', $event)"
@@ -334,14 +336,14 @@
       
       <!-- 登录/用户状态按钮 -->
       @if (currentUserId()) {
-        <button data-testid="user-menu" (click)="openSettings()" class="w-full py-2.5 px-3 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="已登录用户">
+        <button data-testid="user-menu" (click)="openSettings()" class="w-full py-2.5 px-3 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="已登录用户">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <span class="truncate">{{ sessionEmail() || '已登录' }}</span>
         </button>
       } @else {
-        <button data-testid="login-btn" (click)="modal.show('login')" class="w-full py-2.5 px-3 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="登录">
+        <button data-testid="login-btn" (click)="modal.show('login')" class="w-full py-2.5 px-3 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="登录">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
           </svg>
@@ -349,7 +351,7 @@
         </button>
       }
       
-      <button (click)="openSettings()" class="w-full py-2.5 px-3 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="打开设置">
+      <button (click)="openSettings()" class="w-full py-2.5 px-3 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-700/50 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="打开设置">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -358,13 +360,13 @@
       </button>
       
       <!-- 回收站按钮 -->
-      <button (click)="modal.show('trash')" class="w-full py-2.5 px-3 text-stone-500 hover:text-stone-800 hover:bg-stone-100 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="打开回收站">
+      <button (click)="modal.show('trash')" class="w-full py-2.5 px-3 text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-700/50 rounded-lg text-xs font-medium transition-all flex items-center gap-2.5" aria-label="打开回收站">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
         </svg>
         回收站
         @if (deletedTasks().length > 0) {
-          <span class="ml-auto bg-stone-200 text-stone-600 text-[10px] px-1.5 py-0.5 rounded-full">{{ deletedTasks().length }}</span>
+          <span class="ml-auto bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 text-[10px] px-1.5 py-0.5 rounded-full">{{ deletedTasks().length }}</span>
         }
       </button>
     </div>
@@ -372,9 +374,9 @@
 
   <!-- Sidebar Resizer -->
   @if (!isMobile()) {
-    <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize transition-all z-20 flex-shrink-0 relative group"
+    <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 dark:hover:bg-stone-700 cursor-col-resize transition-all z-20 flex-shrink-0 relative group"
          (mousedown)="startSidebarResize($event)">
-         <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
+         <div class="absolute inset-y-0 left-0 w-px bg-stone-200 dark:bg-stone-700 group-hover:bg-stone-400 dark:group-hover:bg-stone-500 transition-colors"></div>
     </div>
   }
 
@@ -399,8 +401,8 @@
           
           <!-- 标题 -->
           <div>
-            <h2 class="text-xl font-bold text-stone-800 mb-2">请先登录</h2>
-            <p class="text-sm text-stone-500">登录后即可访问您的任务和项目</p>
+            <h2 class="text-xl font-bold text-stone-800 dark:text-stone-100 mb-2">请先登录</h2>
+            <p class="text-sm text-stone-500 dark:text-stone-400">登录后即可访问您的任务和项目</p>
           </div>
           
           <!-- 登录按钮 -->
@@ -430,6 +432,7 @@
   @if (showSettings()) {
     <app-settings-modal
       [sessionEmail]="sessionEmail()"
+      [projects]="projects()"
       (close)="closeSettings()"
       (signOut)="signOut()"
       (themeChange)="updateTheme($event)"

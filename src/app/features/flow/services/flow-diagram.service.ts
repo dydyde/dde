@@ -1,10 +1,11 @@
-import { Injectable, inject, signal, NgZone } from '@angular/core';
+import { Injectable, inject, signal, NgZone, effect } from '@angular/core';
 import { ProjectStateService } from '../../../../services/project-state.service';
 import { UiStateService } from '../../../../services/ui-state.service';
 import { TaskOperationAdapterService } from '../../../../services/task-operation-adapter.service';
 import { SyncCoordinatorService } from '../../../../services/sync-coordinator.service';
 import { LoggerService } from '../../../../services/logger.service';
 import { ToastService } from '../../../../services/toast.service';
+import { ThemeService } from '../../../../services/theme.service';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
 import { FlowLayoutService } from './flow-layout.service';
 import { FlowSelectionService } from './flow-selection.service';
@@ -12,6 +13,7 @@ import { FlowZoomService } from './flow-zoom.service';
 import { FlowEventService } from './flow-event.service';
 import { FlowTemplateService } from './flow-template.service';
 import { flowTemplateEventHandlers } from './flow-template-events';
+import { getFlowStyles, FlowTheme, FlowColorMode } from '../../../../config/flow-styles';
 import { MinimapMathService } from '../../../../services/minimap-math.service';
 import { Task } from '../../../../models';
 import { environment } from '../../../../environments/environment';
@@ -60,6 +62,7 @@ export class FlowDiagramService {
   private readonly toast = inject(ToastService);
   private readonly zone = inject(NgZone);
   private readonly configService = inject(FlowDiagramConfigService);
+  private readonly themeService = inject(ThemeService);
   
   // ========== 委托的子服务 ==========
   private readonly layoutService = inject(FlowLayoutService);
@@ -140,6 +143,39 @@ export class FlowDiagramService {
   // ========== 僵尸模式 ==========
   private isSuspended = false;
   private suspendedResizeObserver: ResizeObserver | null = null;
+  
+  // ========== 主题变化监听 ==========
+  private themeChangeEffect = effect(() => {
+    // 监听颜色模式变化，触发 GoJS 重绘
+    const isDark = this.themeService.isDark();
+    const theme = this.themeService.theme();
+    
+    // 只在 diagram 已初始化时重绘
+    if (this.diagram && !this.isDestroyed && !this.isSuspended) {
+      this.zone.runOutsideAngular(() => {
+        // 重新设置模板并更新绑定
+        this.templateService.setupNodeTemplate(this.diagram!);
+        this.templateService.setupLinkTemplate(this.diagram!);
+        
+        // 更新所有节点和连接线的绑定
+        this.diagram!.updateAllTargetBindings();
+        
+        // 更新画布背景色
+        const flowStyles = getFlowStyles(theme as FlowTheme, isDark ? 'dark' : 'light');
+        this.diagram!.div!.style.backgroundColor = flowStyles.canvas.background;
+        
+        // 更新 Overview（如果存在）
+        if (this.overview && this.overviewContainer) {
+          this.overview.updateAllTargetBindings();
+          // 更新小地图背景色
+          const overviewBackground = this.getOverviewBackgroundColor();
+          this.overviewContainer.style.backgroundColor = overviewBackground;
+        }
+        
+        this.logger.debug('主题变化触发 GoJS 重绘', { isDark, theme });
+      });
+    }
+  });
   
   // ========== 公开信号 ==========
   readonly error = signal<string | null>(null);
@@ -252,6 +288,9 @@ export class FlowDiagramService {
       this.layoutService.setDiagram(this.diagram);
       this.selectionService.setDiagram(this.diagram);
       this.zoomService.setDiagram(this.diagram);
+      
+      // 初始化时设置正确的画布背景色
+      this.applyCanvasBackground();
       
       this.error.set(null);
       this.logger.info('GoJS Diagram 初始化成功');
@@ -607,8 +646,29 @@ export class FlowDiagramService {
   }
   
   private getOverviewBackgroundColor(): string {
-    const styles = this.configService.currentStyles();
-    return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
+    // 深色模式下使用较浅的背景色（与画布背景相反），浅色模式下使用深色背景
+    // 这样小地图中的节点才能清晰可见
+    const isDark = this.themeService.isDark();
+    if (isDark) {
+      // 深色模式：使用深色但比画布稍亮的颜色
+      return '#1f1f1f';
+    } else {
+      // 浅色模式：使用深色背景
+      const styles = this.configService.currentStyles();
+      return this.readCssColorVar('--theme-text-dark') ?? styles.text.titleColor ?? '#292524';
+    }
+  }
+  
+  /**
+   * 应用画布背景色（根据当前主题）
+   */
+  private applyCanvasBackground(): void {
+    if (!this.diagram || !this.diagram.div) return;
+    
+    const theme = this.themeService.theme() as FlowTheme;
+    const isDark = this.themeService.isDark();
+    const flowStyles = getFlowStyles(theme, isDark ? 'dark' : 'light');
+    this.diagram.div.style.backgroundColor = flowStyles.canvas.background;
   }
   
   private readCssColorVar(varName: string): string | null {

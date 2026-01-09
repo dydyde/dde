@@ -19,10 +19,12 @@
 
 import { Injectable, inject } from '@angular/core';
 import { GOJS_CONFIG } from '../../../../config';
+import { getFlowStyles, FlowTheme, FlowColorMode } from '../../../../config/flow-styles';
 import { flowTemplateEventHandlers } from './flow-template-events';
 import { FlowDiagramConfigService } from './flow-diagram-config.service';
 import { UiStateService } from '../../../../services/ui-state.service';
 import { LoggerService } from '../../../../services/logger.service';
+import { ThemeService } from '../../../../services/theme.service';
 import * as go from 'gojs';
 
 // ========== GoJS 扩展类型定义 ==========
@@ -110,31 +112,45 @@ export class FlowTemplateService {
   private readonly configService = inject(FlowDiagramConfigService);
   private readonly loggerService = inject(LoggerService);
   private readonly logger = this.loggerService.category('FlowTemplate');
+  private readonly themeService = inject(ThemeService);
+  
+  // ========== 主题感知的样式获取 ==========
+  
+  /**
+   * 获取当前主题的 GoJS 样式配置
+   */
+  private getCurrentFlowStyles() {
+    const theme = this.themeService.theme() as FlowTheme;
+    const colorMode: FlowColorMode = this.themeService.isDark() ? 'dark' : 'light';
+    return getFlowStyles(theme, colorMode);
+  }
   
   // ========== 样式配置 ==========
   
   getNodeStyleConfig(isMobile: boolean): NodeStyleConfig {
+    const flowStyles = this.getCurrentFlowStyles();
     return {
       portSize: isMobile ? 24 : 10,
       assignedWidth: GOJS_CONFIG.ASSIGNED_NODE_WIDTH,
       unassignedWidth: GOJS_CONFIG.UNASSIGNED_NODE_WIDTH,
-      defaultFill: 'white',
-      defaultStroke: '#78716C',
-      selectedStroke: '#4A8C8C',
+      defaultFill: flowStyles.node.background,
+      defaultStroke: flowStyles.node.defaultBorder,
+      selectedStroke: flowStyles.node.selectedBorder,
       cornerRadius: 10
     };
   }
   
   getLinkStyleConfig(isMobile: boolean): LinkStyleConfig {
+    const flowStyles = this.getCurrentFlowStyles();
     const rawCaptureRadius = GOJS_CONFIG.LINK_CAPTURE_THRESHOLD ?? 80;
     const captureRadius = isMobile
       ? Math.min(Math.max(rawCaptureRadius, 28), 60)
       : Math.min(Math.max(rawCaptureRadius, 16), 36);
     
     return {
-      defaultStroke: '#78716C',
-      parentChildStroke: '#A8A29E',
-      selectedStroke: '#4A8C8C',
+      defaultStroke: flowStyles.link.parentChildColor,
+      parentChildStroke: flowStyles.link.parentChildColor,
+      selectedStroke: flowStyles.node.selectedBorder,
       strokeWidth: 1.5,
       captureRadius
     };

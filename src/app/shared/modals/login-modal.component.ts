@@ -8,20 +8,20 @@ import { FormsModule } from '@angular/forms';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
-      <div data-testid="login-modal" class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in" (click)="$event.stopPropagation()">
+      <div data-testid="login-modal" class="bg-white dark:bg-stone-900 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in" (click)="$event.stopPropagation()">
         <div class="flex items-center gap-3 mb-5">
-          <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
-            <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <div class="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
+            <svg class="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
             </svg>
           </div>
           <div>
-            <h3 class="text-lg font-semibold text-stone-800">
+            <h3 class="text-lg font-semibold text-stone-800 dark:text-stone-200">
               @if (isResetPasswordMode()) { 重置密码 }
               @else if (isSignupMode()) { 注册账号 }
               @else { 登录 }
             </h3>
-            <p class="text-xs text-stone-500">
+            <p class="text-xs text-stone-500 dark:text-stone-400">
               @if (isResetPasswordMode()) { 输入邮箱接收重置链接 }
               @else if (isSignupMode()) { 创建新账号开始使用 }
               @else { 登录后可同步云端数据 }
@@ -33,29 +33,29 @@ import { FormsModule } from '@angular/forms';
         @if (isResetPasswordMode()) {
           @if (isResetPasswordSent()) {
             <div class="text-center py-4">
-              <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
-                <svg class="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <div class="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-3">
+                <svg class="w-6 h-6 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                 </svg>
               </div>
-              <p class="text-stone-700 text-sm mb-1">重置邮件已发送</p>
-              <p class="text-stone-500 text-xs">请查收邮件并点击链接重置密码</p>
-              <button type="button" (click)="switchToLogin()" class="mt-4 px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg text-sm">返回登录</button>
+              <p class="text-stone-700 dark:text-stone-300 text-sm mb-1">重置邮件已发送</p>
+              <p class="text-stone-500 dark:text-stone-400 text-xs">请查收邮件并点击链接重置密码</p>
+              <button type="button" (click)="switchToLogin()" class="mt-4 px-4 py-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg text-sm">返回登录</button>
             </div>
           } @else {
             <form (submit)="handleResetPassword($event)" class="space-y-4">
               <input type="email" placeholder="邮箱" 
                      [ngModel]="email()" (ngModelChange)="email.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="resetEmail" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="email" required>
               
               @if (currentError) {
-                <div data-testid="auth-error" class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
+                <div data-testid="auth-error" class="text-xs text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded-lg px-3 py-2">{{ currentError }}</div>
               }
               
               <div class="flex gap-2 pt-2">
-                <button type="button" (click)="switchToLogin()" class="flex-1 px-4 py-2.5 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors text-sm font-medium">返回登录</button>
+                <button type="button" (click)="switchToLogin()" class="flex-1 px-4 py-2.5 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors text-sm font-medium">返回登录</button>
                 <button type="submit" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold disabled:opacity-60" [disabled]="isLoading()">
                   @if (isLoading()) { 发送中... } @else { 发送重置邮件 }
                 </button>
@@ -70,28 +70,30 @@ import { FormsModule } from '@angular/forms';
               <input type="email" placeholder="邮箱" 
                      [ngModel]="email()" (ngModelChange)="email.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="signupEmail" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="email" required>
               <input type="password" placeholder="密码（至少8位）" 
                      [ngModel]="password()" (ngModelChange)="password.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="signupPassword" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="new-password" required minlength="8">
               <input type="password" placeholder="确认密码" 
                      [ngModel]="confirmPassword()" (ngModelChange)="confirmPassword.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="signupConfirmPassword" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="new-password" required>
             </div>
             
             @if (currentError) {
-              <div class="text-xs bg-amber-50 border border-amber-100 rounded-lg px-3 py-2"
-                   [class.text-red-500]="!currentError?.includes('成功')"
-                   [class.text-green-600]="currentError?.includes('成功')">{{ currentError }}</div>
+              <div class="text-xs bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2"
+                   [ngClass]="{
+                     'text-red-500 dark:text-red-400': !currentError?.includes('成功'),
+                     'text-green-600 dark:text-green-400': currentError?.includes('成功')
+                   }">{{ currentError }}</div>
             }
             
             <div class="flex gap-2 pt-2">
-              <button type="button" (click)="switchToLogin()" class="flex-1 px-4 py-2.5 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors text-sm font-medium">返回登录</button>
+              <button type="button" (click)="switchToLogin()" class="flex-1 px-4 py-2.5 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors text-sm font-medium">返回登录</button>
               <button type="submit" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold disabled:opacity-60" [disabled]="isLoading()">
                 @if (isLoading()) { 注册中... } @else { 注册 }
               </button>
@@ -105,38 +107,38 @@ import { FormsModule } from '@angular/forms';
               <input data-testid="email-input" type="email" placeholder="邮箱" 
                      [ngModel]="email()" (ngModelChange)="email.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="authEmailModal" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="email" required>
               <input data-testid="password-input" type="password" placeholder="密码" 
                      [ngModel]="password()" (ngModelChange)="password.set($event)" 
                      [ngModelOptions]="{standalone: true}" name="authPasswordModal" 
-                     class="w-full border border-stone-200 rounded-lg px-4 py-3 text-sm text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-all" 
+                     class="w-full border border-stone-200 dark:border-stone-600 rounded-lg px-4 py-3 text-sm text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 transition-all" 
                      autocomplete="current-password" required>
             </div>
             
             @if (currentError) {
-              <div data-testid="auth-error" class="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{{ currentError }}</div>
+              <div data-testid="auth-error" class="text-xs text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded-lg px-3 py-2">{{ currentError }}</div>
             }
             
             <div class="flex flex-col gap-2 pt-2">
               <div class="flex gap-2">
-                <button type="button" (click)="close.emit()" class="flex-1 px-4 py-2.5 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors text-sm font-medium">取消</button>
+                <button type="button" (click)="close.emit()" class="flex-1 px-4 py-2.5 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors text-sm font-medium">取消</button>
                 <button data-testid="submit-login" type="submit" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-semibold disabled:opacity-60" [disabled]="isLoading()">
                   @if (isLoading()) { 登录中... } @else { 登录 }
                 </button>
               </div>
               <div class="flex justify-center gap-4 text-xs">
-                <button type="button" (click)="switchToSignup()" class="text-indigo-600 hover:text-indigo-800">没有账号？注册</button>
-                <button type="button" (click)="switchToResetPassword()" class="text-stone-500 hover:text-stone-700">忘记密码？</button>
+                <button type="button" (click)="switchToSignup()" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300">没有账号？注册</button>
+                <button type="button" (click)="switchToResetPassword()" class="text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300">忘记密码？</button>
               </div>
               
               <!-- 本地模式分隔线和按钮 -->
               <div class="relative my-3">
                 <div class="absolute inset-0 flex items-center">
-                  <div class="w-full border-t border-stone-200"></div>
+                  <div class="w-full border-t border-stone-200 dark:border-stone-700"></div>
                 </div>
                 <div class="relative flex justify-center text-xs">
-                  <span class="bg-white px-2 text-stone-400">或</span>
+                  <span class="bg-white dark:bg-stone-900 px-2 text-stone-400 dark:text-stone-500">或</span>
                 </div>
               </div>
               
@@ -144,13 +146,13 @@ import { FormsModule } from '@angular/forms';
                 type="button" 
                 (click)="handleLocalMode()" 
                 data-testid="local-mode-btn"
-                class="w-full px-4 py-2.5 text-stone-600 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2">
+                class="w-full px-4 py-2.5 text-stone-600 dark:text-stone-400 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-600 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 本地模式（不同步云端）
               </button>
-              <p class="text-xs text-stone-400 text-center">数据仅保存在本地，不会同步到云端</p>
+              <p class="text-xs text-stone-400 dark:text-stone-500 text-center">数据仅保存在本地，不会同步到云端</p>
             </div>
           </form>
         }

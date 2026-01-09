@@ -4,6 +4,8 @@ module.exports = {
     "./src/**/*.{html,ts,tsx}",
     "./index.html"
   ],
+  // 使用 selector 策略，基于 data-color-mode 属性切换深色模式
+  darkMode: ['selector', '[data-color-mode="dark"]'],
   theme: {
     extend: {
       fontFamily: {

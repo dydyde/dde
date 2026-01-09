@@ -27,19 +27,19 @@ import { renderMarkdown } from '../../../../utils/markdown';
            [style.top.px]="position().y < 0 ? 24 : position().y"
            [style.left.px]="position().x >= 0 ? position().x : null">
          <!-- Content Panel -->
-         <div class="w-64 max-h-96 bg-white/95 backdrop-blur-xl border border-stone-200/50 shadow-xl overflow-hidden flex flex-col rounded-xl">
+         <div class="w-64 max-h-96 bg-white/95 dark:bg-stone-800/95 backdrop-blur-xl border border-stone-200/50 dark:border-stone-600/50 shadow-xl overflow-hidden flex flex-col rounded-xl">
              
              <!-- 可拖动标题栏 - 双击重置位置 -->
-             <div class="px-3 py-2 border-b border-stone-100 flex justify-between items-center cursor-move select-none bg-gradient-to-r from-stone-50 to-white"
+             <div class="px-3 py-2 border-b border-stone-100 dark:border-stone-700 flex justify-between items-center cursor-move select-none bg-gradient-to-r from-stone-50 dark:from-stone-700 to-white dark:to-stone-800"
                   (mousedown)="startDrag($event)"
                   (touchstart)="startDrag($event)"
                   (dblclick)="resetPosition()"
                   title="拖动移动面板，双击重置位置">
                  <div class="flex items-center gap-1.5">
-                     <span class="text-[8px] text-stone-400">☰</span>
-                     <h3 class="font-bold text-stone-700 text-xs">任务详情</h3>
+                     <span class="text-[8px] text-stone-400 dark:text-stone-500">☰</span>
+                     <h3 class="font-bold text-stone-700 dark:text-stone-200 text-xs">任务详情</h3>
                  </div>
-                 <button (click)="uiState.isFlowDetailOpen.set(false)" class="text-stone-400 hover:text-stone-600 p-1">
+                 <button (click)="uiState.isFlowDetailOpen.set(false)" class="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 p-1">
                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                    </svg>
@@ -51,12 +51,12 @@ import { renderMarkdown } from '../../../../utils/markdown';
                      <ng-container *ngTemplateOutlet="taskContent; context: { $implicit: t }"></ng-container>
                  } @else if (projectState.activeProject()) {
                      <div class="text-[11px] space-y-1">
-                         <div class="font-bold text-stone-800">{{projectState.activeProject()?.name}}</div>
-                         <div class="text-stone-400 font-mono text-[10px]">{{projectState.activeProject()?.createdDate | date:'yyyy-MM-dd'}}</div>
-                         <div class="text-stone-500 mt-1">{{projectState.activeProject()?.description}}</div>
+                         <div class="font-bold text-stone-800 dark:text-stone-100">{{projectState.activeProject()?.name}}</div>
+                         <div class="text-stone-400 dark:text-stone-500 font-mono text-[10px]">{{projectState.activeProject()?.createdDate | date:'yyyy-MM-dd'}}</div>
+                         <div class="text-stone-500 dark:text-stone-400 mt-1">{{projectState.activeProject()?.description}}</div>
                      </div>
                  } @else {
-                     <div class="py-4 text-center text-stone-400 text-[10px]">
+                     <div class="py-4 text-center text-stone-400 dark:text-stone-500 text-[10px]">
                          双击节点查看详情
                      </div>
                  }
@@ -68,7 +68,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
     <!-- 桌面端详情开启按钮 -->
     @if (!uiState.isMobile() && !uiState.isFlowDetailOpen()) {
       <button (click)="uiState.isFlowDetailOpen.set(true)" 
-              class="absolute top-6 right-2 z-20 bg-white/90 backdrop-blur border border-stone-200 rounded-lg p-2 shadow-sm hover:bg-white text-stone-400 hover:text-stone-600 transition-all flex items-center gap-1">
+              class="absolute top-6 right-2 z-20 bg-white/90 dark:bg-stone-800/90 backdrop-blur border border-stone-200 dark:border-stone-600 rounded-lg p-2 shadow-sm hover:bg-white dark:hover:bg-stone-700 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 transition-all flex items-center gap-1">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -80,7 +80,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
     @if (uiState.isMobile() && !uiState.isFlowDetailOpen()) {
       <button 
         (click)="uiState.isFlowDetailOpen.set(true)"
-        class="absolute top-2 right-2 z-25 bg-white/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 px-2 py-1 flex items-center gap-1 text-stone-500 hover:text-stone-700">
+        class="absolute top-2 right-2 z-25 bg-white/90 dark:bg-stone-800/90 backdrop-blur rounded-lg shadow-sm border border-stone-200 dark:border-stone-600 px-2 py-1 flex items-center gap-1 text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
@@ -92,7 +92,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
     @if (uiState.isMobile() && uiState.isFlowDetailOpen()) {
        <div
          #mobileDrawer
-         class="absolute left-0 right-0 z-30 bg-white/95 backdrop-blur-xl border-b border-stone-200 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col transition-all duration-100"
+         class="absolute left-0 right-0 z-30 bg-white/95 dark:bg-stone-800/95 backdrop-blur-xl border-b border-stone-200 dark:border-stone-700 shadow-[0_4px_20px_rgba(0,0,0,0.1)] rounded-b-2xl flex flex-col transition-all duration-100"
            [style.top.px]="0"
            [style.height.vh]="drawerHeight()"
            style="transform: translateZ(0); backface-visibility: hidden;">
@@ -106,7 +106,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
              [class.pt-0.5]="drawerHeight() < 20"
              [class.pb-0.5]="drawerHeight() >= 20"
              [class.pb-0]="drawerHeight() < 20">
-          <h3 class="font-bold text-stone-700 text-xs transition-opacity duration-100"
+          <h3 class="font-bold text-stone-700 dark:text-stone-200 text-xs transition-opacity duration-100"
               [class.opacity-0]="drawerHeight() < 20"
               [class.opacity-100]="drawerHeight() >= 20">任务详情</h3>
         </div>
@@ -151,13 +151,19 @@ import { renderMarkdown } from '../../../../utils/markdown';
           <!-- 头部信息栏 + 编辑切换 -->
           <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 text-[10px]">
-                  <span class="font-bold text-retro-muted bg-stone-100 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
+                  <span class="font-bold text-retro-muted bg-stone-100 dark:bg-stone-700 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
                   <span class="text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
                 <span data-testid="flow-task-status-badge" class="px-1.5 py-0.5 rounded"
-                        [class.bg-emerald-100]="task.status === 'completed'"
-                        [class.text-emerald-700]="task.status === 'completed'"
-                        [class.bg-amber-100]="task.status !== 'completed'"
-                        [class.text-amber-700]="task.status !== 'completed'">
+                        [ngClass]="{
+                          'bg-emerald-100': task.status === 'completed',
+                          'dark:bg-emerald-900/30': task.status === 'completed',
+                          'text-emerald-700': task.status === 'completed',
+                          'dark:text-emerald-300': task.status === 'completed',
+                          'bg-amber-100': task.status !== 'completed',
+                          'dark:bg-amber-900/30': task.status !== 'completed',
+                          'text-amber-700': task.status !== 'completed',
+                          'dark:text-amber-300': task.status !== 'completed'
+                        }">
                     {{task.status === 'completed' ? '完成' : '进行中'}}
                   </span>
               </div>
@@ -165,13 +171,11 @@ import { renderMarkdown } from '../../../../utils/markdown';
                   (click)="toggleEditMode()"
                 data-testid="flow-edit-toggle-btn"
                   class="text-[9px] px-1.5 py-0.5 rounded transition-all duration-200"
-                  [class.bg-indigo-100]="isEditMode()"
-                  [class.text-indigo-600]="isEditMode()"
-                  [class.bg-stone-100]="!isEditMode()"
-                  [class.text-stone-500]="!isEditMode()"
-                  [class.hover:bg-indigo-50]="!isEditMode()"
-                  [class.scale-95]="isTogglingMode"
-                  [class.opacity-70]="isTogglingMode"
+                  [ngClass]="{
+                    'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300': isEditMode(),
+                    'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20': !isEditMode(),
+                    'scale-95 opacity-70': isTogglingMode
+                  }"
                   [disabled]="isTogglingMode">
                   {{ isEditMode() ? '预览' : '编辑' }}
               </button>
@@ -187,7 +191,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                           [innerHTML]="renderMarkdownContent(task.content)">
                       </div>
                   } @else {
-                      <div class="text-[11px] text-stone-400 italic">点击编辑内容...</div>
+                      <div class="text-[11px] text-stone-400 dark:text-stone-500 italic">点击编辑内容...</div>
                   }
               </div>
           } @else {
@@ -200,7 +204,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
                   spellcheck="false"
-                  class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+                  class="w-full text-xs font-medium text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-600 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 bg-white dark:bg-stone-700"
                   placeholder="任务标题">
               
               <textarea 
@@ -212,7 +216,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
                   spellcheck="false"
-                  class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono leading-relaxed"
+                  class="w-full text-[11px] text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-600 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 bg-white dark:bg-stone-700 resize-none font-mono leading-relaxed"
                   placeholder="输入内容（支持 Markdown）..."></textarea>
           }
 
@@ -228,12 +232,10 @@ import { renderMarkdown } from '../../../../utils/markdown';
               <button (click)="toggleStatus.emit(task)"
                   data-testid="toggle-task-status-btn"
                   class="flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all border"
-                  [class.bg-emerald-50]="task.status !== 'completed'"
-                  [class.text-emerald-700]="task.status !== 'completed'"
-                  [class.border-emerald-200]="task.status !== 'completed'"
-                  [class.bg-stone-50]="task.status === 'completed'"
-                  [class.text-stone-600]="task.status === 'completed'"
-                  [class.border-stone-200]="task.status === 'completed'">
+                  [ngClass]="{
+                    'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700': task.status !== 'completed',
+                    'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600': task.status === 'completed'
+                  }">
                   {{task.status === 'completed' ? '撤销' : '完成'}}
               </button>
           </div>
@@ -242,17 +244,15 @@ import { renderMarkdown } from '../../../../utils/markdown';
           <div class="flex gap-1.5">
               <button (click)="archiveTask.emit(task)"
                   class="flex-1 px-2 py-1 text-[10px] font-medium rounded transition-all border"
-                  [class.bg-violet-50]="task.status !== 'archived'"
-                  [class.text-violet-600]="task.status !== 'archived'"
-                  [class.border-violet-200]="task.status !== 'archived'"
-                  [class.bg-stone-50]="task.status === 'archived'"
-                  [class.text-stone-600]="task.status === 'archived'"
-                  [class.border-stone-200]="task.status === 'archived'"
+                  [ngClass]="{
+                    'bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 border-violet-200 dark:border-violet-700': task.status !== 'archived',
+                    'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600': task.status === 'archived'
+                  }"
                   title="归档后任务将从主视图隐藏，可在回收站中恢复">
                   {{task.status === 'archived' ? '取消归档' : '归档'}}
               </button>
                 <button data-testid="delete-task-btn" (click)="deleteTask.emit(task)"
-                  class="px-2 py-1 bg-stone-50 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 text-[10px] font-medium rounded transition-all">
+                  class="px-2 py-1 bg-stone-50 dark:bg-stone-700 hover:bg-red-500 dark:hover:bg-red-600 text-stone-400 dark:text-stone-500 hover:text-white border border-stone-200 dark:border-stone-600 text-[10px] font-medium rounded transition-all">
                   删除
               </button>
           </div>
@@ -278,25 +278,24 @@ import { renderMarkdown } from '../../../../utils/markdown';
     <ng-template #mobileTaskContent let-task>
       <!-- 紧凑的任务信息头 - 单行布局 -->
       <div class="flex items-center gap-1.5 mb-1 flex-wrap">
-        <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
+        <span class="font-bold text-retro-muted text-[8px] tracking-wider bg-stone-100 dark:bg-stone-700 px-1.5 py-0.5 rounded">{{projectState.compressDisplayId(task.displayId)}}</span>
         <span class="text-[9px] text-stone-400">{{task.createdDate | date:'MM-dd'}}</span>
         <span class="text-[9px] px-1 py-0.5 rounded"
-              [class.bg-emerald-100]="task.status === 'completed'"
-              [class.text-emerald-700]="task.status === 'completed'"
-              [class.bg-amber-100]="task.status !== 'completed'"
-              [class.text-amber-700]="task.status !== 'completed'">
+              [ngClass]="{
+                'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300': task.status === 'completed',
+                'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300': task.status !== 'completed'
+              }">
           {{task.status === 'completed' ? '完成' : '进行'}}
         </span>
         <!-- 预览/编辑切换按钮 -->
         <button 
           (click)="toggleEditMode()"
           class="ml-auto text-[9px] px-1.5 py-0.5 rounded transition-all duration-200"
-          [class.bg-indigo-100]="!isEditMode()"
-          [class.text-indigo-600]="!isEditMode()"
-          [class.bg-stone-100]="isEditMode()"
-          [class.text-stone-500]="isEditMode()"
-          [class.scale-95]="isTogglingMode"
-          [class.opacity-70]="isTogglingMode"
+          [ngClass]="{
+            'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300': !isEditMode(),
+            'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400': isEditMode(),
+            'scale-95 opacity-70': isTogglingMode
+          }"
           [disabled]="isTogglingMode">
           {{ isEditMode() ? '预览' : '编辑' }}
         </button>
@@ -306,7 +305,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
       @if (!isEditMode()) {
         <div class="cursor-pointer space-y-1" (click)="toggleEditMode(); $event.stopPropagation()">
           <!-- 标题 -->
-          <h4 class="text-xs font-medium text-stone-800 leading-tight" [class.line-clamp-1]="isCompactMode()">{{ task.title || '无标题' }}</h4>
+          <h4 class="text-xs font-medium text-stone-800 dark:text-stone-100 leading-tight" [class.line-clamp-1]="isCompactMode()">{{ task.title || '无标题' }}</h4>
           
           <!-- Markdown 预览内容 -->
           @if (task.content) {
@@ -325,7 +324,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
             spellcheck="false"
-            class="w-full text-xs font-medium text-stone-800 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white"
+            class="w-full text-xs font-medium text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 bg-white dark:bg-stone-700"
             placeholder="任务标题">
           
           <!-- 内容输入 -->
@@ -338,7 +337,7 @@ import { renderMarkdown } from '../../../../utils/markdown';
             (mousedown)="isSelecting = true"
             (mouseup)="isSelecting = false"
             spellcheck="false"
-            class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 bg-white resize-none font-mono"
+            class="w-full text-[11px] text-stone-600 dark:text-stone-300 border border-stone-200 dark:border-stone-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-300 dark:focus:ring-indigo-500 bg-white dark:bg-stone-700 resize-none font-mono"
             placeholder="任务内容（支持 Markdown）..."></textarea>
           
           <!-- 快速待办输入 -->
@@ -378,12 +377,10 @@ import { renderMarkdown } from '../../../../utils/markdown';
           </button>
           <button (click)="toggleStatus.emit(task)"
             class="flex-1 px-1.5 py-1 text-[9px] font-medium rounded border transition-all"
-            [class.bg-emerald-50]="task.status !== 'completed'"
-            [class.text-emerald-700]="task.status !== 'completed'"
-            [class.border-emerald-200]="task.status !== 'completed'"
-            [class.bg-stone-50]="task.status === 'completed'"
-            [class.text-stone-600]="task.status === 'completed'"
-            [class.border-stone-200]="task.status === 'completed'">
+            [ngClass]="{
+              'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700': task.status !== 'completed',
+              'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600': task.status === 'completed'
+            }">
             {{task.status === 'completed' ? '撤销' : '完成'}}
           </button>
         </div>
@@ -392,16 +389,14 @@ import { renderMarkdown } from '../../../../utils/markdown';
         <div class="flex gap-1 mt-1">
           <button (click)="archiveTask.emit(task)"
             class="flex-1 px-1.5 py-1 text-[9px] font-medium rounded transition-all border"
-            [class.bg-violet-50]="task.status !== 'archived'"
-            [class.text-violet-600]="task.status !== 'archived'"
-            [class.border-violet-200]="task.status !== 'archived'"
-            [class.bg-stone-50]="task.status === 'archived'"
-            [class.text-stone-600]="task.status === 'archived'"
-            [class.border-stone-200]="task.status === 'archived'">
+            [ngClass]="{
+              'bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 border-violet-200 dark:border-violet-700': task.status !== 'archived',
+              'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600': task.status === 'archived'
+            }">
             {{task.status === 'archived' ? '取消归档' : '归档'}}
           </button>
           <button (click)="deleteTask.emit(task)"
-            class="px-1.5 py-1 bg-stone-50 text-stone-400 border border-stone-200 text-[9px] font-medium rounded transition-all">
+            class="px-1.5 py-1 bg-stone-50 dark:bg-stone-700 text-stone-400 dark:text-stone-500 border border-stone-200 dark:border-stone-600 hover:bg-red-500 dark:hover:bg-red-600 hover:text-white hover:border-red-500 text-[9px] font-medium rounded transition-all">
             删除
           </button>
         </div>

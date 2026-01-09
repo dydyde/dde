@@ -49,9 +49,9 @@ interface ConflictItem {
   imports: [CommonModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-scale-in flex flex-col" (click)="$event.stopPropagation()">
+      <div class="bg-white dark:bg-stone-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-scale-in flex flex-col" (click)="$event.stopPropagation()">
         <!-- 标题栏 -->
-        <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center shadow-sm">
               <svg class="w-4.5 h-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -59,11 +59,11 @@ interface ConflictItem {
               </svg>
             </div>
             <div>
-              <h2 class="text-sm font-bold text-slate-800">系统仪表盘</h2>
-              <p class="text-[10px] text-slate-500">监控同步状态与数据冲突</p>
+              <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100">系统仪表盘</h2>
+              <p class="text-[10px] text-slate-500 dark:text-slate-400">监控同步状态与数据冲突</p>
             </div>
           </div>
-          <button (click)="close.emit()" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200/60 text-slate-400 hover:text-slate-600 transition-colors">
+          <button (click)="close.emit()" class="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200/60 dark:hover:bg-slate-700/60 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -102,10 +102,10 @@ interface ConflictItem {
             
             <!-- 待处理操作 -->
             <div class="p-3 rounded-xl border transition-all"
-                 [class.border-slate-200]="pendingCount() === 0"
-                 [class.bg-slate-50]="pendingCount() === 0"
-                 [class.border-amber-200]="pendingCount() > 0"
-                 [class.bg-amber-50]="pendingCount() > 0">
+                 [ngClass]="{
+                   'border-slate-200 dark:border-stone-700 bg-slate-50 dark:bg-stone-800': pendingCount() === 0,
+                   'border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30': pendingCount() > 0
+                 }">
               <div class="flex items-center gap-2 mb-1.5">
                 <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -122,7 +122,7 @@ interface ConflictItem {
                   <button 
                     (click)="retryAll()"
                     [disabled]="isProcessing()"
-                    class="px-2 py-1 text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg transition-colors disabled:opacity-50 shadow-sm">
+                    class="px-2 py-1 text-[10px] font-bold bg-amber-100 dark:bg-amber-800 hover:bg-amber-200 dark:hover:bg-amber-700 text-amber-700 dark:text-amber-200 rounded-lg transition-colors disabled:opacity-50 shadow-sm">
                     {{ isProcessing() ? '同步中...' : '立即同步' }}
                   </button>
                 }
@@ -131,10 +131,10 @@ interface ConflictItem {
             
             <!-- 数据冲突 -->
             <div class="p-3 rounded-xl border transition-all"
-                 [class.border-slate-200]="conflictCount() === 0"
-                 [class.bg-slate-50]="conflictCount() === 0"
-                 [class.border-red-200]="conflictCount() > 0"
-                 [class.bg-red-50]="conflictCount() > 0">
+                 [ngClass]="{
+                   'border-slate-200 dark:border-stone-700 bg-slate-50 dark:bg-stone-800': conflictCount() === 0,
+                   'border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30': conflictCount() > 0
+                 }">
               <div class="flex items-center gap-2 mb-1.5">
                 <svg class="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -150,7 +150,7 @@ interface ConflictItem {
                 @if (conflictCount() > 0 && !showConflictList()) {
                   <button 
                     (click)="showConflictList.set(true)"
-                    class="px-3 py-1.5 text-xs font-medium bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors">
+                    class="px-3 py-1.5 text-xs font-medium bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-800/50 text-red-700 dark:text-red-300 rounded-lg transition-colors">
                     查看详情
                   </button>
                 }
@@ -162,7 +162,7 @@ interface ConflictItem {
           @if (conflictCount() > 0 && showConflictList()) {
             <div class="space-y-4">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                <h3 class="text-sm font-semibold text-stone-700 dark:text-stone-200 flex items-center gap-2">
                   <svg class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
@@ -170,20 +170,20 @@ interface ConflictItem {
                 </h3>
                 <button 
                   (click)="showConflictList.set(false)"
-                  class="text-xs text-stone-500 hover:text-stone-700">
+                  class="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-200">
                   收起
                 </button>
               </div>
               
               <!-- 冲突列表 -->
               @for (conflict of conflictItems(); track conflict.projectId) {
-                <div class="border border-red-200 rounded-lg overflow-hidden bg-white">
+                <div class="border border-red-200 dark:border-red-800/50 rounded-lg overflow-hidden bg-white dark:bg-stone-900">
                   <!-- 冲突卡片头部 -->
-                  <div class="p-4 bg-red-50 border-b border-red-100">
+                  <div class="p-4 bg-red-50 dark:bg-red-900/30 border-b border-red-100 dark:border-red-800/50">
                     <div class="flex items-start justify-between gap-3">
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2 mb-1">
-                          <span class="text-sm font-semibold text-stone-800 truncate">{{ conflict.projectName }}</span>
+                          <span class="text-sm font-semibold text-stone-800 dark:text-stone-100 truncate">{{ conflict.projectName }}</span>
                           <span class="px-1.5 py-0.5 text-[9px] font-medium rounded"
                                 [class.bg-amber-100]="conflict.reason === 'concurrent_edit'"
                                 [class.text-amber-700]="conflict.reason === 'concurrent_edit'"
@@ -194,7 +194,7 @@ interface ConflictItem {
                             {{ conflict.reasonLabel }}
                           </span>
                         </div>
-                        <div class="text-[10px] text-stone-500 flex items-center gap-3">
+                        <div class="text-[10px] text-stone-500 dark:text-stone-400 flex items-center gap-3">
                           <span>本地 {{ conflict.localTaskCount }} 个任务</span>
                           <span>·</span>
                           <span>云端 {{ conflict.remoteTaskCount }} 个任务</span>
@@ -204,8 +204,8 @@ interface ConflictItem {
                       </div>
                       <button 
                         (click)="toggleConflictExpand(conflict.projectId)"
-                        class="p-1 rounded hover:bg-red-100 transition-colors">
-                        <svg class="w-4 h-4 text-stone-500 transition-transform" 
+                        class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-800/50 transition-colors">
+                        <svg class="w-4 h-4 text-stone-500 dark:text-stone-400 transition-transform" 
                              [class.rotate-180]="conflict.isExpanded"
                              fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
@@ -255,62 +255,62 @@ interface ConflictItem {
                   
                   <!-- 差异详情（展开时显示） -->
                   @if (conflict.isExpanded) {
-                    <div class="p-4 space-y-3 bg-white">
-                      <div class="text-xs font-medium text-stone-600 mb-2">任务差异对比</div>
+                    <div class="p-4 space-y-3 bg-white dark:bg-stone-900">
+                      <div class="text-xs font-medium text-stone-600 dark:text-stone-300 mb-2">任务差异对比</div>
                       
                       <!-- 响应式差异网格：移动端垂直堆叠，桌面端三列 -->
                       <div class="space-y-2 max-h-64 overflow-y-auto">
                         @for (diff of conflict.taskDiffs.slice(0, 10); track diff.id) {
                           <div class="diff-grid grid gap-2 p-2 rounded-lg text-[11px]"
-                               [class.bg-green-50]="diff.status === 'same'"
-                               [class.bg-amber-50]="diff.status === 'modified'"
-                               [class.bg-indigo-50]="diff.status === 'local-only'"
-                               [class.bg-teal-50]="diff.status === 'remote-only'">
+                               [ngClass]="{
+                                 'bg-green-50 dark:bg-green-900/20': diff.status === 'same',
+                                 'bg-amber-50 dark:bg-amber-900/20': diff.status === 'modified',
+                                 'bg-indigo-50 dark:bg-indigo-900/20': diff.status === 'local-only',
+                                 'bg-teal-50 dark:bg-teal-900/20': diff.status === 'remote-only'
+                               }">
                             <!-- 移动端：垂直堆叠布局 -->
                             <div class="md:hidden space-y-1">
-                              <div class="font-medium text-stone-700 flex items-center gap-2">
+                              <div class="font-medium text-stone-700 dark:text-stone-200 flex items-center gap-2">
                                 <span class="px-1.5 py-0.5 rounded text-[9px]"
-                                      [class.bg-green-200]="diff.status === 'same'"
-                                      [class.text-green-700]="diff.status === 'same'"
-                                      [class.bg-amber-200]="diff.status === 'modified'"
-                                      [class.text-amber-700]="diff.status === 'modified'"
-                                      [class.bg-indigo-200]="diff.status === 'local-only'"
-                                      [class.text-indigo-700]="diff.status === 'local-only'"
-                                      [class.bg-teal-200]="diff.status === 'remote-only'"
-                                      [class.text-teal-700]="diff.status === 'remote-only'">
+                                      [ngClass]="{
+                                        'bg-green-200 dark:bg-green-800 text-green-700 dark:text-green-300': diff.status === 'same',
+                                        'bg-amber-200 dark:bg-amber-800 text-amber-700 dark:text-amber-300': diff.status === 'modified',
+                                        'bg-indigo-200 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300': diff.status === 'local-only',
+                                        'bg-teal-200 dark:bg-teal-800 text-teal-700 dark:text-teal-300': diff.status === 'remote-only'
+                                      }">
                                   {{ getStatusLabel(diff.status) }}
                                 </span>
                                 {{ diff.title }}
                               </div>
                               @if (diff.status === 'modified' && diff.localValue && diff.remoteValue) {
-                                <div class="pl-2 border-l-2 border-indigo-300">
-                                  <span class="text-indigo-600">本地:</span> {{ diff.localValue }}
+                                <div class="pl-2 border-l-2 border-indigo-300 dark:border-indigo-600">
+                                  <span class="text-indigo-600 dark:text-indigo-400">本地:</span> {{ diff.localValue }}
                                 </div>
-                                <div class="pl-2 border-l-2 border-teal-300">
-                                  <span class="text-teal-600">云端:</span> {{ diff.remoteValue }}
+                                <div class="pl-2 border-l-2 border-teal-300 dark:border-teal-600">
+                                  <span class="text-teal-600 dark:text-teal-400">云端:</span> {{ diff.remoteValue }}
                                 </div>
                               }
                             </div>
                             
                             <!-- 桌面端：三列网格布局 -->
                             <div class="hidden md:grid md:grid-cols-[1fr_1fr_1fr] md:gap-3 md:items-center">
-                              <div class="font-medium text-stone-700 truncate">{{ diff.title }}</div>
-                              <div class="text-indigo-600 truncate">
+                              <div class="font-medium text-stone-700 dark:text-stone-200 truncate">{{ diff.title }}</div>
+                              <div class="text-indigo-600 dark:text-indigo-400 truncate">
                                 @if (diff.status === 'local-only' || diff.status === 'modified') {
                                   {{ diff.localValue || '(本地)' }}
                                 } @else if (diff.status === 'remote-only') {
-                                  <span class="text-stone-300">—</span>
+                                  <span class="text-stone-300 dark:text-stone-600">—</span>
                                 } @else {
-                                  <span class="text-green-600">✓ 一致</span>
+                                  <span class="text-green-600 dark:text-green-400">✓ 一致</span>
                                 }
                               </div>
-                              <div class="text-teal-600 truncate">
+                              <div class="text-teal-600 dark:text-teal-400 truncate">
                                 @if (diff.status === 'remote-only' || diff.status === 'modified') {
                                   {{ diff.remoteValue || '(云端)' }}
                                 } @else if (diff.status === 'local-only') {
-                                  <span class="text-stone-300">—</span>
+                                  <span class="text-stone-300 dark:text-stone-600">—</span>
                                 } @else {
-                                  <span class="text-green-600">✓ 一致</span>
+                                  <span class="text-green-600 dark:text-green-400">✓ 一致</span>
                                 }
                               </div>
                             </div>
@@ -318,14 +318,14 @@ interface ConflictItem {
                         }
                         
                         @if (conflict.taskDiffs.length > 10) {
-                          <div class="text-center text-[10px] text-stone-400 py-2">
+                          <div class="text-center text-[10px] text-stone-400 dark:text-stone-500 py-2">
                             还有 {{ conflict.taskDiffs.length - 10 }} 个任务差异未显示
                           </div>
                         }
                       </div>
                       
                       <!-- 差异统计 -->
-                      <div class="flex flex-wrap gap-2 pt-2 border-t border-stone-100">
+                      <div class="flex flex-wrap gap-2 pt-2 border-t border-stone-100 dark:border-stone-700">
                         <span class="px-2 py-1 bg-green-100 text-green-700 rounded text-[10px]">
                           一致: {{ countByStatus(conflict.taskDiffs, 'same') }}
                         </span>
@@ -345,7 +345,7 @@ interface ConflictItem {
               }
               
               <!-- 提示信息 -->
-              <div class="text-[10px] text-stone-400 p-2 bg-stone-50 rounded-lg">
+              <div class="text-[10px] text-stone-400 dark:text-stone-500 p-2 bg-stone-50 dark:bg-stone-800 rounded-lg">
                 💡 <span class="font-medium">提示：</span>
                 「使用本地」保留您在此设备的编辑；
                 「使用云端」同步其他设备的内容；
@@ -356,14 +356,14 @@ interface ConflictItem {
           
           <!-- 同步错误 -->
           @if (syncError()) {
-            <div class="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div class="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/50 rounded-lg">
               <div class="flex items-start gap-3">
                 <svg class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div class="flex-1">
-                  <h3 class="text-sm font-semibold text-red-800 mb-1">同步错误</h3>
-                  <p class="text-xs text-red-700">{{ syncError() }}</p>
+                  <h3 class="text-sm font-semibold text-red-800 dark:text-red-200 mb-1">同步错误</h3>
+                  <p class="text-xs text-red-700 dark:text-red-300">{{ syncError() }}</p>
                 </div>
               </div>
             </div>
@@ -373,10 +373,10 @@ interface ConflictItem {
           @if (deadLetterCount() > 0) {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-stone-700">失败的操作 ({{ deadLetterCount() }})</h3>
+                <h3 class="text-sm font-semibold text-stone-700 dark:text-stone-200">失败的操作 ({{ deadLetterCount() }})</h3>
                 <button 
                   (click)="toggleDeadLetters()"
-                  class="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                  class="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-medium">
                   {{ showDeadLetters() ? '收起' : '展开' }}
                 </button>
               </div>
@@ -384,29 +384,29 @@ interface ConflictItem {
               @if (showDeadLetters()) {
                 <div class="space-y-2 max-h-64 overflow-y-auto">
                   @for (item of deadLetters(); track item.id) {
-                    <div class="p-3 bg-red-50 border border-red-100 rounded-lg">
+                    <div class="p-3 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800/50 rounded-lg">
                       <div class="flex items-start justify-between gap-2 mb-2">
                         <div class="flex-1 min-w-0">
-                          <div class="text-xs font-medium text-red-800 mb-1">
+                          <div class="text-xs font-medium text-red-800 dark:text-red-200 mb-1">
                             {{ getActionLabel(item.action) }}
                           </div>
-                          <div class="text-[10px] text-red-600 break-all">
+                          <div class="text-[10px] text-red-600 dark:text-red-300 break-all">
                             {{ item.error }}
                           </div>
                         </div>
-                        <span class="text-[9px] text-red-400 whitespace-nowrap">
+                        <span class="text-[9px] text-red-400 dark:text-red-500 whitespace-nowrap">
                           {{ formatDate(item.timestamp) }}
                         </span>
                       </div>
                       <div class="flex gap-2">
                         <button 
                           (click)="retryDeadLetter(item.id)"
-                          class="flex-1 px-2 py-1 text-[10px] font-medium bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors">
+                          class="flex-1 px-2 py-1 text-[10px] font-medium bg-red-100 dark:bg-red-800/50 hover:bg-red-200 dark:hover:bg-red-700/50 text-red-700 dark:text-red-200 rounded transition-colors">
                           重试
                         </button>
                         <button 
                           (click)="dismissDeadLetter(item.id)"
-                          class="flex-1 px-2 py-1 text-[10px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-600 rounded transition-colors">
+                          class="flex-1 px-2 py-1 text-[10px] font-medium bg-stone-100 dark:bg-stone-700 hover:bg-stone-200 dark:hover:bg-stone-600 text-stone-600 dark:text-stone-300 rounded transition-colors">
                           忽略
                         </button>
                       </div>
@@ -415,7 +415,7 @@ interface ConflictItem {
                 </div>
                 <button 
                   (click)="clearAllDeadLetters()"
-                  class="w-full px-3 py-2 text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg transition-colors">
+                  class="w-full px-3 py-2 text-xs font-medium bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-lg transition-colors">
                   清空所有失败记录
                 </button>
               }
@@ -424,14 +424,14 @@ interface ConflictItem {
           
           <!-- 离线模式提示 -->
           @if (!isOnline()) {
-            <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 rounded-lg">
               <div class="flex items-start gap-3">
                 <svg class="w-5 h-5 text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
                 <div class="flex-1">
-                  <h3 class="text-sm font-semibold text-blue-800 mb-1">离线模式</h3>
-                  <p class="text-xs text-blue-700">
+                  <h3 class="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-1">离线模式</h3>
+                  <p class="text-xs text-blue-700 dark:text-blue-300">
                     当前网络不可用，所有操作将保存在本地。网络恢复后将自动同步到云端。
                   </p>
                 </div>
@@ -440,13 +440,13 @@ interface ConflictItem {
           }
           
           <!-- 快捷操作 -->
-          <div class="pt-4 border-t border-stone-200">
-            <h3 class="text-sm font-semibold text-stone-700 mb-3">快捷操作</h3>
+          <div class="pt-4 border-t border-stone-200 dark:border-stone-700">
+            <h3 class="text-sm font-semibold text-stone-700 dark:text-stone-200 mb-3">快捷操作</h3>
             <div class="grid grid-cols-2 gap-3">
               <button 
                 (click)="resyncProject()"
                 [disabled]="isResyncing()"
-                class="px-4 py-3 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-lg text-xs font-medium text-stone-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                class="px-4 py-3 bg-stone-50 dark:bg-stone-800 hover:bg-stone-100 dark:hover:bg-stone-700 border border-stone-200 dark:border-stone-600 rounded-lg text-xs font-medium text-stone-700 dark:text-stone-300 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                 @if (isResyncing()) {
                   <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

@@ -256,6 +256,27 @@ import {
     </div>
   `,
   styles: [`
+    /* 深色模式变量定义 */
+    :host-context([data-color-mode="dark"]) .recovery-modal {
+      --bg-primary: #1c1917;
+      --bg-secondary: #292524;
+      --hover-bg: #3f3f46;
+      --border-color: #525252;
+      --text-primary: #fafaf9;
+      --text-secondary: #a8a29e;
+      --text-tertiary: #78716c;
+      --primary: #818cf8;
+      --primary-dark: #6366f1;
+      --primary-bg: #312e81;
+      --success: #4ade80;
+      --success-bg: #14532d;
+      --danger: #f87171;
+      --danger-dark: #ef4444;
+      --warning: #fbbf24;
+      --warning-bg: #78350f;
+      --warning-border: #92400e;
+    }
+
     .recovery-modal {
       display: flex;
       flex-direction: column;

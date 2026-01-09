@@ -149,6 +149,26 @@ export class SimpleSyncService {
   private syncCounter = 0;
   
   /** 
+   * 【Senior Consultant P0】IndexedDB 数据库实例（用于 RetryQueue）
+   * 解决 localStorage 5MB 配额限制导致的"飞机航班"场景数据丢失
+   */
+  private retryQueueDb: IDBDatabase | null = null;
+  private retryQueueDbInitPromise: Promise<IDBDatabase | null> | null = null;
+  
+  /** IndexedDB 配置 */
+  private readonly RETRY_QUEUE_DB_CONFIG = {
+    name: 'nanoflow-retry-queue',
+    version: 1,
+    storeName: 'offline_mutation_queue'
+  };
+  
+  /** 
+   * 【Senior Consultant "Red Phone"】队列容量预警阈值
+   * 达到 80% 容量时提前告警用户
+   */
+  private readonly QUEUE_WARNING_THRESHOLD = 0.8;
+  
+  /** 
    * 本地 tombstone 缓存 
    * 用于在云端 RPC 不可用时防止已删除任务复活
    * 格式：Map<projectId, Set<taskId>>
@@ -220,6 +240,71 @@ export class SimpleSyncService {
   readonly isRealtimeEnabled = signal<boolean>(SYNC_CONFIG.REALTIME_ENABLED);
   
   /**
+   * 【Senior Consultant Sentry Context】获取 Sentry 上下文元数据
+   * 包含有用的调试信息，但不包含 PII（任务标题、内容等）
+   */
+  private getSentryContext(): Record<string, unknown> {
+    return {
+      queueLength: this.retryQueue.length,
+      storageUsage: this.estimateStorageUsage(),
+      lastSyncTime: this.syncState().lastSyncTime,
+      isOnline: this.syncState().isOnline,
+      circuitState: this.circuitState,
+      consecutiveFailures: this.consecutiveFailures,
+      // 不包含任务标题、内容等 PII
+    };
+  }
+  
+  /**
+   * 估算存储使用量（字节）
+   */
+  private estimateStorageUsage(): number {
+    try {
+      if (typeof localStorage === 'undefined') return 0;
+      let total = 0;
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('nanoflow.')) {
+          total += localStorage.getItem(key)?.length ?? 0;
+        }
+      }
+      return total;
+    } catch {
+      return -1;
+    }
+  }
+  
+  /**
+   * 【Senior Consultant】增强的 Sentry 异常捕获
+   * 自动添加上下文元数据，同时清洗 PII
+   */
+  private captureExceptionWithContext(
+    error: unknown,
+    operation: string,
+    extra?: Record<string, unknown>
+  ): void {
+    // 清洗 extra 中的 PII 字段
+    const sanitizedExtra: Record<string, unknown> = {};
+    if (extra) {
+      for (const [key, value] of Object.entries(extra)) {
+        // 跳过 PII 字段
+        if (['title', 'content', 'description', 'name'].includes(key)) {
+          continue;
+        }
+        // ID 字段保留（用于调试）
+        sanitizedExtra[key] = value;
+      }
+    }
+    
+    Sentry.captureException(error, {
+      tags: { operation },
+      extra: {
+        ...this.getSentryContext(),
+        ...sanitizedExtra
+      }
+    });
+  }
+  
+  /**
    * 处理会话过期错误（统一入口，防止重复 Toast）
    * @param context 操作上下文（用于日志）
    * @param details 详细信息（用于日志）
@@ -255,7 +340,10 @@ export class SimpleSyncService {
   }
   
   constructor() {
-    this.loadRetryQueueFromStorage(); // 恢复持久化的重试队列
+    // 【Senior Consultant P0】优先初始化 IndexedDB，然后迁移 localStorage 数据
+    this.initRetryQueueDb().then(() => {
+      this.loadRetryQueueFromStorage(); // 恢复持久化的重试队列（优先 IDB，降级 localStorage）
+    });
     this.loadLocalTombstones(); // 恢复本地 tombstone 缓存
     this.setupNetworkListeners();
     this.startRetryLoop();
@@ -266,6 +354,162 @@ export class SimpleSyncService {
     });
   }
   
+  // ==================== 【Senior Consultant P0】IndexedDB RetryQueue 支持 ====================
+  
+  /**
+   * 初始化 RetryQueue IndexedDB
+   * 
+   * 【Senior Consultant P0 修复】解决 localStorage 5MB 限制导致的数据丢失
+   * IndexedDB 提供更大的存储空间（通常 50MB+），解决"飞机航班"场景问题
+   */
+  private async initRetryQueueDb(): Promise<IDBDatabase | null> {
+    if (this.retryQueueDb) return this.retryQueueDb;
+    
+    if (!this.retryQueueDbInitPromise) {
+      this.retryQueueDbInitPromise = new Promise((resolve) => {
+        if (typeof indexedDB === 'undefined') {
+          this.logger.warn('IndexedDB 不可用，RetryQueue 将使用 localStorage');
+          resolve(null);
+          return;
+        }
+        
+        try {
+          const request = indexedDB.open(
+            this.RETRY_QUEUE_DB_CONFIG.name, 
+            this.RETRY_QUEUE_DB_CONFIG.version
+          );
+          
+          request.onerror = () => {
+            this.logger.warn('RetryQueue IndexedDB 打开失败，降级到 localStorage', request.error);
+            resolve(null);
+          };
+          
+          request.onsuccess = () => {
+            this.retryQueueDb = request.result;
+            this.logger.info('RetryQueue IndexedDB 初始化成功');
+            resolve(request.result);
+          };
+          
+          request.onupgradeneeded = (event) => {
+            const db = (event.target as IDBOpenDBRequest).result;
+            
+            if (!db.objectStoreNames.contains(this.RETRY_QUEUE_DB_CONFIG.storeName)) {
+              const store = db.createObjectStore(this.RETRY_QUEUE_DB_CONFIG.storeName, { keyPath: 'id' });
+              store.createIndex('createdAt', 'createdAt', { unique: false });
+              store.createIndex('type', 'type', { unique: false });
+              this.logger.info('RetryQueue IndexedDB store 创建成功');
+            }
+          };
+        } catch (err) {
+          this.logger.error('RetryQueue IndexedDB 初始化异常', err);
+          resolve(null);
+        }
+      });
+    }
+    
+    return this.retryQueueDbInitPromise;
+  }
+  
+  /**
+   * 从 IndexedDB 加载 RetryQueue
+   */
+  private async loadRetryQueueFromIdb(): Promise<RetryQueueItem[]> {
+    const db = await this.initRetryQueueDb();
+    if (!db) return [];
+    
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(this.RETRY_QUEUE_DB_CONFIG.storeName, 'readonly');
+        const store = transaction.objectStore(this.RETRY_QUEUE_DB_CONFIG.storeName);
+        const request = store.getAll();
+        
+        request.onsuccess = () => {
+          const items = request.result || [];
+          this.logger.debug('从 IndexedDB 加载 RetryQueue', { count: items.length });
+          resolve(items);
+        };
+        
+        request.onerror = () => {
+          this.logger.error('从 IndexedDB 加载 RetryQueue 失败', request.error);
+          resolve([]);
+        };
+      } catch (err) {
+        this.logger.error('IndexedDB 读取异常', err);
+        resolve([]);
+      }
+    });
+  }
+  
+  /**
+   * 保存 RetryQueue 到 IndexedDB
+   */
+  private async saveRetryQueueToIdb(): Promise<boolean> {
+    const db = await this.initRetryQueueDb();
+    if (!db) return false;
+    
+    return new Promise((resolve) => {
+      try {
+        const transaction = db.transaction(this.RETRY_QUEUE_DB_CONFIG.storeName, 'readwrite');
+        const store = transaction.objectStore(this.RETRY_QUEUE_DB_CONFIG.storeName);
+        
+        // 清空后重写（简单但可靠）
+        store.clear();
+        
+        for (const item of this.retryQueue) {
+          store.put(this.minifyRetryItemForStorage(item));
+        }
+        
+        transaction.oncomplete = () => {
+          this.logger.debug('RetryQueue 保存到 IndexedDB 成功', { count: this.retryQueue.length });
+          resolve(true);
+        };
+        
+        transaction.onerror = () => {
+          this.logger.error('RetryQueue 保存到 IndexedDB 失败', transaction.error);
+          resolve(false);
+        };
+      } catch (err) {
+        this.logger.error('IndexedDB 写入异常', err);
+        resolve(false);
+      }
+    });
+  }
+  
+  /**
+   * 【Senior Consultant "Red Phone"】检查队列容量并发出警告
+   */
+  private checkQueueCapacityWarning(): void {
+    const currentSize = this.retryQueue.length;
+    const maxSize = this.MAX_RETRY_QUEUE_SIZE;
+    const threshold = Math.floor(maxSize * this.QUEUE_WARNING_THRESHOLD);
+    
+    if (currentSize >= threshold) {
+      const percentUsed = Math.round((currentSize / maxSize) * 100);
+      this.logger.warn('RetryQueue 容量警告', { currentSize, maxSize, percentUsed });
+      
+      // 【Red Phone 指示器】显示红色警告 Toast
+      this.toast.error(
+        '⚠️ 同步队列即将满载',
+        `${currentSize}/${maxSize} 个操作待同步 (${percentUsed}%)。请连接网络以防止数据丢失。`,
+        { duration: 0 } // 不自动关闭，需要用户确认
+      );
+      
+      // 记录到 Sentry（按 Senior Consultant 要求包含元数据但不包含 PII）
+      Sentry.captureMessage('RetryQueue capacity warning', {
+        level: 'warning',
+        tags: { 
+          operation: 'queueCapacityCheck',
+          percentUsed: String(percentUsed)
+        },
+        extra: { 
+          queueLength: currentSize, 
+          maxQueueSize: maxSize,
+          // 不包含任务标题等 PII
+        }
+      });
+    }
+  }
+
   // ==================== 用户活跃状态追踪 ====================
   
   /**
@@ -756,7 +1000,10 @@ export class SimpleSyncService {
           }
           
           await this.retryWithBackoff(async () => {
-            const { error } = await client
+            // 【Senior Consultant Clock Skew Guard】
+            // 使用服务端触发器设置 updated_at，而非客户端时间
+            // 请求成功后，应从响应中获取服务端时间更新本地记录
+            const { data: upsertedData, error } = await client
               .from('tasks')
               .upsert({
                 id: task.id,
@@ -772,10 +1019,19 @@ export class SimpleSyncService {
                 y: task.y,
                 short_id: task.shortId,
                 deleted_at: task.deletedAt || null,
-                updated_at: task.updatedAt || nowISO()
-              });
+                // 【关键】不再传递客户端 updated_at，让数据库触发器使用 NOW()
+                // 这样可以防止客户端时钟偏移导致的"时间旅行者"问题
+              })
+              .select('updated_at')
+              .single();
             
             if (error) throw supabaseErrorToError(error);
+            
+            // 【Senior Consultant Clock Skew Guard】
+            // 使用服务器返回的时间戳更新本地记录，保持时间线一致
+            if (upsertedData?.updated_at) {
+              this.clockSync.recordServerTimestamp(upsertedData.updated_at, task.id);
+            }
           });
         },
         { priority: 'normal', retries: 0, timeout: REQUEST_THROTTLE_CONFIG.INDIVIDUAL_OPERATION_TIMEOUT }  // 30秒超时，平衡用户体验
@@ -822,18 +1078,12 @@ export class SimpleSyncService {
         this.logger.error('推送任务失败', enhanced);
       }
       
-      // 报告到 Sentry，但标记可重试错误的级别
-      Sentry.captureException(enhanced, { 
-        tags: { 
-          operation: 'pushTask',
-          errorType: enhanced.errorType,
-          isRetryable: String(enhanced.isRetryable)
-        },
-        level: enhanced.isRetryable ? 'info' : 'error',
-        extra: {
-          taskId: task.id,
-          projectId
-        }
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(enhanced, 'pushTask', {
+        taskId: task.id,
+        projectId,
+        errorType: enhanced.errorType,
+        isRetryable: enhanced.isRetryable
       });
       
       // 【关键修复】只有可重试的错误才加入重试队列
@@ -949,13 +1199,12 @@ export class SimpleSyncService {
       }
       
       this.logger.error('删除任务失败', enhanced);
-      Sentry.captureException(enhanced, { 
-        tags: { 
-          operation: 'deleteTask',
-          errorType: enhanced.errorType,
-          isRetryable: String(enhanced.isRetryable)
-        },
-        level: enhanced.isRetryable ? 'info' : 'error'
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(enhanced, 'deleteTask', {
+        taskId,
+        projectId,
+        errorType: enhanced.errorType,
+        isRetryable: enhanced.isRetryable
       });
       
       // 【关键修复】只有可重试的错误才加入重试队列
@@ -1221,9 +1470,10 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('purgeTasksFromCloud 失败', e);
-      Sentry.captureException(e, { 
-        tags: { operation: 'purgeTasksFromCloud' },
-        extra: { projectId, taskIds }
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'purgeTasksFromCloud', {
+        projectId,
+        taskCount: taskIds.length // 只记录数量，不记录具体 ID 列表
       });
       return false;
     }
@@ -1294,9 +1544,10 @@ export class SimpleSyncService {
       return data ?? 0;
     } catch (e) {
       this.logger.error('softDeleteTasksBatch 失败', e);
-      Sentry.captureException(e, { 
-        tags: { operation: 'softDeleteTasksBatch' },
-        extra: { projectId, taskIds }
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'softDeleteTasksBatch', {
+        projectId,
+        taskCount: taskIds.length // 只记录数量，不记录具体 ID 列表
       });
       
       // RPC 失败时降级为逐个软删除
@@ -1402,17 +1653,12 @@ export class SimpleSyncService {
         this.logger.error('推送项目失败', enhanced);
       }
       
-      Sentry.captureException(enhanced, { 
-        tags: { 
-          operation: 'pushProject',
-          errorType: enhanced.errorType,
-          isRetryable: String(enhanced.isRetryable)
-        },
-        level: enhanced.isRetryable ? 'info' : 'error',
-        extra: {
-          projectId: project.id,
-          projectName: project.name
-        }
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(enhanced, 'pushProject', {
+        projectId: project.id,
+        errorType: enhanced.errorType,
+        isRetryable: enhanced.isRetryable
+        // 注意：不包含 project.name（PII）
       });
       
       // 【关键修复】只有可重试的错误才加入重试队列
@@ -1691,20 +1937,13 @@ export class SimpleSyncService {
           errorCode: enhanced.code
         });
         
-        Sentry.captureException(enhanced, {
-          tags: { 
-            operation: 'pushConnection',
-            errorType: 'FOREIGN_KEY_VIOLATION',
-            isRetryable: 'false'
-          },
-          level: 'error',
-          extra: {
-            connectionId: connection.id,
-            projectId,
-            source: connection.source,
-            target: connection.target,
-            errorCode: enhanced.code
-          }
+        // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+        this.captureExceptionWithContext(enhanced, 'pushConnection_fk_violation', {
+          connectionId: connection.id,
+          projectId,
+          source: connection.source,
+          target: connection.target,
+          errorCode: enhanced.code
         });
         
         // 外键错误不加入重试队列
@@ -1729,19 +1968,14 @@ export class SimpleSyncService {
         });
       }
       
-      Sentry.captureException(enhanced, {
-        tags: { 
-          operation: 'pushConnection',
-          errorType: enhanced.errorType,
-          isRetryable: String(enhanced.isRetryable)
-        },
-        level: enhanced.isRetryable ? 'info' : 'error',
-        extra: {
-          connectionId: connection.id,
-          projectId,
-          source: connection.source,
-          target: connection.target
-        }
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(enhanced, 'pushConnection', {
+        connectionId: connection.id,
+        projectId,
+        source: connection.source,
+        target: connection.target,
+        errorType: enhanced.errorType,
+        isRetryable: enhanced.isRetryable
       });
       
       // 【关键修复】只有可重试的错误才加入重试队列
@@ -1761,11 +1995,41 @@ export class SimpleSyncService {
   // ==================== 重试队列 ====================
   
   /**
-   * 从 localStorage 加载重试队列
+   * 从存储加载重试队列
+   * 
+   * 【Senior Consultant P0】优先使用 IndexedDB，降级到 localStorage
+   * IndexedDB 提供更大存储空间，解决"飞机航班"场景的数据丢失问题
+   * 
    * 在构造函数中调用，恢复页面刷新前未完成的同步操作
    * 【关键修复】清理无效的连接项，防止外键约束错误累积
    */
-  private loadRetryQueueFromStorage(): void {
+  private async loadRetryQueueFromStorage(): Promise<void> {
+    // 【P0】优先从 IndexedDB 加载
+    const idbItems = await this.loadRetryQueueFromIdb();
+    if (idbItems.length > 0) {
+      this.retryQueue = this.filterAndCleanQueue(idbItems);
+      this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
+      this.logger.info(`从 IndexedDB 恢复 ${this.retryQueue.length} 个待同步项`);
+      
+      // 迁移：清理旧的 localStorage 数据
+      if (typeof localStorage !== 'undefined') {
+        const oldData = localStorage.getItem(this.RETRY_QUEUE_STORAGE_KEY);
+        if (oldData) {
+          localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+          this.logger.info('已迁移并清理 localStorage 中的旧 RetryQueue 数据');
+        }
+      }
+      
+      // 异步清理无效连接
+      if (this.retryQueue.some(item => item.type === 'connection')) {
+        this.cleanupInvalidConnections().catch(e => {
+          this.logger.error('清理无效连接失败', e);
+        });
+      }
+      return;
+    }
+    
+    // 【降级】从 localStorage 加载（兼容旧版本）
     if (typeof localStorage === 'undefined') return;
     
     try {
@@ -1783,50 +2047,17 @@ export class SimpleSyncService {
       
       // 恢复队列
       if (Array.isArray(parsed.items)) {
-        // 【关键修复】清理超限的队列
-        let items = parsed.items;
-        if (items.length > this.MAX_RETRY_QUEUE_SIZE) {
-          this.logger.warn('重试队列超限，截断', {
-            original: items.length,
-            limit: this.MAX_RETRY_QUEUE_SIZE
-          });
-          items = items.slice(-this.MAX_RETRY_QUEUE_SIZE); // 保留最新的项
-          Sentry.captureMessage('重试队列加载时超限', {
-            level: 'warning',
-            tags: { originalSize: String(parsed.items.length) }
-          });
-        }
-        
-        // 【关键修复】清理过期的重试项（超过 24 小时）
-        const now = Date.now();
-        items = items.filter((item: RetryQueueItem) => {
-          if (now - item.createdAt > this.MAX_RETRY_ITEM_AGE) {
-            this.logger.debug('移除过期的重试项', {
-              type: item.type,
-              id: item.data.id,
-              age: Math.floor((now - item.createdAt) / 1000 / 60) + ' 分钟'
-            });
-            return false;
-          }
-          return true;
-        });
-        
-        // 【关键修复】清理连接超过最大重试次数的项
-        // 防止无效连接永久占用队列空间
-        items = items.filter((item: RetryQueueItem) => {
-          if (item.type === 'connection' && item.retryCount >= this.MAX_RETRIES) {
-            this.logger.debug('移除超过重试次数的连接', {
-              connectionId: item.data.id,
-              retryCount: item.retryCount
-            });
-            return false;
-          }
-          return true;
-        });
-        
-        this.retryQueue = items;
+        this.retryQueue = this.filterAndCleanQueue(parsed.items);
         this.state.update(s => ({ ...s, pendingCount: this.retryQueue.length }));
-        this.logger.info(`从存储恢复 ${this.retryQueue.length} 个待同步项`);
+        this.logger.info(`从 localStorage 恢复 ${this.retryQueue.length} 个待同步项`);
+        
+        // 【P0 迁移】立即迁移到 IndexedDB
+        this.saveRetryQueueToIdb().then(success => {
+          if (success) {
+            localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+            this.logger.info('RetryQueue 已从 localStorage 迁移到 IndexedDB');
+          }
+        });
         
         // 【关键修复】异步清理无效连接（引用不存在的任务）
         // 在后台进行，不阻塞应用启动
@@ -1842,6 +2073,52 @@ export class SimpleSyncService {
     }
   }
   
+  /**
+   * 【新增】过滤和清理队列项
+   * 抽取公共逻辑，供 IndexedDB 和 localStorage 加载时共用
+   */
+  private filterAndCleanQueue(items: RetryQueueItem[]): RetryQueueItem[] {
+    // 清理超限的队列
+    if (items.length > this.MAX_RETRY_QUEUE_SIZE) {
+      this.logger.warn('重试队列超限，截断', {
+        original: items.length,
+        limit: this.MAX_RETRY_QUEUE_SIZE
+      });
+      items = items.slice(-this.MAX_RETRY_QUEUE_SIZE);
+      Sentry.captureMessage('重试队列加载时超限', {
+        level: 'warning',
+        tags: { originalSize: String(items.length) }
+      });
+    }
+    
+    // 清理过期的重试项（超过 24 小时）
+    const now = Date.now();
+    items = items.filter((item: RetryQueueItem) => {
+      if (now - item.createdAt > this.MAX_RETRY_ITEM_AGE) {
+        this.logger.debug('移除过期的重试项', {
+          type: item.type,
+          id: item.data.id,
+          age: Math.floor((now - item.createdAt) / 1000 / 60) + ' 分钟'
+        });
+        return false;
+      }
+      return true;
+    });
+    
+    // 清理连接超过最大重试次数的项
+    items = items.filter((item: RetryQueueItem) => {
+      if (item.type === 'connection' && item.retryCount >= this.MAX_RETRIES) {
+        this.logger.debug('移除超过重试次数的连接', {
+          connectionId: item.data.id,
+          retryCount: item.retryCount
+        });
+        return false;
+      }
+      return true;
+    });
+    
+    return items;
+  }
   /**
    * 异步清理重试队列中引用不存在任务的连接
    * 防止外键约束错误累积导致 localStorage 溢出
@@ -1960,7 +2237,10 @@ export class SimpleSyncService {
   }
   
   /**
-   * 将重试队列保存到 localStorage
+   * 将重试队列保存到存储
+   * 
+   * 【Senior Consultant P0】优先使用 IndexedDB，降级到 localStorage
+   * 
    * 在队列变化时调用，防止页面刷新丢失
    * 
    * 【2024-12-31 修复】
@@ -1970,6 +2250,29 @@ export class SimpleSyncService {
    * @param attempt 当前尝试次数，用于限制递归深度（最多 3 次）
    */
   private saveRetryQueueToStorage(attempt = 0): void {
+    const MAX_SAVE_ATTEMPTS = 3;
+    
+    // 【Senior Consultant "Red Phone"】检查容量并发出警告
+    this.checkQueueCapacityWarning();
+    
+    // 【P0】优先保存到 IndexedDB（异步，不阻塞）
+    this.saveRetryQueueToIdb().then(success => {
+      if (success) {
+        // IndexedDB 保存成功，清理 localStorage 中的旧数据
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(this.RETRY_QUEUE_STORAGE_KEY);
+        }
+        return;
+      }
+      // IndexedDB 失败，降级到 localStorage
+      this.saveRetryQueueToLocalStorage(attempt);
+    });
+  }
+  
+  /**
+   * 【降级方案】保存到 localStorage
+   */
+  private saveRetryQueueToLocalStorage(attempt = 0): void {
     const MAX_SAVE_ATTEMPTS = 3;
     
     if (typeof localStorage === 'undefined') return;
@@ -2014,12 +2317,12 @@ export class SimpleSyncService {
         });
         this.shrinkRetryQueue();
         // 递归调用，使用缩减后的队列（传递尝试次数）
-        this.saveRetryQueueToStorage(attempt + 1);
+        this.saveRetryQueueToLocalStorage(attempt + 1);
         return;
       }
       
       localStorage.setItem(this.RETRY_QUEUE_STORAGE_KEY, jsonStr);
-      this.logger.debug(`保存 ${this.retryQueue.length} 个待同步项到存储 (${Math.round(sizeBytes / 1024)}KB)`);
+      this.logger.debug(`保存 ${this.retryQueue.length} 个待同步项到 localStorage (${Math.round(sizeBytes / 1024)}KB)`);
     } catch (e) {
       // 处理 QuotaExceededError
       if (e instanceof DOMException && e.name === 'QuotaExceededError') {
@@ -2031,7 +2334,7 @@ export class SimpleSyncService {
         this.shrinkRetryQueue();
         // 递归调用，使用缩减后的队列（传递尝试次数）
         if (this.retryQueue.length > 0) {
-          this.saveRetryQueueToStorage(attempt + 1);
+          this.saveRetryQueueToLocalStorage(attempt + 1);
         }
       } else {
         this.logger.error('保存重试队列失败', e);
@@ -2377,7 +2680,8 @@ export class SimpleSyncService {
         }
         
         this.logger.error('重试失败', e);
-        Sentry.captureException(e, { tags: { operation: 'retryQueue', type: item.type } });
+        // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+        this.captureExceptionWithContext(e, 'retryQueue', { itemType: item.type });
         // 检查是否为不可重试的错误
         const enhanced = supabaseErrorToError(e);
         if (!enhanced.isRetryable) {
@@ -3149,11 +3453,9 @@ export class SimpleSyncService {
             ? supabaseErrorToError(err) 
             : supabaseErrorToError(new Error(String(err)));
 
-          Sentry.captureException(enhancedError, {
-            tags: { 
-              context: 'sync-drift-check',
-              projectId 
-            },
+          // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+          this.captureExceptionWithContext(enhancedError, 'sync-drift-check', {
+            projectId
           });
 
           this.logger.error('Delta Sync 检查失败', { projectId, error: err });
@@ -3461,7 +3763,8 @@ export class SimpleSyncService {
       return { success: true, newVersion: project.version };
     } catch (e) {
       this.logger.error('保存项目失败', e);
-      Sentry.captureException(e, { tags: { operation: 'saveProject' } });
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'saveProject', { projectId: project.id });
       this.syncState.update(s => ({
         ...s,
         isSyncing: false,
@@ -3556,7 +3859,8 @@ export class SimpleSyncService {
       return project;
     } catch (e) {
       this.logger.error('加载项目失败', e);
-      Sentry.captureException(e, { tags: { operation: 'loadFullProject' } });
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'loadFullProject', { projectId });
       return null;
     }
   }
@@ -3877,7 +4181,8 @@ export class SimpleSyncService {
       return projects;
     } catch (e) {
       this.logger.error('加载项目列表失败', e);
-      Sentry.captureException(e, { tags: { operation: 'loadRemoteProjects' } });
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'loadRemoteProjects', {});
       return [];
     } finally {
       this.isLoadingRemote.set(false);
@@ -3905,7 +4210,8 @@ export class SimpleSyncService {
       return true;
     } catch (e) {
       this.logger.error('删除项目失败', e);
-      Sentry.captureException(e, { tags: { operation: 'deleteProject' } });
+      // 报告到 Sentry（使用增强上下文，自动清洗 PII）
+      this.captureExceptionWithContext(e, 'deleteProject', { projectId });
       return false;
     }
   }

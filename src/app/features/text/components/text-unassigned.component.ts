@@ -26,19 +26,19 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section 
-      class="flex-none mt-1 mb-2 px-2 pb-1 rounded-xl bg-retro-teal/10 border border-retro-teal/30 transition-all"
+      class="flex-none mt-1 mb-2 px-2 pb-1 rounded-xl bg-retro-teal/10 dark:bg-retro-teal/5 border border-retro-teal/30 dark:border-retro-teal/20 transition-all"
       [ngClass]="{'mx-4 mt-2 mb-4': !isMobile, 'mx-2': isMobile}">
       
       <header 
         (click)="uiState.isTextUnassignedOpen.set(!uiState.isTextUnassignedOpen()); $event.stopPropagation()" 
         class="py-2 cursor-pointer flex justify-between items-center group select-none touch-manipulation"
         style="-webkit-tap-highlight-color: transparent;">
-        <span class="font-bold text-retro-dark flex items-center gap-2 tracking-tight pointer-events-none"
+        <span class="font-bold text-retro-dark dark:text-stone-200 flex items-center gap-2 tracking-tight pointer-events-none"
               [ngClass]="{'text-sm': !isMobile, 'text-xs': isMobile}">
           <span class="w-1.5 h-1.5 rounded-full bg-retro-teal shadow-[0_0_6px_rgba(74,140,140,0.4)]"></span>
           待分配
         </span>
-        <span class="text-stone-300 text-xs group-hover:text-stone-500 transition-transform pointer-events-none" 
+        <span class="text-stone-300 dark:text-stone-600 text-xs group-hover:text-stone-500 transition-transform pointer-events-none" 
               [class.rotate-180]="!uiState.isTextUnassignedOpen()">▼</span>
       </header>
 
@@ -52,8 +52,8 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                   [attr.data-unassigned-task]="task.id"
                   class="w-full rounded-lg shadow-sm animate-collapse-open"
                   [ngClass]="{
-                    'p-2 bg-white border border-retro-teal': isEditMode(),
-                    'px-2 py-1.5 bg-retro-teal/5 border border-retro-teal/20 hover:border-retro-teal/40': !isEditMode()
+                    'p-2 bg-white dark:bg-stone-800 border border-retro-teal dark:border-retro-teal': isEditMode(),
+                    'px-2 py-1.5 bg-retro-teal/5 dark:bg-retro-teal/10 border border-retro-teal/20 dark:border-retro-teal/30 hover:border-retro-teal/40': !isEditMode()
                   }"
                   (click)="$event.stopPropagation()">
                   <div [ngClass]="{'space-y-1.5': isEditMode(), 'space-y-1': !isEditMode()}">
@@ -68,9 +68,9 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                       (blur)="onInputBlur('title')"
                       (keydown.escape)="closeEditor()"
                       spellcheck="false"
-                      class="w-full text-xs font-medium text-stone-800 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal transition-colors"
+                      class="w-full text-xs font-medium text-stone-800 dark:text-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal transition-colors"
                       [ngClass]="{
-                        'bg-white border border-stone-200': isEditMode(),
+                        'bg-white dark:bg-stone-700 border border-stone-200 dark:border-stone-600': isEditMode(),
                         'bg-transparent border-none p-0': !isEditMode()
                       }"
                       placeholder="任务名称..."
@@ -88,14 +88,14 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                           (blur)="onInputBlur('content')"
                           (keydown.escape)="closeEditor()"
                           spellcheck="false"
-                          class="w-full text-[11px] text-stone-600 border border-stone-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-white resize-none font-mono h-10"
+                          class="w-full text-[11px] text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-600 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-retro-teal bg-white dark:bg-stone-700 resize-none font-mono h-10"
                           placeholder="任务描述..."></textarea>
                       } @else {
                         <!-- 预览模式：点击进入编辑 -->
                         @if (task.content) {
                           <div 
                             (click)="switchToEditMode()"
-                            class="w-full text-[10px] text-stone-500 cursor-pointer hover:text-stone-600 transition-colors line-clamp-2 leading-relaxed"
+                            class="w-full text-[10px] text-stone-500 dark:text-stone-400 cursor-pointer hover:text-stone-600 dark:hover:text-stone-300 transition-colors line-clamp-2 leading-relaxed"
                             [innerHTML]="renderMarkdown(task.content)">
                           </div>
                         }
@@ -104,7 +104,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                     
                     <!-- 快速待办输入 - 仅编辑模式显示 -->
                     @if (isEditMode()) {
-                      <div class="flex items-center gap-0.5 bg-retro-rust/5 border border-retro-rust/20 rounded overflow-hidden">
+                      <div class="flex items-center gap-0.5 bg-retro-rust/5 dark:bg-retro-rust/10 border border-retro-rust/20 dark:border-retro-rust/30 rounded overflow-hidden">
                         <span class="text-retro-rust flex-shrink-0 text-[9px] pl-1">☐</span>
                         <input
                           #quickTodoInput
@@ -113,7 +113,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                           (focus)="onInputFocus('todo')"
                           (blur)="onInputBlur('todo')"
                           spellcheck="false"
-                          class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400 text-[10px] py-0.5 px-1"
+                          class="flex-1 bg-transparent border-none outline-none text-stone-600 dark:text-stone-400 placeholder-stone-400 dark:placeholder-stone-500 text-[10px] py-0.5 px-1"
                           placeholder="待办，回车添加">
                         <button
                           (click)="addQuickTodo(task.id, quickTodoInput.value, quickTodoInput)"
@@ -130,7 +130,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                       <div class="flex justify-end">
                         <button 
                           (click)="closeEditor()"
-                          class="px-1.5 py-0.5 text-[9px] text-stone-500 hover:bg-stone-100 rounded transition-all">
+                          class="px-1.5 py-0.5 text-[9px] text-stone-500 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded transition-all">
                           完成
                         </button>
                       </div>
@@ -148,7 +148,7 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                   (touchmove)="touchMove.emit($event)"
                   (touchend)="touchEnd.emit($event)"
                   (touchcancel)="touchCancel.emit($event)"
-                  class="px-2 py-1 bg-panel/50 backdrop-blur-sm border border-retro-muted/30 rounded-md text-xs font-medium text-retro-muted hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing transition-all"
+                  class="px-2 py-1 bg-panel/50 dark:bg-stone-700/50 backdrop-blur-sm border border-retro-muted/30 dark:border-stone-600 rounded-md text-xs font-medium text-retro-muted dark:text-stone-400 hover:border-retro-teal hover:text-retro-teal cursor-grab active:cursor-grabbing transition-all"
                   [class.opacity-50]="draggingTaskId === task.id"
                   [class.touch-none]="draggingTaskId === task.id"
                   (click)="onTaskClick(task, false); $event.stopPropagation()">
@@ -156,12 +156,12 @@ import { renderMarkdownSafe } from '../../../../utils/markdown';
                 </div>
               }
             } @empty {
-              <span class="text-xs text-stone-400 italic py-1 font-light">暂无</span>
+              <span class="text-xs text-stone-400 dark:text-stone-500 italic py-1 font-light">暂无</span>
             }
             <button 
               data-testid="add-task-btn"
               (click)="createUnassigned.emit()" 
-              class="px-2 py-1 bg-panel/30 hover:bg-retro-teal/20 text-retro-muted hover:text-retro-teal rounded-md text-xs font-medium transition-all">
+              class="px-2 py-1 bg-panel/30 dark:bg-stone-700/30 hover:bg-retro-teal/20 text-retro-muted dark:text-stone-400 hover:text-retro-teal rounded-md text-xs font-medium transition-all">
               + 新建
             </button>
           </div>

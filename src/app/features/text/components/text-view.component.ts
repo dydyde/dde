@@ -34,7 +34,7 @@ import { TextViewDragDropService } from './text-view-drag-drop.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div #scrollContainer class="flex flex-col h-full bg-canvas overflow-y-auto overflow-x-hidden text-view-scroll-container"
+    <div #scrollContainer class="flex flex-col h-full theme-bg overflow-y-auto overflow-x-hidden text-view-scroll-container"
          (click)="onContainerClick($event)"
          (touchmove)="onGlobalTouchMove($event)"
          (touchend)="onGlobalTouchEnd($event)"

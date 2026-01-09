@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ActionQueueService } from '../../../services/action-queue.service';
 import { SimpleSyncService } from '../../core/services/simple-sync.service';
 import { SyncCoordinatorService } from '../../../services/sync-coordinator.service';
+import { ProjectStateService } from '../../../services/project-state.service';
 import { AuthService } from '../../../services/auth.service';
 import { ConflictStorageService } from '../../../services/conflict-storage.service';
 import { ToastService } from '../../../services/toast.service';
@@ -30,8 +31,10 @@ import { ToastService } from '../../../services/toast.service';
       <div class="relative">
         <button 
           (click)="toggleExpand()"
-          class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-stone-100 transition-colors text-xs"
-          [class.bg-stone-100]="isExpanded()">
+          class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors text-xs"
+          [ngClass]="{
+            'bg-stone-100 dark:bg-stone-700': isExpanded()
+          }">
           <!-- 状态点 -->
           <div class="w-2 h-2 rounded-full flex-shrink-0" 
                [class.bg-green-500]="isLoggedIn() && isOnline() && !offlineMode() && !hasIssues()"
@@ -42,7 +45,7 @@ import { ToastService } from '../../../services/toast.service';
           </div>
           
           <!-- 简短状态文字 -->
-          <span class="text-stone-500 hidden sm:inline">
+          <span class="text-stone-500 dark:text-stone-400 hidden sm:inline">
             @if (isLoadingRemote()) {
               后台同步...
             } @else if (isSyncing()) {
@@ -81,7 +84,7 @@ import { ToastService } from '../../../services/toast.service';
       </div>
     } @else if (embedded()) {
       <!-- 嵌入模式：直接显示在侧边栏中 -->
-      <div class="w-full space-y-2 px-2 py-2 bg-stone-50/50 rounded-lg border border-stone-100">
+      <div class="w-full space-y-2 px-2 py-2 bg-stone-50/50 dark:bg-stone-800/50 rounded-lg border border-stone-100 dark:border-stone-700">
         <!-- 状态概览行 -->
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
@@ -97,7 +100,7 @@ import { ToastService } from '../../../services/toast.service';
                  [class.animate-pulse]="isSyncing() || pendingCount() > 0">
             </div>
             <!-- 状态文字 -->
-            <span class="text-[11px] text-stone-500">
+            <span class="text-[11px] text-stone-500 dark:text-stone-400">
               @if (isLoadingRemote()) {
                 后台同步中...
               } @else if (isSyncing()) {
@@ -124,7 +127,7 @@ import { ToastService } from '../../../services/toast.service';
               <button 
                 (click)="retryAll(); $event.stopPropagation()"
                 [disabled]="isProcessing() || isRetrying()"
-                class="px-2 py-0.5 text-[10px] font-medium bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
+                class="px-2 py-0.5 text-[10px] font-medium bg-indigo-100 dark:bg-indigo-900/50 hover:bg-indigo-200 dark:hover:bg-indigo-800/50 text-indigo-700 dark:text-indigo-300 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
                 @if (isRetrying()) {
                   <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -142,7 +145,7 @@ import { ToastService } from '../../../services/toast.service';
               <button
                 (click)="resyncProject(); $event.stopPropagation()"
                 [disabled]="isResyncing()"
-                class="p-1 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded transition-colors disabled:opacity-50"
+                class="p-1 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 rounded transition-colors disabled:opacity-50"
                 title="刷新同步当前项目">
                 @if (isResyncing()) {
                   <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -160,8 +163,32 @@ import { ToastService } from '../../../services/toast.service';
         
         <!-- 错误信息 -->
         @if (syncError()) {
-          <div class="p-1.5 bg-red-50 border border-red-100 rounded text-[10px] text-red-600 line-clamp-2">
+          <div class="p-1.5 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded text-[10px] text-red-600 dark:text-red-400 line-clamp-2">
             {{ syncError() }}
+          </div>
+        }
+        
+        <!-- 【Senior Consultant "Red Phone"】危险状态警告 -->
+        @if (isCriticalState()) {
+          <div class="p-2 bg-red-100 dark:bg-red-900/40 border-2 border-red-400 dark:border-red-600 rounded-lg animate-pulse">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🔴</span>
+              <div class="flex-1">
+                <div class="text-[11px] font-bold text-red-700 dark:text-red-300">同步严重滞后</div>
+                <div class="text-[10px] text-red-600 dark:text-red-400">
+                  @if (deadLetterCount() > 0) {
+                    {{ deadLetterCount() }} 个操作失败，数据可能丢失！
+                  } @else {
+                    {{ pendingCount() }} 个操作待同步，请连接网络
+                  }
+                </div>
+              </div>
+            </div>
+            <button 
+              (click)="downloadBackup(); $event.stopPropagation()"
+              class="w-full mt-2 py-1.5 text-[11px] font-bold bg-red-600 hover:bg-red-700 text-white rounded transition-colors">
+              ⬇️ 立即下载备份
+            </button>
           </div>
         }
         
@@ -172,7 +199,7 @@ import { ToastService } from '../../../services/toast.service';
               <span class="text-[10px] text-red-500 font-medium">失败的操作</span>
               <button 
                 (click)="showDeadLetters.set(!showDeadLetters()); $event.stopPropagation()"
-                class="text-[9px] text-stone-400 hover:text-stone-600">
+                class="text-[9px] text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300">
                 {{ showDeadLetters() ? '收起' : '展开' }}
               </button>
             </div>
@@ -180,8 +207,8 @@ import { ToastService } from '../../../services/toast.service';
             @if (showDeadLetters()) {
               <div class="space-y-1 max-h-24 overflow-y-auto">
                 @for (item of deadLetters(); track item.action.id) {
-                  <div class="flex items-center justify-between p-1 bg-white rounded border border-stone-100 text-[10px]">
-                    <span class="text-stone-600 truncate flex-1">{{ getActionLabel(item.action) }}</span>
+                  <div class="flex items-center justify-between p-1 bg-white dark:bg-stone-700 rounded border border-stone-100 dark:border-stone-600 text-[10px]">
+                    <span class="text-stone-600 dark:text-stone-300 truncate flex-1">{{ getActionLabel(item.action) }}</span>
                     <div class="flex gap-0.5 ml-1">
                       <button 
                         (click)="retryDeadLetter(item.action.id); $event.stopPropagation()"
@@ -205,7 +232,7 @@ import { ToastService } from '../../../services/toast.service';
         
         <!-- 离线模式提示 -->
         @if (!isOnline()) {
-          <div class="text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded">
+          <div class="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-2 py-1 rounded">
             网络不可用，恢复后自动同步
           </div>
         }
@@ -217,9 +244,9 @@ import { ToastService } from '../../../services/toast.service';
     
     <!-- 完整面板模板 -->
     <ng-template #fullPanel>
-      <div class="bg-white rounded-xl shadow-lg border border-stone-200 overflow-hidden">
+      <div class="bg-white dark:bg-stone-800 rounded-xl shadow-lg border border-stone-200 dark:border-stone-600 overflow-hidden">
         <!-- 标题栏 -->
-        <div class="px-3 py-2 bg-gradient-to-r from-stone-50 to-white border-b border-stone-100 flex items-center justify-between">
+        <div class="px-3 py-2 bg-gradient-to-r from-stone-50 dark:from-stone-700 to-white dark:to-stone-800 border-b border-stone-100 dark:border-stone-600 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <div class="w-2 h-2 rounded-full" 
                  [class.bg-green-500]="isLoggedIn() && isOnline() && !offlineMode()"
@@ -227,9 +254,9 @@ import { ToastService } from '../../../services/toast.service';
                  [class.bg-blue-500]="isSyncing()"
                  [class.animate-pulse]="isSyncing()">
             </div>
-            <h3 class="font-bold text-stone-700 text-xs">同步状态</h3>
+            <h3 class="font-bold text-stone-700 dark:text-stone-200 text-xs">同步状态</h3>
           </div>
-          <span class="text-[10px] text-stone-400">
+          <span class="text-[10px] text-stone-400 dark:text-stone-500">
             {{ !isLoggedIn() ? '未登录' : isOnline() && !offlineMode() ? '在线' : offlineMode() ? '连接中断' : '离线' }}
           </span>
         </div>
@@ -249,12 +276,12 @@ import { ToastService } from '../../../services/toast.service';
           }
           
           <!-- 待处理操作 -->
-          <div class="flex items-center justify-between p-2 bg-stone-50 rounded-lg">
+          <div class="flex items-center justify-between p-2 bg-stone-50 dark:bg-stone-700 rounded-lg">
             <div class="flex items-center gap-1.5">
-              <svg class="w-3 h-3 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <svg class="w-3 h-3 text-stone-500 dark:text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span class="text-[10px] text-stone-600">待处理</span>
+              <span class="text-[10px] text-stone-600 dark:text-stone-300">待处理</span>
             </div>
             <div class="flex items-center gap-1.5">
               <span class="text-xs font-bold" [class.text-stone-400]="pendingCount() === 0" [class.text-amber-600]="pendingCount() > 0">
@@ -264,7 +291,7 @@ import { ToastService } from '../../../services/toast.service';
                 <button 
                   (click)="retryAll(); $event.stopPropagation()"
                   [disabled]="isProcessing()"
-                  class="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 hover:bg-amber-200 text-amber-700 rounded transition-colors disabled:opacity-50">
+                  class="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-800/50 text-amber-700 dark:text-amber-300 rounded transition-colors disabled:opacity-50">
                   {{ isProcessing() ? '...' : '同步' }}
                 </button>
               }
@@ -273,17 +300,17 @@ import { ToastService } from '../../../services/toast.service';
           
           <!-- 死信队列 -->
           @if (deadLetterCount() > 0) {
-            <div class="p-2 bg-red-50 border border-red-100 rounded-lg">
+            <div class="p-2 bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 rounded-lg">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-1.5">
-                  <svg class="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <svg class="w-3 h-3 text-red-500 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                   </svg>
-                  <span class="text-[10px] text-red-600 font-medium">{{ deadLetterCount() }} 个失败</span>
+                  <span class="text-[10px] text-red-600 dark:text-red-300 font-medium">{{ deadLetterCount() }} 个失败</span>
                 </div>
                 <button 
                   (click)="showDeadLetters.set(!showDeadLetters()); $event.stopPropagation()"
-                  class="text-[9px] text-red-500 hover:text-red-700">
+                  class="text-[9px] text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300">
                   {{ showDeadLetters() ? '收起' : '详情' }}
                 </button>
               </div>
@@ -292,14 +319,14 @@ import { ToastService } from '../../../services/toast.service';
               @if (showDeadLetters()) {
                 <div class="mt-2 space-y-1.5 max-h-32 overflow-y-auto">
                   @for (item of deadLetters(); track item.action.id) {
-                    <div class="flex items-center justify-between p-1.5 bg-white rounded text-[10px]">
+                    <div class="flex items-center justify-between p-1.5 bg-white dark:bg-stone-700 rounded text-[10px]">
                       <div class="flex-1 min-w-0 mr-2">
-                        <div class="font-medium text-red-700 truncate">{{ getActionLabel(item.action) }}</div>
+                        <div class="font-medium text-red-700 dark:text-red-300 truncate">{{ getActionLabel(item.action) }}</div>
                       </div>
                       <div class="flex gap-0.5 flex-shrink-0">
                         <button 
                           (click)="retryDeadLetter(item.action.id); $event.stopPropagation()"
-                          class="p-0.5 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded"
+                          class="p-0.5 bg-amber-100 dark:bg-amber-900/50 hover:bg-amber-200 dark:hover:bg-amber-800/50 text-amber-700 dark:text-amber-300 rounded"
                           title="重试">
                           <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -307,7 +334,7 @@ import { ToastService } from '../../../services/toast.service';
                         </button>
                         <button 
                           (click)="dismissDeadLetter(item.action.id); $event.stopPropagation()"
-                          class="p-0.5 bg-stone-100 hover:bg-stone-200 text-stone-500 rounded"
+                          class="p-0.5 bg-stone-100 dark:bg-stone-600 hover:bg-stone-200 dark:hover:bg-stone-500 text-stone-500 dark:text-stone-300 rounded"
                           title="放弃">
                           <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -321,7 +348,7 @@ import { ToastService } from '../../../services/toast.service';
                 @if (deadLetterCount() > 1) {
                   <button 
                     (click)="clearAllDeadLetters(); $event.stopPropagation()"
-                    class="w-full mt-1.5 py-1 text-[9px] font-medium text-red-600 hover:bg-red-100 rounded transition-colors">
+                    class="w-full mt-1.5 py-1 text-[9px] font-medium text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors">
                     清空全部
                   </button>
                 }
@@ -332,7 +359,7 @@ import { ToastService } from '../../../services/toast.service';
         
         <!-- 底部提示 -->
         @if (!isOnline()) {
-          <div class="px-3 py-1.5 bg-amber-50 border-t border-amber-100 text-[10px] text-amber-700">
+          <div class="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 border-t border-amber-100 dark:border-amber-800 text-[10px] text-amber-700 dark:text-amber-300">
             离线模式 - 恢复后自动同步
           </div>
         }
@@ -346,6 +373,7 @@ export class SyncStatusComponent {
   private authService = inject(AuthService);
   private conflictStorage = inject(ConflictStorageService);
   private syncCoordinator = inject(SyncCoordinatorService);
+  private projectState = inject(ProjectStateService);
   private toastService = inject(ToastService);
   
   // 输入属性 - 是否使用紧凑模式
@@ -396,6 +424,17 @@ export class SyncStatusComponent {
   readonly totalIssues = computed(() => 
     this.deadLetterCount() + (this.pendingCount() > 0 ? 1 : 0) + (this.syncError() ? 1 : 0) + (this.offlineMode() ? 1 : 0) + this.conflictCount()
   );
+  
+  /**
+   * 【Senior Consultant "Red Phone"】是否处于危险状态
+   * 当死信队列有内容或待同步队列超过阈值时，显示紧急警告
+   */
+  readonly isCriticalState = computed(() => {
+    const deadCount = this.deadLetterCount();
+    const pendingCount = this.pendingCount();
+    // 死信队列有内容，或待同步队列超过 80 个（80% of 100 max）
+    return deadCount > 0 || pendingCount > 80;
+  });
   
   /** 详细状态文本 */
   readonly detailedStatus = computed(() => {
@@ -541,5 +580,51 @@ export class SyncStatusComponent {
     
     const diffDays = Math.floor(diffHours / 24);
     return `${diffDays} 天前`;
+  }
+  
+  /**
+   * 【Senior Consultant "Red Phone"】紧急下载备份
+   * 当同步严重滞后时，允许用户下载本地数据备份
+   */
+  async downloadBackup() {
+    try {
+      // 获取当前项目的本地数据
+      const activeProjectId = this.projectState.activeProjectId() || '';
+      
+      // 构建备份数据
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        version: '1.0',
+        source: 'nanoflow-emergency-backup',
+        pendingOperations: this.pendingCount(),
+        failedOperations: this.deadLetterCount(),
+        // 死信队列中的数据
+        deadLetterQueue: this.deadLetters().map(item => ({
+          type: item.action.type,
+          entityType: item.action.entityType,
+          entityId: item.action.entityId,
+          failedAt: item.failedAt,
+          reason: item.reason
+        }))
+      };
+      
+      // 创建下载文件
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { 
+        type: 'application/json' 
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nanoflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      this.toastService.success('备份已下载', '请妥善保存备份文件');
+    } catch (e) {
+      this.toastService.error('下载失败', '无法创建备份文件');
+      console.error('Backup download failed:', e);
+    }
   }
 }

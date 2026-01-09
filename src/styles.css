@@ -78,6 +78,72 @@ body {
   --theme-border: #e9d5ff;
 }
 
+/* ========== 深色模式变量 ========== */
+/* 深色模式 - 覆盖所有主题变量 */
+[data-color-mode="dark"] {
+  --theme-bg: #1a1a1a;
+  --theme-sidebar-bg: #1f1f1f;
+  --theme-card-bg: #2a2a2a;
+  --theme-primary: #818cf8;
+  --theme-primary-light: #312e81;
+  --theme-accent: #34d399;
+  --theme-text: #d1d5db;
+  --theme-text-dark: #f3f4f6;
+  --theme-border: #374151;
+}
+
+/* 深色模式 + 海洋主题 */
+[data-color-mode="dark"][data-theme="ocean"] {
+  --theme-bg: #0c1929;
+  --theme-sidebar-bg: #0e2337;
+  --theme-card-bg: #162a44;
+  --theme-primary: #38bdf8;
+  --theme-primary-light: #0c4a6e;
+  --theme-accent: #22d3ee;
+  --theme-text: #bae6fd;
+  --theme-text-dark: #e0f2fe;
+  --theme-border: #1e4976;
+}
+
+/* 深色模式 + 森林主题 */
+[data-color-mode="dark"][data-theme="forest"] {
+  --theme-bg: #0d1f12;
+  --theme-sidebar-bg: #132b18;
+  --theme-card-bg: #1a3820;
+  --theme-primary: #4ade80;
+  --theme-primary-light: #14532d;
+  --theme-accent: #34d399;
+  --theme-text: #bbf7d0;
+  --theme-text-dark: #dcfce7;
+  --theme-border: #166534;
+}
+
+/* 深色模式 + 日落主题 */
+[data-color-mode="dark"][data-theme="sunset"] {
+  --theme-bg: #1c1210;
+  --theme-sidebar-bg: #291812;
+  --theme-card-bg: #3a1f15;
+  --theme-primary: #fb923c;
+  --theme-primary-light: #7c2d12;
+  --theme-accent: #f87171;
+  --theme-text: #fed7aa;
+  --theme-text-dark: #ffedd5;
+  --theme-border: #9a3412;
+}
+
+/* 深色模式 + 薰衣草主题 */
+[data-color-mode="dark"][data-theme="lavender"] {
+  --theme-bg: #1a0f24;
+  --theme-sidebar-bg: #231530;
+  --theme-card-bg: #2e1c3f;
+  --theme-primary: #c084fc;
+  --theme-primary-light: #581c87;
+  --theme-accent: #e879f9;
+  --theme-text: #e9d5ff;
+  --theme-text-dark: #f3e8ff;
+  --theme-border: #7c3aed;
+}
+
 /* 应用主题变量 */
 .theme-bg { background-color: var(--theme-bg); }
 .theme-sidebar-bg { background-color: var(--theme-sidebar-bg); }
@@ -89,6 +155,102 @@ body {
 .theme-text { color: var(--theme-text); }
 .theme-text-dark { color: var(--theme-text-dark); }
 .theme-border { border-color: var(--theme-border); }
+
+/* ========== 深色模式通用组件样式 ========== */
+/* 浮动面板/卡片 - 统一深色背景 */
+.theme-panel {
+  background-color: rgba(255, 255, 255, 0.95);
+  border-color: #e7e5e4;
+}
+[data-color-mode="dark"] .theme-panel {
+  background-color: rgba(30, 30, 30, 0.95);
+  border-color: #404040;
+}
+
+/* 工具栏按钮样式 */
+.theme-toolbar-btn {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-color: #e7e5e4;
+  color: #57534e;
+}
+[data-color-mode="dark"] .theme-toolbar-btn {
+  background-color: rgba(45, 45, 45, 0.9);
+  border-color: #525252;
+  color: #d6d3d1;
+}
+.theme-toolbar-btn:hover {
+  background-color: #f5f5f4;
+}
+[data-color-mode="dark"] .theme-toolbar-btn:hover {
+  background-color: #404040;
+}
+
+/* 输入框样式 */
+.theme-input {
+  background-color: #ffffff;
+  border-color: #e7e5e4;
+  color: #1c1917;
+}
+[data-color-mode="dark"] .theme-input {
+  background-color: #262626;
+  border-color: #525252;
+  color: #fafaf9;
+}
+.theme-input::placeholder {
+  color: #a8a29e;
+}
+[data-color-mode="dark"] .theme-input::placeholder {
+  color: #78716c;
+}
+
+/* 分割线样式 */
+.theme-divider {
+  background-color: #e7e5e4;
+}
+[data-color-mode="dark"] .theme-divider {
+  background-color: #404040;
+}
+
+/* 标签/徽章样式 */
+.theme-badge {
+  background-color: #f5f5f4;
+  color: #78716c;
+}
+[data-color-mode="dark"] .theme-badge {
+  background-color: #404040;
+  color: #a8a29e;
+}
+
+/* 下拉菜单/弹出层 */
+.theme-dropdown {
+  background-color: #ffffff;
+  border-color: #e7e5e4;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+}
+[data-color-mode="dark"] .theme-dropdown {
+  background-color: #1f1f1f;
+  border-color: #404040;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+}
+
+/* 文本颜色层级 */
+.theme-text-primary { color: #1c1917; }
+.theme-text-secondary { color: #57534e; }
+.theme-text-muted { color: #78716c; }
+.theme-text-faint { color: #a8a29e; }
+
+[data-color-mode="dark"] .theme-text-primary { color: #fafaf9; }
+[data-color-mode="dark"] .theme-text-secondary { color: #d6d3d1; }
+[data-color-mode="dark"] .theme-text-muted { color: #a8a29e; }
+[data-color-mode="dark"] .theme-text-faint { color: #78716c; }
+
+/* 悬停效果 */
+.theme-hover:hover {
+  background-color: #f5f5f4;
+}
+[data-color-mode="dark"] .theme-hover:hover {
+  background-color: #292929;
+}
 
 /* 弹窗动画 */
 .animate-fade-in {
@@ -393,4 +555,104 @@ div[class*="diagram"] > div:last-child:not(:first-child):not([data-drag-ghost]) 
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #cbd5e1;
+}
+
+/* ========== 深色模式通用覆盖 ========== */
+
+/* 深色模式下的自定义滚动条 */
+[data-color-mode="dark"] .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+[data-color-mode="dark"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* 深色模式下的 Markdown 预览 */
+[data-color-mode="dark"] .markdown-preview h1 {
+  color: #f3f4f6;
+  border-bottom-color: #374151;
+}
+
+[data-color-mode="dark"] .markdown-preview h2,
+[data-color-mode="dark"] .markdown-preview h3 {
+  color: #e5e7eb;
+}
+
+[data-color-mode="dark"] .markdown-preview h4,
+[data-color-mode="dark"] .markdown-preview h5,
+[data-color-mode="dark"] .markdown-preview h6,
+[data-color-mode="dark"] .markdown-preview p,
+[data-color-mode="dark"] .markdown-preview li {
+  color: #d1d5db;
+}
+
+[data-color-mode="dark"] .markdown-preview strong {
+  color: #f3f4f6;
+}
+
+[data-color-mode="dark"] .markdown-preview code {
+  background-color: #374151;
+  color: #fb923c;
+}
+
+[data-color-mode="dark"] .markdown-preview pre {
+  background-color: #111827;
+  color: #e5e7eb;
+}
+
+[data-color-mode="dark"] .markdown-preview blockquote {
+  border-left-color: #6b7280;
+  color: #9ca3af;
+}
+
+[data-color-mode="dark"] .markdown-preview a {
+  color: #818cf8;
+}
+
+[data-color-mode="dark"] .markdown-preview a:hover {
+  color: #a5b4fc;
+}
+
+[data-color-mode="dark"] .markdown-preview hr {
+  border-top-color: #4b5563;
+}
+
+/* 深色模式下的模态框背景覆盖 - 使用 CSS 变量 */
+[data-color-mode="dark"] .bg-white {
+  background-color: var(--theme-card-bg) !important;
+}
+
+[data-color-mode="dark"] .bg-slate-50 {
+  background-color: var(--theme-bg) !important;
+}
+
+[data-color-mode="dark"] .border-slate-200 {
+  border-color: var(--theme-border) !important;
+}
+
+[data-color-mode="dark"] .text-slate-800,
+[data-color-mode="dark"] .text-slate-700 {
+  color: var(--theme-text-dark) !important;
+}
+
+[data-color-mode="dark"] .text-slate-600,
+[data-color-mode="dark"] .text-slate-500,
+[data-color-mode="dark"] .text-slate-400 {
+  color: var(--theme-text) !important;
+}
+
+/* 深色模式下的悬停效果 - 使用正确的 CSS 转义语法 */
+[data-color-mode="dark"] .hover\:bg-slate-100:hover {
+  background-color: #374151 !important;
+}
+
+[data-color-mode="dark"] .hover\:bg-slate-50:hover {
+  background-color: #1f2937 !important;
+}
+
+/* 深色模式下的分割线 */
+[data-color-mode="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+[data-color-mode="dark"] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--theme-border) !important;
 }

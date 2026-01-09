@@ -144,7 +144,7 @@ describe('ExportService', () => {
       expect(result.metadata?.connectionCount).toBe(1);
     });
     
-    it('应过滤已删除的任务', async () => {
+    it('应包含已删除的任务（回收站数据完整备份）', async () => {
       const activeTask = createTestTask({ id: 'active', title: 'Active' });
       const deletedTask = createTestTask({ 
         id: 'deleted', 
@@ -157,11 +157,13 @@ describe('ExportService', () => {
       
       const text = await result.blob!.text();
       const data = JSON.parse(text);
-      expect(data.projects[0].tasks).toHaveLength(1);
-      expect(data.projects[0].tasks[0].title).toBe('Active');
+      // 默认 INCLUDE_DELETED_ITEMS = true，应包含所有任务
+      expect(data.projects[0].tasks).toHaveLength(2);
+      expect(data.projects[0].tasks.find((t: { title: string }) => t.title === 'Active')).toBeDefined();
+      expect(data.projects[0].tasks.find((t: { title: string }) => t.title === 'Deleted')).toBeDefined();
     });
     
-    it('应过滤已删除的连接', async () => {
+    it('应包含已删除的连接（回收站数据完整备份）', async () => {
       const activeConn = createTestConnection({ id: 'active' });
       const deletedConn = createTestConnection({ 
         id: 'deleted',
@@ -173,7 +175,8 @@ describe('ExportService', () => {
       
       const text = await result.blob!.text();
       const data = JSON.parse(text);
-      expect(data.projects[0].connections).toHaveLength(1);
+      // 默认 INCLUDE_DELETED_ITEMS = true，应包含所有连接
+      expect(data.projects[0].connections).toHaveLength(2);
     });
   });
   

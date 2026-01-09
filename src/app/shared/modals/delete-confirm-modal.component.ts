@@ -44,19 +44,19 @@ export interface DeleteConfirmResult {
   template: `
     <!-- 动态模式不需要遮罩层，由 DynamicModalService 提供 -->
     <div 
-      class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in"
+      class="bg-white dark:bg-stone-900 rounded-xl shadow-2xl w-full max-w-sm p-6 animate-scale-in"
       [class.modal-standalone]="!isDynamicMode"
       (click)="$event.stopPropagation()">
       <div class="flex items-center gap-3 mb-4">
-        <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-          <svg class="w-5 h-5 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
+          <svg class="w-5 h-5 text-red-600 dark:text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-stone-800">{{ displayTitle }}</h3>
+        <h3 class="text-lg font-semibold text-stone-800 dark:text-stone-100">{{ displayTitle }}</h3>
       </div>
-      <p class="text-stone-600 text-sm mb-2">{{ displayMessage }}</p>
-      <p class="text-stone-800 font-medium text-sm mb-4 px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 truncate">
+      <p class="text-stone-600 dark:text-stone-300 text-sm mb-2">{{ displayMessage }}</p>
+      <p class="text-stone-800 dark:text-stone-100 font-medium text-sm mb-4 px-3 py-2 bg-stone-50 dark:bg-stone-800 rounded-lg border border-stone-200 dark:border-stone-700 truncate">
         {{ displayItemName }}
       </p>
       @if (displayWarning) {
@@ -65,7 +65,7 @@ export interface DeleteConfirmResult {
       <div class="flex justify-end gap-2">
         <button 
           (click)="handleCancel()" 
-          class="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors text-sm">
+          class="px-4 py-2 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 rounded-lg transition-colors text-sm">
           取消
         </button>
         <button 

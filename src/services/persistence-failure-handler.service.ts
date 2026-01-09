@@ -57,8 +57,10 @@ interface EscapePodData {
 const ESCAPE_POD_KEY = 'nanoflow.escape-pod';
 /** 逃生舱数据版本 */
 const ESCAPE_POD_VERSION = 1;
-/** 逃生舱数据最大存活时间（24小时） */
-const ESCAPE_POD_TTL = 24 * 60 * 60 * 1000;
+/** 逃生舱数据最大存活时间（7天） - Senior Consultant 建议延长以保护用户数据 */
+const ESCAPE_POD_TTL = 7 * 24 * 60 * 60 * 1000;
+/** 逃生舱过期警告时间（距离过期 24 小时时警告） */
+const ESCAPE_POD_WARNING_THRESHOLD = 24 * 60 * 60 * 1000;
 /** 最大脏数据记录数 */
 const MAX_DIRTY_RECORDS = 50;
 
@@ -334,10 +336,23 @@ export class PersistenceFailureHandlerService {
 
       // TTL 检查
       const savedAt = new Date(data.savedAt).getTime();
-      if (Date.now() - savedAt > ESCAPE_POD_TTL) {
+      const age = Date.now() - savedAt;
+      
+      if (age > ESCAPE_POD_TTL) {
         this.logger.info('逃生舱数据已过期，清除');
         this.clearEscapePod();
         return;
+      }
+      
+      // 【Senior Consultant】过期前警告：距离过期不到 24 小时时警告用户
+      const timeUntilExpiry = ESCAPE_POD_TTL - age;
+      if (timeUntilExpiry < ESCAPE_POD_WARNING_THRESHOLD && data.records?.length > 0) {
+        const hoursLeft = Math.floor(timeUntilExpiry / (1000 * 60 * 60));
+        this.toast.warning(
+          '未保存内容即将过期',
+          `您有 ${data.records.length} 条未保存的内容将在 ${hoursLeft} 小时后过期，请尽快处理`,
+          { duration: 0 } // 不自动关闭
+        );
       }
 
       // 恢复数据

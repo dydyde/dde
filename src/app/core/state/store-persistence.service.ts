@@ -220,15 +220,27 @@ export class StorePersistenceService {
           actual: verifyResult.actual,
           errors: verifyResult.errors
         });
+        
+        // 【Senior Consultant P1】自动重试一次
+        this.logger.info('IndexedDB 写入校验失败，尝试重试...', { projectId });
+        const retrySuccess = await this.retryWriteOnce(projectId, project, tasks, connections);
+        
+        if (!retrySuccess) {
+          // 【降级策略】写入 localStorage 作为备份
+          this.logger.warn('IndexedDB 重试失败，降级到 localStorage 备份', { projectId });
+          this.fallbackToLocalStorage(projectId, project, tasks, connections);
+        }
+        
         Sentry.captureMessage('IndexedDB 写入校验失败', {
           level: 'error',
-          tags: { operation: 'writeIntegrityCheck', projectId },
+          tags: { operation: 'writeIntegrityCheck', projectId, retried: String(retrySuccess) },
           extra: { 
             expected: { tasks: tasks.length, connections: connections.length },
             actual: verifyResult.actual,
             errors: verifyResult.errors
           }
         });
+        return;
       }
       
       this.logger.debug('项目数据已保存', { 
@@ -240,7 +252,99 @@ export class StorePersistenceService {
     } catch (err) {
       this.logger.error('保存项目数据失败', { projectId, error: err });
       Sentry.captureException(err, { tags: { operation: 'saveProjectData', projectId } });
-      // 静默失败，不影响运行时
+      // 【Senior Consultant P1】降级到 localStorage
+      const project = this.projectStore.getProject(projectId);
+      const tasks = this.taskStore.getTasksByProject(projectId);
+      const connections = this.connectionStore.getConnectionsByProject(projectId);
+      if (project) {
+        this.fallbackToLocalStorage(projectId, project, tasks, connections);
+      }
+    }
+  }
+  
+  /**
+   * 【Senior Consultant P1】重试写入一次
+   */
+  private async retryWriteOnce(
+    projectId: string,
+    project: Project,
+    tasks: Task[],
+    connections: Connection[]
+  ): Promise<boolean> {
+    try {
+      const db = await this.initDatabase();
+      
+      const transaction = db.transaction(
+        [DB_CONFIG.stores.projects, DB_CONFIG.stores.tasks, DB_CONFIG.stores.connections],
+        'readwrite'
+      );
+      
+      const projectStore = transaction.objectStore(DB_CONFIG.stores.projects);
+      const taskStore = transaction.objectStore(DB_CONFIG.stores.tasks);
+      const connectionStore = transaction.objectStore(DB_CONFIG.stores.connections);
+      
+      // 清除旧数据后重写
+      projectStore.put(project);
+      for (const task of tasks) {
+        taskStore.put({ ...task, projectId });
+      }
+      for (const connection of connections) {
+        connectionStore.put({ ...connection, projectId });
+      }
+      
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+      
+      // 再次验证
+      const verifyResult = await this.verifyWriteIntegrity(db, projectId, tasks.length, connections.length);
+      if (verifyResult.valid) {
+        this.logger.info('IndexedDB 重试写入成功', { projectId });
+        return true;
+      }
+      
+      return false;
+    } catch (err) {
+      this.logger.error('IndexedDB 重试写入失败', { projectId, error: err });
+      return false;
+    }
+  }
+  
+  /**
+   * 【Senior Consultant P1】降级到 localStorage 备份
+   */
+  private fallbackToLocalStorage(
+    projectId: string,
+    project: Project,
+    tasks: Task[],
+    connections: Connection[]
+  ): void {
+    if (typeof localStorage === 'undefined') return;
+    
+    const FALLBACK_KEY = `nanoflow.idb-fallback.${projectId}`;
+    
+    try {
+      const fallbackData = {
+        version: 1,
+        timestamp: new Date().toISOString(),
+        project,
+        tasks,
+        connections
+      };
+      
+      localStorage.setItem(FALLBACK_KEY, JSON.stringify(fallbackData));
+      this.logger.info('已降级保存到 localStorage', { 
+        projectId, 
+        tasksCount: tasks.length,
+        connectionsCount: connections.length
+      });
+    } catch (e) {
+      this.logger.error('localStorage 降级保存也失败', { projectId, error: e });
+      Sentry.captureException(e, { 
+        tags: { operation: 'fallbackToLocalStorage', projectId },
+        level: 'fatal'
+      });
     }
   }
   

@@ -80,20 +80,20 @@ import { FlowViewComponent } from '../app/features/flow';
                <div class="h-full flex items-center justify-between">
                  <div class="flex items-center gap-3">
                    <button (click)="toggleSidebar()" 
-                           class="text-stone-400 hover:text-stone-600 transition-colors p-2 hover:bg-stone-200/50 rounded-full" 
+                           class="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 transition-colors p-2 hover:bg-stone-200/50 dark:hover:bg-stone-700/50 rounded-full" 
                            aria-label="切换侧边栏">
                       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                    </button>
-                   <span class="font-bold text-stone-800 text-lg tracking-tight">文本视图</span>
+                   <span class="font-bold text-stone-800 dark:text-stone-200 text-lg tracking-tight">文本视图</span>
                  </div>
                  
                  <!-- Filter -->
                  <div class="relative flex items-center gap-2">
                    <button 
                       (click)="isFilterOpen.set(!isFilterOpen()); $event.stopPropagation()"
-                      class="flex items-center gap-2 bg-transparent text-xs font-medium text-stone-500 hover:text-indigo-800 transition-colors py-1.5 px-3 rounded-lg hover:bg-indigo-50 border border-transparent active:bg-indigo-100">
+                      class="flex items-center gap-2 bg-transparent text-xs font-medium text-stone-500 dark:text-stone-400 hover:text-indigo-800 dark:hover:text-indigo-400 transition-colors py-1.5 px-3 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-transparent active:bg-indigo-100 dark:active:bg-indigo-900/30">
                        <span>{{ currentFilterLabel() }}</span>
                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 transition-transform duration-200" [class.rotate-180]="isFilterOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -102,20 +102,20 @@ import { FlowViewComponent } from '../app/features/flow';
                    
                    @if (isFilterOpen()) {
                       <div class="fixed inset-0 z-40" (click)="isFilterOpen.set(false)"></div>
-                      <div class="absolute right-0 top-full mt-1 w-48 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-dropdown overflow-hidden">
+                      <div class="absolute right-0 top-full mt-1 w-48 bg-white/90 dark:bg-stone-800/95 backdrop-blur-xl border border-stone-100 dark:border-stone-700 rounded-xl shadow-lg z-50 py-1 animate-dropdown overflow-hidden">
                           <div 
                               (click)="uiState.filterMode.set('all'); isFilterOpen.set(false)"
-                              class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                              class="px-4 py-2.5 text-xs text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between group transition-colors">
                               <span>全部任务</span>
-                              @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                              @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                           </div>
-                          <div class="h-px bg-stone-100 my-1"></div>
+                          <div class="h-px bg-stone-100 dark:bg-stone-700 my-1"></div>
                           @for(root of projectState.rootTasks(); track root.id) {
                               <div 
                                   (click)="uiState.filterMode.set(root.id); isFilterOpen.set(false)"
-                                  class="px-4 py-2.5 text-xs text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between group transition-colors">
+                                  class="px-4 py-2.5 text-xs text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between group transition-colors">
                                   <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                                  @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                                  @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                               </div>
                           }
                       </div>
@@ -128,18 +128,18 @@ import { FlowViewComponent } from '../app/features/flow';
              @if (uiState.isMobile()) {
                <div class="flex items-center justify-between gap-2">
                  <div class="flex items-center gap-2 min-w-0">
-                   <button (click)="toggleSidebar()" class="btn-compact text-stone-400 p-1 rounded-lg active:bg-stone-200/50 shrink-0" aria-label="菜单">
+                   <button (click)="toggleSidebar()" class="btn-compact text-stone-400 dark:text-stone-500 p-1 rounded-lg active:bg-stone-200/50 dark:active:bg-stone-700/50 shrink-0" aria-label="菜单">
                       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                       </svg>
                    </button>
-                   <span class="font-bold text-stone-700 text-base">文本</span>
+                   <span class="font-bold text-stone-700 dark:text-stone-200 text-base">文本</span>
                  </div>
                  
                  <div class="flex items-center gap-1 shrink-0">
                    <button 
                       (click)="isFilterOpen.set(!isFilterOpen()); $event.stopPropagation()"
-                      class="btn-compact flex items-center gap-1 text-[10px] text-stone-500 py-0.5 px-1.5 rounded bg-stone-100/80 active:bg-stone-200 max-w-[80px]">
+                      class="btn-compact flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-400 py-0.5 px-1.5 rounded bg-stone-100/80 dark:bg-stone-700/80 active:bg-stone-200 dark:active:bg-stone-600 max-w-[80px]">
                        <span class="truncate">{{ currentFilterLabel() }}</span>
                        <svg class="h-2 w-2 shrink-0" [class.rotate-180]="isFilterOpen()" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -154,20 +154,20 @@ import { FlowViewComponent } from '../app/features/flow';
                
                @if (isFilterOpen()) {
                   <div class="fixed inset-0 z-40" (click)="isFilterOpen.set(false)"></div>
-                  <div class="absolute right-3 top-12 w-44 bg-white/95 backdrop-blur-xl border border-stone-200 rounded-lg shadow-xl z-50 py-1 animate-dropdown overflow-hidden">
+                  <div class="absolute right-3 top-12 w-44 bg-white/95 dark:bg-stone-800/95 backdrop-blur-xl border border-stone-200 dark:border-stone-700 rounded-lg shadow-xl z-50 py-1 animate-dropdown overflow-hidden">
                       <div 
                           (click)="uiState.filterMode.set('all'); isFilterOpen.set(false)"
-                          class="px-3 py-2 text-xs text-stone-600 active:bg-indigo-50 cursor-pointer flex items-center justify-between">
+                          class="px-3 py-2 text-xs text-stone-600 dark:text-stone-300 active:bg-indigo-50 dark:active:bg-indigo-900/30 cursor-pointer flex items-center justify-between">
                           <span>全部任务</span>
-                          @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                          @if (uiState.filterMode() === 'all') { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                       </div>
-                      <div class="h-px bg-stone-100"></div>
+                      <div class="h-px bg-stone-100 dark:bg-stone-700"></div>
                       @for(root of projectState.rootTasks(); track root.id) {
                           <div 
                               (click)="uiState.filterMode.set(root.id); isFilterOpen.set(false)"
-                              class="px-3 py-2 text-xs text-stone-600 active:bg-indigo-50 cursor-pointer flex items-center justify-between">
+                              class="px-3 py-2 text-xs text-stone-600 dark:text-stone-300 active:bg-indigo-50 dark:active:bg-indigo-900/30 cursor-pointer flex items-center justify-between">
                               <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                              @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                              @if (uiState.filterMode() === root.id) { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                           </div>
                       }
                   </div>
@@ -197,9 +197,9 @@ import { FlowViewComponent } from '../app/features/flow';
 
         <!-- Content Resizer -->
         @if(!uiState.isMobile()) {
-          <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 cursor-col-resize z-20 flex-shrink-0 relative group"
+          <div class="w-1 hover:w-1.5 bg-transparent hover:bg-stone-300 dark:hover:bg-stone-600 cursor-col-resize z-20 flex-shrink-0 relative group"
                (mousedown)="startContentResize($event)">
-               <div class="absolute inset-y-0 left-0 w-px bg-stone-200 group-hover:bg-stone-400 transition-colors"></div>
+               <div class="absolute inset-y-0 left-0 w-px bg-stone-200 dark:bg-stone-700 group-hover:bg-stone-400 dark:group-hover:bg-stone-500 transition-colors"></div>
           </div>
         }
 
@@ -214,7 +214,7 @@ import { FlowViewComponent } from '../app/features/flow';
              [class.z-10]="uiState.isMobile()">
            <div class="flex items-center justify-between shrink-0 z-10"
                 [ngClass]="{'h-12 mx-4 mt-2': !uiState.isMobile(), 'mx-2 mt-1 mb-0.5': uiState.isMobile()}">
-              <span class="text-stone-700" [ngClass]="{'text-lg font-bold text-stone-800 tracking-tight': !uiState.isMobile(), 'text-base font-bold': uiState.isMobile()}">
+              <span class="text-stone-700 dark:text-stone-200" [ngClass]="{'text-lg font-bold text-stone-800 dark:text-stone-200 tracking-tight': !uiState.isMobile(), 'text-base font-bold': uiState.isMobile()}">
                 @if (uiState.isMobile()) { 流程图 } @else { 流程视图 }
               </span>
               @if(uiState.isMobile()) {
@@ -245,8 +245,8 @@ import { FlowViewComponent } from '../app/features/flow';
         }
       } @else {
         <!-- 无活动项目时的占位 -->
-        <div class="flex-1 flex items-center justify-center text-stone-300 flex-col gap-6 p-4">
-          <div class="w-24 h-24 rounded-full bg-stone-100 flex items-center justify-center">
+        <div class="flex-1 flex items-center justify-center text-stone-300 dark:text-stone-600 flex-col gap-6 p-4">
+          <div class="w-24 h-24 rounded-full bg-stone-100 dark:bg-stone-800 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>

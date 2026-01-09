@@ -128,8 +128,8 @@ function escapeHtml(text: string): string {
 function parseInline(text: string): string {
   let result = escapeHtml(text);
   
-  // 代码块 `code`
-  result = result.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-stone-100 rounded text-xs font-mono text-pink-600">$1</code>');
+  // 代码块 `code` - 深色模式自动适应
+  result = result.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-stone-100 dark:bg-stone-700 rounded text-xs font-mono text-pink-600 dark:text-pink-400">$1</code>');
   
   // 粗体 **text** 或 __text__
   result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -139,13 +139,13 @@ function parseInline(text: string): string {
   result = result.replace(/\*([^*]+)\*/g, '<em>$1</em>');
   result = result.replace(/_([^_]+)_/g, '<em>$1</em>');
   
-  // 删除线 ~~text~~
-  result = result.replace(/~~([^~]+)~~/g, '<del class="text-stone-400">$1</del>');
+  // 删除线 ~~text~~ - 深色模式自动适应
+  result = result.replace(/~~([^~]+)~~/g, '<del class="text-stone-400 dark:text-stone-500">$1</del>');
   
-  // 链接 [text](url) - 使用安全的 URL 处理
+  // 链接 [text](url) - 使用安全的 URL 处理，深色模式自动适应
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
     const safeUrl = sanitizeUrl(url);
-    return `<a href="${safeUrl}" class="text-indigo-600 hover:text-indigo-800 underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    return `<a href="${safeUrl}" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 underline" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });
   
   return result;

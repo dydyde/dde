@@ -42,23 +42,23 @@ import { TextStageCardComponent } from './text-stage-card.component';
 
             @if (isStageFilterOpen()) {
               <div class="fixed inset-0 z-40" (click)="isStageFilterOpen.set(false)"></div>
-              <div class="absolute left-0 top-full mt-1 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-dropdown"
+              <div class="absolute left-0 top-full mt-1 bg-white/90 dark:bg-stone-800/95 backdrop-blur-xl border border-stone-100 dark:border-stone-700 rounded-xl shadow-lg z-50 py-1 animate-dropdown"
                    [ngClass]="{'w-32': !isMobile, 'w-auto min-w-[70px]': isMobile}">
                 <div 
                   (click)="setStageFilter('all')"
-                  class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
+                  class="px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between transition-colors"
                   [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                   <span>全部</span>
-                  @if (uiState.stageFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                  @if (uiState.stageFilter() === 'all') { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                 </div>
-                <div class="h-px bg-stone-100 my-0.5"></div>
+                <div class="h-px bg-stone-100 dark:bg-stone-700 my-0.5"></div>
                 @for (stage of availableStages(); track stage.stageNumber) {
                   <div 
                     (click)="setStageFilter(stage.stageNumber)"
-                    class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
+                    class="px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between transition-colors"
                     [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                     <span>阶段 {{stage.stageNumber}}</span>
-                    @if (uiState.stageFilter() === stage.stageNumber) { <span class="text-indigo-600 font-bold">✓</span> }
+                    @if (uiState.stageFilter() === stage.stageNumber) { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                   </div>
                 }
               </div>
@@ -81,23 +81,23 @@ import { TextStageCardComponent } from './text-stage-card.component';
 
             @if (isRootFilterOpen()) {
               <div class="fixed inset-0 z-40" (click)="isRootFilterOpen.set(false)"></div>
-              <div class="absolute right-0 top-full mt-1 bg-white/90 backdrop-blur-xl border border-stone-100 rounded-xl shadow-lg z-50 py-1 animate-dropdown"
+              <div class="absolute right-0 top-full mt-1 bg-white/90 dark:bg-stone-800/95 backdrop-blur-xl border border-stone-100 dark:border-stone-700 rounded-xl shadow-lg z-50 py-1 animate-dropdown"
                    [ngClass]="{'w-48': !isMobile, 'w-auto min-w-[90px] max-w-[150px]': isMobile}">
                 <div 
                   (click)="setRootFilter('all')"
-                  class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
+                  class="px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between transition-colors"
                   [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                   <span>全部任务</span>
-                  @if (uiState.stageViewRootFilter() === 'all') { <span class="text-indigo-600 font-bold">✓</span> }
+                  @if (uiState.stageViewRootFilter() === 'all') { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                 </div>
-                <div class="h-px bg-stone-100 my-0.5"></div>
+                <div class="h-px bg-stone-100 dark:bg-stone-700 my-0.5"></div>
                 @for (root of projectState.allStage1Tasks(); track root.id) {
                   <div 
                     (click)="setRootFilter(root.id)"
-                    class="px-3 py-1.5 text-stone-600 hover:bg-indigo-50 hover:text-indigo-900 cursor-pointer flex items-center justify-between transition-colors"
+                    class="px-3 py-1.5 text-stone-600 dark:text-stone-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-900 dark:hover:text-indigo-300 cursor-pointer flex items-center justify-between transition-colors"
                     [ngClass]="{'text-xs px-4 py-2': !isMobile, 'text-[10px] py-1': isMobile}">
                     <span class="truncate">{{root.title || root.displayId || '未命名任务'}}</span>
-                    @if (uiState.stageViewRootFilter() === root.id) { <span class="text-indigo-600 font-bold">✓</span> }
+                    @if (uiState.stageViewRootFilter() === root.id) { <span class="text-indigo-600 dark:text-indigo-400 font-bold">✓</span> }
                   </div>
                 }
               </div>
@@ -140,10 +140,10 @@ import { TextStageCardComponent } from './text-stage-card.component';
           }
           
           <!-- 添加阶段按钮 -->
-          <div class="flex items-center justify-center rounded-xl border-2 border-dashed border-stone-200 hover:border-stone-300 transition-all cursor-pointer min-h-[60px]"
+          <div class="flex items-center justify-center rounded-xl border-2 border-dashed border-stone-200 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600 transition-all cursor-pointer min-h-[60px]"
                [ngClass]="{'py-6': !isMobile, 'py-4': isMobile}"
                (click)="addNewStage.emit()">
-            <span class="text-stone-400 hover:text-stone-600 text-lg font-light">+ 新阶段</span>
+            <span class="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 text-lg font-light">+ 新阶段</span>
           </div>
         </div>
       </div>

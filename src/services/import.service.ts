@@ -571,6 +571,9 @@ export class ImportService {
       createdDate: exportProject.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       viewState: exportProject.viewState,
+      flowchartUrl: exportProject.flowchartUrl,
+      flowchartThumbnailUrl: exportProject.flowchartThumbnailUrl,
+      version: exportProject.version,
     };
   }
   
@@ -601,14 +604,20 @@ export class ImportService {
       shortId: exportTask.shortId,
       createdDate: exportTask.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      tags: exportTask.tags,
+      priority: exportTask.priority,
+      dueDate: exportTask.dueDate,
+      hasIncompleteTask: exportTask.hasIncompleteTask,
+      deletedAt: exportTask.deletedAt,
       // 附件需要重新上传，这里只保留元数据并标记为待上传
       attachments: exportTask.attachments?.map(att => ({
         id: att.id,
         name: att.name,
         size: att.size ?? 0,
         mimeType: att.mimeType ?? 'application/octet-stream',
-        type: this.inferAttachmentType(att.mimeType ?? 'application/octet-stream'),
+        type: att.type ?? this.inferAttachmentType(att.mimeType ?? 'application/octet-stream'),
         url: '', // URL 需要重新上传后生成
+        thumbnailUrl: att.thumbnailUrl,
         createdAt: att.createdAt ?? new Date().toISOString(),
       })),
     };
@@ -631,6 +640,7 @@ export class ImportService {
       target: newTarget,
       title: exportConn.title,
       description: exportConn.description,
+      deletedAt: exportConn.deletedAt,
     };
   }
   

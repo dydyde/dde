@@ -1,10 +1,13 @@
 -- ============================================================
 -- NanoFlow Supabase 完整初始化脚本（统一导入）
 -- ============================================================
--- 版本: 3.1.0
--- 最后验证: 2026-01-07 (MCP 深度审计通过)
+-- 版本: 3.2.0
+-- 最后验证: 2026-01-09 (MCP 深度审计通过)
 --
 -- 更新日志：
+--   3.2.0 (2026-01-09): 修复 batch_upsert_tasks 函数：移除不存在的 owner_id 列引用，
+--                       使用 project.owner_id + project_members 进行权限校验；
+--                       添加 SET search_path；修复 rank/x/y 类型为 numeric
 --   3.1.0 (2026-01-07): 修复 get_dashboard_stats 使用 JOIN 查询；添加 active_connections 视图；
 --                       添加 connections/user_preferences updated_at 索引；添加 Storage UPDATE 策略
 --   3.0.0 (2026-01-04): 初始整合版本
@@ -2438,10 +2441,10 @@ COMMENT ON FUNCTION public.is_connection_tombstoned(UUID) IS
 -- batch_upsert_tasks 函数：支持批量 upsert 任务，包含 attachments 字段
 -- 用于批量操作的事务保护（≥20 个任务）
 -- 
--- v5.2.2 修正：添加 attachments jsonb 字段支持
+-- v5.2.3 修正：移除不存在的 owner_id 列引用，通过 project.owner_id 进行权限校验
 -- 安全特性：
 -- 1. SECURITY DEFINER + auth.uid() 权限校验
--- 2. 只能操作自己的项目和任务
+-- 2. 只能操作自己的项目和任务（通过 projects.owner_id 或 project_members 校验）
 -- 3. 事务保证原子性
 
 CREATE OR REPLACE FUNCTION public.batch_upsert_tasks(
@@ -2451,6 +2454,7 @@ CREATE OR REPLACE FUNCTION public.batch_upsert_tasks(
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public'
 AS $$
 DECLARE
   v_count integer := 0;
@@ -2463,12 +2467,19 @@ BEGIN
     RAISE EXCEPTION 'Unauthorized: not authenticated';
   END IF;
   
-  -- 权限校验：验证用户是项目所有者
+  -- 权限校验：验证用户是项目所有者或成员
   IF NOT EXISTS (
-    SELECT 1 FROM public.projects 
-    WHERE id = p_project_id AND owner_id = v_user_id
+    SELECT 1 FROM public.projects p
+    WHERE p.id = p_project_id 
+      AND (
+        p.owner_id = v_user_id
+        OR EXISTS (
+          SELECT 1 FROM public.project_members pm 
+          WHERE pm.project_id = p.id AND pm.user_id = v_user_id
+        )
+      )
   ) THEN
-    RAISE EXCEPTION 'Unauthorized: not project owner (project_id: %, user_id: %)', p_project_id, v_user_id;
+    RAISE EXCEPTION 'Unauthorized: not project owner or member (project_id: %, user_id: %)', p_project_id, v_user_id;
   END IF;
   
   -- 事务内执行，任何失败自动回滚
@@ -2476,8 +2487,8 @@ BEGIN
   LOOP
     INSERT INTO public.tasks (
       id, project_id, title, content, stage, parent_id, 
-      "order", rank, status, x, y, short_id, deleted_at, owner_id,
-      attachments  -- v5.2.2 新增
+      "order", rank, status, x, y, short_id, deleted_at,
+      attachments
     )
     VALUES (
       (v_task->>'id')::uuid,
@@ -2487,14 +2498,13 @@ BEGIN
       (v_task->>'stage')::integer,
       (v_task->>'parentId')::uuid,
       COALESCE((v_task->>'order')::integer, 0),
-      COALESCE((v_task->>'rank')::integer, 10000),
+      COALESCE((v_task->>'rank')::numeric, 10000),
       COALESCE(v_task->>'status', 'active'),
-      COALESCE((v_task->>'x')::integer, 0),
-      COALESCE((v_task->>'y')::integer, 0),
+      COALESCE((v_task->>'x')::numeric, 0),
+      COALESCE((v_task->>'y')::numeric, 0),
       v_task->>'shortId',
       (v_task->>'deletedAt')::timestamptz,
-      v_user_id,
-      COALESCE(v_task->'attachments', '[]'::jsonb)  -- v5.2.2 新增：默认空数组
+      COALESCE(v_task->'attachments', '[]'::jsonb)
     )
     ON CONFLICT (id) DO UPDATE SET
       title = EXCLUDED.title,
@@ -2508,16 +2518,14 @@ BEGIN
       y = EXCLUDED.y,
       short_id = EXCLUDED.short_id,
       deleted_at = EXCLUDED.deleted_at,
-      attachments = EXCLUDED.attachments,  -- v5.2.2 新增
-      updated_at = NOW()
-    WHERE public.tasks.owner_id = v_user_id;  -- 只能更新自己的任务
+      attachments = EXCLUDED.attachments,
+      updated_at = NOW();
     
     v_count := v_count + 1;
   END LOOP;
   
   RETURN v_count;
 EXCEPTION WHEN OTHERS THEN
-  -- 任何错误导致整个事务回滚
   RAISE;
 END;
 $$;
@@ -2525,7 +2533,7 @@ $$;
 -- 授权
 GRANT EXECUTE ON FUNCTION public.batch_upsert_tasks(jsonb[], uuid) TO authenticated;
 
-COMMENT ON FUNCTION public.batch_upsert_tasks IS 'Batch upsert tasks with transaction guarantee. Includes attachments field support (v5.2.2).';
+COMMENT ON FUNCTION public.batch_upsert_tasks IS 'Batch upsert tasks with transaction guarantee. Includes attachments field support (v5.2.3 - fixed owner_id reference).';
 -- ============================================================
 -- [MIGRATION] 20260101000003_optimistic_lock_strict_mode.sql
 -- ============================================================

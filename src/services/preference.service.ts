@@ -169,4 +169,51 @@ export class PreferenceService {
       // 忽略存储失败
     }
   }
+  
+  // ========== 本地备份设置同步 ==========
+  
+  /**
+   * 同步本地备份设置到云端
+   * 仅同步开关状态和间隔时间，不同步目录路径（不同设备路径不同）
+   */
+  async syncLocalBackupSettings(settings: {
+    autoBackupEnabled: boolean;
+    autoBackupIntervalMs: number;
+  }): Promise<boolean> {
+    const userId = this.authService.currentUserId();
+    if (!userId) {
+      // 未登录不同步到云端
+      return false;
+    }
+    
+    return this.saveUserPreferences(userId, {
+      localBackupEnabled: settings.autoBackupEnabled,
+      localBackupIntervalMs: settings.autoBackupIntervalMs,
+    });
+  }
+  
+  /**
+   * 从云端加载本地备份设置
+   * @returns 本地备份设置，如果未找到则返回 null
+   */
+  async loadLocalBackupSettingsFromCloud(): Promise<{
+    autoBackupEnabled: boolean;
+    autoBackupIntervalMs: number;
+  } | null> {
+    const userId = this.authService.currentUserId();
+    if (!userId) return null;
+    
+    try {
+      const preferences = await this.syncService.loadUserPreferences(userId);
+      if (preferences && typeof preferences.localBackupEnabled === 'boolean') {
+        return {
+          autoBackupEnabled: preferences.localBackupEnabled,
+          autoBackupIntervalMs: preferences.localBackupIntervalMs ?? 30 * 60 * 1000,
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
 }

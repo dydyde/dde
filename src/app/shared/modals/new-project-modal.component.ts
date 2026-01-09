@@ -7,26 +7,26 @@ import { CommonModule } from '@angular/common';
   imports: [CommonModule],
   template: `
     <div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm animate-fade-in p-4" (click)="close.emit()">
-      <div data-testid="new-project-modal" class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-scale-in" (click)="$event.stopPropagation()">
-        <h2 class="text-xl font-bold mb-4 text-stone-800">新建项目</h2>
+      <div data-testid="new-project-modal" class="bg-white dark:bg-stone-900 rounded-xl shadow-2xl w-full max-w-md p-6 animate-scale-in" (click)="$event.stopPropagation()">
+        <h2 class="text-xl font-bold mb-4 text-stone-800 dark:text-stone-200">新建项目</h2>
         <input 
           #projName
           data-testid="project-name-input"
           placeholder="项目名称" 
-          class="w-full border border-stone-200 p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-300 text-stone-700" 
+          class="w-full border border-stone-200 dark:border-stone-600 p-3 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 text-stone-700 dark:text-stone-200 bg-white dark:bg-stone-800" 
           maxlength="50"
           spellcheck="false"
           (keydown.enter)="onConfirm()">
         <textarea 
           #projDesc 
           placeholder="项目描述（可选）" 
-          class="w-full border border-stone-200 p-3 rounded-lg mb-4 h-24 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 text-stone-600" 
+          class="w-full border border-stone-200 dark:border-stone-600 p-3 rounded-lg mb-4 h-24 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500 text-stone-600 dark:text-stone-300 bg-white dark:bg-stone-800" 
           maxlength="500"
           spellcheck="false"></textarea>
         <div class="flex justify-end gap-2">
           <button 
             (click)="close.emit()" 
-            class="px-4 py-2 text-stone-600 hover:bg-stone-100 rounded-lg transition-colors">
+            class="px-4 py-2 text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-lg transition-colors">
             取消
           </button>
           <button 

@@ -139,6 +139,8 @@ export interface UnfinishedItem {
  */
 export interface UserPreferences {
   theme: ThemeType;
+  /** 颜色模式（云端默认值，本地可覆盖） */
+  colorMode?: ColorMode;
   layoutDirection: 'ltr' | 'rtl';
   floatingWindowPref: 'auto' | 'fixed';
   /** 
@@ -147,12 +149,29 @@ export interface UserPreferences {
    * false: 所有冲突进入仪表盘由用户手动处理
    */
   autoResolveConflicts?: boolean;
+  /**
+   * 本地自动备份开关
+   * 仅同步开关状态，目录路径不同步（不同设备路径不同）
+   */
+  localBackupEnabled?: boolean;
+  /**
+   * 本地自动备份间隔（毫秒）
+   */
+  localBackupIntervalMs?: number;
 }
 
 /**
- * 主题类型
+ * 主题类型（色调）
  */
 export type ThemeType = 'default' | 'ocean' | 'forest' | 'sunset' | 'lavender';
+
+/**
+ * 颜色模式（明暗）
+ * - light: 浅色模式
+ * - dark: 深色模式  
+ * - system: 跟随系统设置
+ */
+export type ColorMode = 'light' | 'dark' | 'system';
 
 /**
  * Supabase 项目行数据结构

@@ -51,6 +51,7 @@
     "@supabase/supabase-js": "^2.84.0",
     "dotenv": "^17.2.3",
     "gojs": "^3.1.1",
+    "idb-keyval": "^6.2.2",
     "rxjs": "^7.8.2",
     "zone.js": "^0.15.0"
   },

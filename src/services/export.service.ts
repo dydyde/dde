@@ -43,6 +43,9 @@ export const EXPORT_CONFIG = {
   /** 是否包含附件元数据 */
   INCLUDE_ATTACHMENT_METADATA: true,
   
+  /** 是否包含已删除项目（回收站中的任务和连接） */
+  INCLUDE_DELETED_ITEMS: true,
+  
   /** 是否移除敏感字段 */
   SANITIZE_SENSITIVE_FIELDS: true,
   
@@ -107,6 +110,12 @@ export interface ExportProject {
     positionX: number;
     positionY: number;
   };
+  /** 流程图图片 URL */
+  flowchartUrl?: string;
+  /** 流程图缩略图 URL */
+  flowchartThumbnailUrl?: string;
+  /** 数据版本号 */
+  version?: number;
 }
 
 /**
@@ -128,6 +137,16 @@ export interface ExportTask {
   createdAt?: string;
   updatedAt?: string;
   attachments?: ExportAttachment[];
+  /** 标签列表 */
+  tags?: string[];
+  /** 优先级 */
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
+  /** 截止日期 */
+  dueDate?: string | null;
+  /** 是否包含未完成待办项 */
+  hasIncompleteTask?: boolean;
+  /** 软删除时间戳（回收站中的任务） */
+  deletedAt?: string | null;
 }
 
 /**
@@ -139,6 +158,8 @@ export interface ExportConnection {
   target: string;
   title?: string;
   description?: string;
+  /** 软删除时间戳（回收站中的连接） */
+  deletedAt?: string | null;
 }
 
 /**
@@ -152,6 +173,10 @@ export interface ExportAttachment {
   /** 附件 URL（注意：Signed URL 可能过期） */
   url?: string;
   createdAt?: string;
+  /** 附件类型 */
+  type?: 'image' | 'document' | 'link' | 'file';
+  /** 缩略图 URL（图片类型） */
+  thumbnailUrl?: string;
 }
 
 /**
@@ -351,7 +376,7 @@ export class ExportService {
   }
   
   /**
-   * 触发浏览器下载
+   * 触发浏览器下载（传统方式）
    */
   downloadExport(result: ExportResult): boolean {
     if (!result.success || !result.blob) {
@@ -379,12 +404,65 @@ export class ExportService {
   }
   
   /**
-   * 一键导出并下载
+   * 使用 File System Access API 导出（现代方式）
+   * 允许用户选择保存位置和文件名
+   */
+  async downloadExportWithFilePicker(result: ExportResult): Promise<boolean> {
+    if (!result.success || !result.blob) {
+      this.toast.error('导出失败：无数据可下载');
+      return false;
+    }
+    
+    // 检查是否支持 showSaveFilePicker
+    if (!('showSaveFilePicker' in window)) {
+      // 降级到传统下载方式
+      return this.downloadExport(result);
+    }
+    
+    try {
+      const suggestedName = result.filename ?? this.generateFilename('full');
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const showSaveFilePicker = (window as any).showSaveFilePicker;
+      const handle = await showSaveFilePicker({
+        suggestedName,
+        types: [{
+          description: 'JSON 备份文件',
+          accept: { 'application/json': ['.json'] }
+        }]
+      });
+      
+      const writable = await handle.createWritable();
+      await writable.write(result.blob);
+      await writable.close();
+      
+      this.toast.success(`数据已导出到：${handle.name}`);
+      return true;
+      
+    } catch (error) {
+      const e = error as Error;
+      
+      // 用户取消不算错误
+      if (e.name === 'AbortError') {
+        this.logger.info('用户取消导出');
+        return false;
+      }
+      
+      this.logger.error('导出失败', error);
+      // 降级到传统下载方式
+      this.logger.info('降级到传统下载方式');
+      return this.downloadExport(result);
+    }
+  }
+  
+  /**
+   * 一键导出并下载（使用现代 API，支持选择保存位置）
    */
   async exportAndDownload(projects: Project[]): Promise<boolean> {
     const result = await this.exportAllProjects(projects);
     if (result.success) {
-      return this.downloadExport(result);
+      // 优先使用 File System Access API
+      return this.downloadExportWithFilePicker(result);
     } else {
       this.toast.error(result.error ?? '导出失败');
       return false;
@@ -397,12 +475,21 @@ export class ExportService {
    * 清理项目数据（移除敏感字段，规范化结构）
    */
   private sanitizeProject(project: Project): ExportProject {
+    // 根据配置决定是否包含已删除项目
+    const taskFilter = EXPORT_CONFIG.INCLUDE_DELETED_ITEMS
+      ? () => true // 包含所有任务（含回收站）
+      : (t: Task) => !t.deletedAt; // 仅包含未删除任务
+    
+    const connectionFilter = EXPORT_CONFIG.INCLUDE_DELETED_ITEMS
+      ? () => true // 包含所有连接（含回收站）
+      : (c: Connection) => !c.deletedAt; // 仅包含未删除连接
+    
     const tasks = (project.tasks ?? [])
-      .filter(t => !t.deletedAt) // 过滤已删除任务
+      .filter(taskFilter)
       .map(t => this.sanitizeTask(t));
     
     const connections = (project.connections ?? [])
-      .filter(c => !c.deletedAt) // 过滤已删除连接
+      .filter(connectionFilter)
       .map(c => this.sanitizeConnection(c));
     
     return {
@@ -414,6 +501,9 @@ export class ExportService {
       createdAt: project.createdDate,
       updatedAt: project.updatedAt,
       viewState: project.viewState,
+      flowchartUrl: project.flowchartUrl,
+      flowchartThumbnailUrl: project.flowchartThumbnailUrl,
+      version: project.version,
     };
   }
   
@@ -436,18 +526,27 @@ export class ExportService {
       shortId: task.shortId,
       createdAt: task.createdDate,
       updatedAt: task.updatedAt,
+      tags: task.tags,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      hasIncompleteTask: task.hasIncompleteTask,
+      deletedAt: task.deletedAt,
     };
     
     // 包含附件元数据
     if (EXPORT_CONFIG.INCLUDE_ATTACHMENT_METADATA && task.attachments?.length) {
-      exportTask.attachments = task.attachments.map(att => ({
-        id: att.id,
-        name: att.name,
-        size: att.size ?? 0,
-        mimeType: att.mimeType ?? 'application/octet-stream',
-        url: att.url, // 注意：Signed URL 可能过期
-        createdAt: att.createdAt,
-      }));
+      exportTask.attachments = task.attachments
+        .filter(att => !att.deletedAt) // 过滤已删除附件
+        .map(att => ({
+          id: att.id,
+          name: att.name,
+          size: att.size ?? 0,
+          mimeType: att.mimeType ?? 'application/octet-stream',
+          url: att.url, // 注意：Signed URL 可能过期
+          createdAt: att.createdAt,
+          type: att.type,
+          thumbnailUrl: att.thumbnailUrl,
+        }));
     }
     
     return exportTask;
@@ -463,6 +562,7 @@ export class ExportService {
       target: connection.target,
       title: connection.title,
       description: connection.description,
+      deletedAt: connection.deletedAt,
     };
   }
   

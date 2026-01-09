@@ -110,8 +110,9 @@ export interface StorageEscapeData {
               <button 
                 (click)="copyToClipboard()"
                 class="flex-1 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center justify-center gap-2"
-                [class.bg-green-600]="copySuccess()"
-                [class.hover:bg-green-700]="copySuccess()">
+                [ngClass]="{
+                  'bg-green-600 hover:bg-green-700': copySuccess()
+                }">
                 @if (copySuccess()) {
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />

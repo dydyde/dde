@@ -46,12 +46,12 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
           (mousedown)="isSelecting = true"
           (mouseup)="isSelecting = false"
           spellcheck="false"
-          class="w-full font-medium text-retro-dark border rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none touch-manipulation transition-colors"
+          class="w-full font-medium text-retro-dark dark:text-stone-200 border rounded-lg focus:ring-1 focus:ring-stone-400 dark:focus:ring-stone-500 focus:border-stone-400 dark:focus:border-stone-500 outline-none touch-manipulation transition-colors"
           [ngClass]="{
             'text-sm p-2': !isMobile, 
             'text-xs p-1.5': isMobile,
-            'bg-retro-muted/5 border-retro-muted/20': isPreview(),
-            'bg-white border-stone-200': !isPreview()
+            'bg-retro-muted/5 dark:bg-stone-800 border-retro-muted/20 dark:border-stone-700': isPreview(),
+            'bg-white dark:bg-stone-700 border-stone-200 dark:border-stone-600': !isPreview()
           }"
           placeholder="任务名称...">
         
@@ -62,11 +62,10 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
             <button 
               (click)="togglePreview(); $event.stopPropagation()"
               class="px-1.5 py-0.5 text-[9px] rounded transition-all opacity-70 hover:opacity-100"
-              [class.bg-indigo-500]="isPreview()"
-              [class.text-white]="isPreview()"
-              [class.bg-stone-200]="!isPreview()"
-              [class.text-stone-500]="!isPreview()"
-              [class.hover:bg-stone-300]="!isPreview()"
+              [ngClass]="{
+                'bg-indigo-500 dark:bg-indigo-600 text-white': isPreview(),
+                'bg-stone-200 dark:bg-stone-600 text-stone-500 dark:text-stone-300 hover:bg-stone-300 dark:hover:bg-stone-500': !isPreview()
+              }"
               title="切换预览/编辑">
               {{ isPreview() ? '编辑' : '预览' }}
             </button>
@@ -76,7 +75,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
             <!-- Markdown 预览 - 点击切换到编辑模式 -->
             <div 
               (click)="togglePreview(); $event.stopPropagation()"
-              class="w-full border border-retro-muted/20 rounded-lg bg-retro-muted/5 overflow-y-auto markdown-preview cursor-pointer hover:border-stone-300 transition-colors"
+              class="w-full border border-retro-muted/20 dark:border-stone-700 rounded-lg bg-retro-muted/5 dark:bg-stone-800 overflow-y-auto markdown-preview cursor-pointer hover:border-stone-300 dark:hover:border-stone-600 transition-colors"
               [ngClass]="{'min-h-24 max-h-48 p-3 text-xs': !isMobile, 'min-h-28 max-h-40 p-2 text-[11px]': isMobile}"
               [innerHTML]="localContent() ? renderMarkdown(localContent()) : '<span class=&quot;text-stone-400 italic&quot;>点击输入内容...</span>'"
               title="点击编辑">
@@ -92,7 +91,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
               spellcheck="false"
-              class="w-full border border-stone-200 rounded-lg focus:ring-1 focus:ring-stone-400 focus:border-stone-400 outline-none font-mono text-stone-600 bg-white resize-none touch-manipulation"
+              class="w-full border border-stone-200 dark:border-stone-600 rounded-lg focus:ring-1 focus:ring-stone-400 dark:focus:ring-stone-500 focus:border-stone-400 dark:focus:border-stone-500 outline-none font-mono text-stone-600 dark:text-stone-400 bg-white dark:bg-stone-700 resize-none touch-manipulation"
               [ngClass]="{'h-24 text-xs p-2 pr-14': !isMobile, 'h-28 text-[11px] p-2 pr-14': isMobile}"
               placeholder="输入 Markdown 内容..."></textarea>
           }
@@ -100,7 +99,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
         
         <!-- 快速待办输入 - 仅在编辑模式下显示 -->
         @if (!isPreview()) {
-          <div class="flex items-center gap-1 bg-retro-rust/5 border border-retro-rust/20 rounded-lg overflow-hidden"
+          <div class="flex items-center gap-1 bg-retro-rust/5 dark:bg-retro-rust/10 border border-retro-rust/20 dark:border-retro-rust/30 rounded-lg overflow-hidden"
                [ngClass]="{'p-1': !isMobile, 'p-0.5': isMobile}">
             <span class="text-retro-rust flex-shrink-0"
                   [ngClass]="{'text-xs pl-2': !isMobile, 'text-[10px] pl-1.5': isMobile}">☐</span>
@@ -113,7 +112,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               (mousedown)="isSelecting = true"
               (mouseup)="isSelecting = false"
               spellcheck="false"
-              class="flex-1 bg-transparent border-none outline-none text-stone-600 placeholder-stone-400"
+              class="flex-1 bg-transparent border-none outline-none text-stone-600 dark:text-stone-400 placeholder-stone-400 dark:placeholder-stone-500"
               [ngClass]="{'text-xs py-1.5 px-2': !isMobile, 'text-[11px] py-1 px-1.5': isMobile}"
               placeholder="输入待办内容，按回车添加...">
             <button
@@ -144,7 +143,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
         
         <!-- 操作按钮 - 仅在编辑模式下显示 -->
         @if (!isPreview()) {
-          <div class="flex flex-wrap border-t border-stone-100"
+          <div class="flex flex-wrap border-t border-stone-100 dark:border-stone-700"
                [ngClass]="{'gap-2 pt-2': !isMobile, 'gap-1.5 pt-1.5': isMobile}">
             <button 
               (click)="addSibling.emit()" 
@@ -197,7 +196,7 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
             <button 
               (click)="deleteTask.emit()" 
               data-testid="delete-task-btn"
-              class="bg-stone-100 hover:bg-red-500 text-stone-400 hover:text-white border border-stone-200 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
+              class="bg-stone-100 dark:bg-stone-700 hover:bg-red-500 text-stone-400 dark:text-stone-500 hover:text-white border border-stone-200 dark:border-stone-600 hover:border-red-500 font-medium rounded-md flex items-center justify-center transition-all"
               [ngClass]="{'px-2 py-1 text-xs': !isMobile, 'px-1.5 py-0.5 text-[10px]': isMobile}"
               title="删除任务">
               <svg [ngClass]="{'w-3 h-3': !isMobile, 'w-2.5 h-2.5': isMobile}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -228,19 +227,19 @@ import { TextTaskConnectionsComponent } from './text-task-connections.component'
               </button>
               
               @if (showAttachmentList()) {
-                <div class="mt-1 p-1.5 bg-stone-50/50 rounded border border-stone-100 space-y-1 animate-collapse-open">
+                <div class="mt-1 p-1.5 bg-stone-50/50 dark:bg-stone-800/50 rounded border border-stone-100 dark:border-stone-700 space-y-1 animate-collapse-open">
                   @for (attachment of task.attachments; track attachment.id) {
                     <div 
-                      class="group flex items-center gap-1.5 px-1.5 py-1 bg-white hover:bg-stone-50 rounded text-[10px] text-stone-600 border border-stone-100 transition-colors"
+                      class="group flex items-center gap-1.5 px-1.5 py-1 bg-white dark:bg-stone-700 hover:bg-stone-50 dark:hover:bg-stone-600 rounded text-[10px] text-stone-600 dark:text-stone-300 border border-stone-100 dark:border-stone-600 transition-colors"
                       [class.cursor-pointer]="attachment.type === 'image'"
                       (click)="attachment.type === 'image' && previewImage(attachment)">
                       @if (attachment.type === 'image' && attachment.thumbnailUrl) {
                         <img [src]="attachment.thumbnailUrl" [alt]="attachment.name" class="w-5 h-5 object-cover rounded">
                       } @else {
-                        <span class="w-5 h-5 flex items-center justify-center text-[8px] text-stone-400 uppercase bg-stone-100 rounded">{{ getFileExtension(attachment.name) }}</span>
+                        <span class="w-5 h-5 flex items-center justify-center text-[8px] text-stone-400 dark:text-stone-500 uppercase bg-stone-100 dark:bg-stone-600 rounded">{{ getFileExtension(attachment.name) }}</span>
                       }
                       <span class="flex-1 truncate">{{ attachment.name }}</span>
-                      <span class="text-[9px] text-stone-400">{{ formatFileSize(attachment.size) }}</span>
+                      <span class="text-[9px] text-stone-400 dark:text-stone-500">{{ formatFileSize(attachment.size) }}</span>
                       <button 
                         (click)="deleteAttachment(attachment, $event)"
                         class="text-stone-400 hover:text-red-500 transition-colors p-0.5"

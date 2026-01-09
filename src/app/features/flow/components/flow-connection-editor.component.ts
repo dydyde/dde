@@ -40,14 +40,14 @@ export interface ConnectionTasks {
            #editorContainer
            [style.left.px]="clampedPosition().x"
            [style.top.px]="clampedPosition().y">
-        <div class="bg-white rounded-lg shadow-xl border border-violet-200 overflow-hidden w-52 max-w-[calc(100vw-1.5rem)]"
+        <div class="bg-white dark:bg-stone-900 rounded-lg shadow-xl border border-violet-200 dark:border-violet-800 overflow-hidden w-52 max-w-[calc(100vw-1.5rem)]"
              (click)="$event.stopPropagation()">
           <!-- 可拖动标题栏 - 整个标题栏都可拖动 -->
-          <div class="px-2 py-1.5 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-violet-100 flex items-center gap-1.5 cursor-move select-none"
+          <div class="px-2 py-1.5 bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-900/30 dark:to-indigo-900/30 border-b border-violet-100 dark:border-violet-800 flex items-center gap-1.5 cursor-move select-none"
                (mousedown)="onDragStart($event)"
                (touchstart)="onDragStart($event)">
             <span class="text-[10px]">🔗</span>
-            <span class="text-[10px] font-medium text-violet-700 flex-1">关联</span>
+            <span class="text-[10px] font-medium text-violet-700 dark:text-violet-300 flex-1">关联</span>
             <!-- 删除按钮 -->
             <button 
               (click)="onDeleteClick($event)"
@@ -62,7 +62,7 @@ export interface ConnectionTasks {
           </div>
           
           <!-- 连接的两个任务 + 模式切换 - 超紧凑显示 -->
-          <div class="px-2 py-1 bg-stone-50/50 border-b border-stone-100">
+          <div class="px-2 py-1 bg-stone-50/50 dark:bg-stone-800/50 border-b border-stone-100 dark:border-stone-700">
             <div class="flex items-center gap-1 text-[9px]">
               @if (connectionTasks().source; as source) {
                 <span class="font-bold text-violet-500 truncate max-w-[55px]">{{ compressDisplayId(source.displayId) }}</span>
@@ -77,11 +77,10 @@ export interface ConnectionTasks {
               <button 
                 (click)="toggleEditMode(); $event.stopPropagation()"
                 class="ml-auto text-[8px] px-1 py-0.5 rounded transition-colors"
-                [class.bg-indigo-100]="isEditMode()"
-                [class.text-indigo-600]="isEditMode()"
-                [class.bg-stone-100]="!isEditMode()"
-                [class.text-stone-500]="!isEditMode()"
-                [class.hover:bg-indigo-50]="!isEditMode()">
+                [ngClass]="{
+                  'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300': isEditMode(),
+                  'bg-stone-100 dark:bg-stone-700 text-stone-500 dark:text-stone-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20': !isEditMode()
+                }">
                 {{ isEditMode() ? '预览' : '编辑' }}
               </button>
             </div>
@@ -93,7 +92,7 @@ export interface ConnectionTasks {
               <!-- 编辑模式 -->
               <!-- 标题输入 -->
               <div>
-                <label class="text-[9px] text-stone-400 font-medium block mb-0.5">标题（外显）</label>
+                <label class="text-[9px] text-stone-400 dark:text-stone-500 font-medium block mb-0.5">标题（外显）</label>
                 <input 
                   #titleInput
                   type="text"
@@ -101,13 +100,13 @@ export interface ConnectionTasks {
                   (ngModelChange)="onTitleChange($event)"
                   (keydown.escape)="exitEditMode()"
                   spellcheck="false"
-                  class="w-full text-[11px] text-stone-700 border border-violet-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 bg-white"
+                  class="w-full text-[11px] text-stone-700 dark:text-stone-200 border border-violet-300 dark:border-violet-600 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:focus:ring-violet-500 bg-white dark:bg-stone-800"
                   placeholder="输入关联标题..."
                   maxlength="20">
               </div>
               <!-- 描述输入 -->
               <div>
-                <label class="text-[9px] text-stone-400 font-medium block mb-0.5">描述（悬停显示）</label>
+                <label class="text-[9px] text-stone-400 dark:text-stone-500 font-medium block mb-0.5">描述（悬停显示）</label>
                 <textarea 
                   #descInput
                   [(ngModel)]="editingDescription"
@@ -117,7 +116,7 @@ export interface ConnectionTasks {
                   (mousedown)="isSelecting = true"
                   (mouseup)="isSelecting = false"
                   spellcheck="false"
-                  class="w-full text-[11px] text-stone-700 border border-violet-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 bg-white resize-none font-mono"
+                  class="w-full text-[11px] text-stone-700 dark:text-stone-200 border border-violet-300 dark:border-violet-600 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:focus:ring-violet-500 bg-white dark:bg-stone-800 resize-none font-mono"
                   placeholder="输入详细描述（支持 Markdown）..."
                   [style.min-height.px]="48"
                   [style.max-height.px]="100"></textarea>
@@ -125,22 +124,22 @@ export interface ConnectionTasks {
             } @else {
               <!-- 预览模式 -->
               <div 
-                class="text-[11px] text-stone-600 min-h-[48px] px-1.5 py-1 rounded border border-transparent hover:border-stone-200 cursor-pointer transition-colors max-h-28 overflow-y-auto"
+                class="text-[11px] text-stone-600 dark:text-stone-300 min-h-[48px] px-1.5 py-1 rounded border border-transparent hover:border-stone-200 dark:hover:border-stone-700 cursor-pointer transition-colors max-h-28 overflow-y-auto"
                 (click)="enterEditMode(); $event.stopPropagation()">
                 <!-- 标题 -->
                 @if (currentTitle()) {
-                  <div class="font-medium text-violet-700 mb-1 flex items-center gap-1">
+                  <div class="font-medium text-violet-700 dark:text-violet-300 mb-1 flex items-center gap-1">
                     <span class="text-[10px]">📌</span>
                     <span>{{ currentTitle() }}</span>
                   </div>
                 }
                 <!-- 描述 -->
                 @if (currentDescription()) {
-                  <div class="markdown-preview leading-relaxed text-stone-600" [innerHTML]="renderMarkdownContent(currentDescription())"></div>
+                  <div class="markdown-preview leading-relaxed text-stone-600 dark:text-stone-300" [innerHTML]="renderMarkdownContent(currentDescription())"></div>
                 } @else if (!currentTitle()) {
-                  <span class="text-stone-400 italic">点击添加标题和描述...</span>
+                  <span class="text-stone-400 dark:text-stone-500 italic">点击添加标题和描述...</span>
                 } @else {
-                  <span class="text-stone-400 italic text-[10px]">无描述</span>
+                  <span class="text-stone-400 dark:text-stone-500 italic text-[10px]">无描述</span>
                 }
               </div>
             }
