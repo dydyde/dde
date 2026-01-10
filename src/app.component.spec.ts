@@ -10,11 +10,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 
 describe('AppComponent activeProjectId 修复', () => {
-  class AppComponent {
-  public throwTestError(): void {
-    throw new Error("Sentry Test Error");
-  }
-}
+
   let mockProjectState: any;
   let mockActiveProjectId: WritableSignal<string | null>;
 
