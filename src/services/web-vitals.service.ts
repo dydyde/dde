@@ -63,11 +63,11 @@ export class WebVitalsService {
     
     // 注册 Core Web Vitals 回调
     // 注意：FID 已在 web-vitals v4 中被 INP 替代
-    onLCP(metric => this.handleMetric(metric));
-    onFCP(metric => this.handleMetric(metric));
-    onCLS(metric => this.handleMetric(metric));
-    onINP(metric => this.handleMetric(metric));
-    onTTFB(metric => this.handleMetric(metric));
+    onLCP((metric: Metric) => this.handleMetric(metric));
+    onFCP((metric: Metric) => this.handleMetric(metric));
+    onCLS((metric: Metric) => this.handleMetric(metric));
+    onINP((metric: Metric) => this.handleMetric(metric));
+    onTTFB((metric: Metric) => this.handleMetric(metric));
     
     this.logger.info('Web Vitals 监控已启动');
   }
@@ -140,7 +140,7 @@ export class WebVitalsService {
           id: metric.id,
           delta: metric.delta,
           navigationType: metric.navigationType,
-          entries: metric.entries?.map(e => ({
+          entries: metric.entries?.map((e: PerformanceEntry) => ({
             name: e.name,
             startTime: e.startTime,
             duration: (e as PerformanceEntry & { duration?: number }).duration,
