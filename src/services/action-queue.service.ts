@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, DestroyRef, effect } from '@angular/core';
+import { Injectable, inject, signal, DestroyRef, effect, computed } from '@angular/core';
 import { QUEUE_CONFIG } from '../config';
 import { Project, Task, UserPreferences } from '../models';
 import { LoggerService } from './logger.service';
@@ -163,6 +163,13 @@ export class ActionQueueService {
   
   /** 队列大小 */
   readonly queueSize = signal(0);
+  
+  /**
+   * 用户可见队列大小（过滤低优先级后台操作，避免状态提示抖动）
+   */
+  readonly userVisibleQueueSize = computed(() => 
+    this.pendingActions().filter(action => action.priority !== 'low').length
+  );
   
   /** 死信队列大小 */
   readonly deadLetterSize = signal(0);
