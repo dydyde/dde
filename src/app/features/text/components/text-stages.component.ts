@@ -202,34 +202,37 @@ export class TextStagesComponent {
   readonly collapsedStages = signal<Set<number>>(new Set());
   
   // 计算属性
+
+  /** 当前延伸筛选对应的根任务（缓存，避免在多个 computed 中重复 O(n) 查找） */
+  private readonly rootFilterTask = computed(() => {
+    const filter = this.uiState.stageViewRootFilter();
+    if (filter === 'all') return null;
+    return this.projectState.allStage1Tasks().find(t => t.id === filter) ?? null;
+  });
+
   readonly currentStageLabel = computed(() => {
     const filter = this.uiState.stageFilter();
     return filter === 'all' ? '全部' : `阶段 ${filter}`;
   });
 
   readonly currentRootLabel = computed(() => {
-    const filter = this.uiState.stageViewRootFilter();
-    if (filter === 'all') return '全部任务';
-    const task = this.projectState.allStage1Tasks().find(t => t.id === filter);
+    const task = this.rootFilterTask();
     if (!task) return '全部任务';
     return task.title || task.displayId || '未命名任务';
   });
 
   /** 可选阶段列表（考虑延伸筛选后的有效阶段） */
   readonly availableStages = computed(() => {
-    const rootFilter = this.uiState.stageViewRootFilter();
+    const root = this.rootFilterTask();
     let stages = this.projectState.stages();
     
     // 如果有延伸筛选，只保留有该根任务子孙的阶段
-    if (rootFilter !== 'all') {
-      const root = this.projectState.allStage1Tasks().find(t => t.id === rootFilter);
-      if (root) {
-        stages = stages.filter(stage => 
-          stage.tasks.some(task => 
-            task.id === root.id || task.displayId.startsWith(root.displayId + ',')
-          )
-        );
-      }
+    if (root) {
+      stages = stages.filter(stage => 
+        stage.tasks.some(task => 
+          task.id === root.id || task.displayId.startsWith(root.displayId + ',')
+        )
+      );
     }
     
     return stages;
@@ -237,7 +240,7 @@ export class TextStagesComponent {
 
   readonly visibleStages = computed(() => {
     const stageFilter = this.uiState.stageFilter();
-    const rootFilter = this.uiState.stageViewRootFilter();
+    const root = this.rootFilterTask();
     let stages = this.projectState.stages();
     
     // 应用阶段筛选
@@ -246,41 +249,39 @@ export class TextStagesComponent {
     }
     
     // 应用延伸筛选
-    if (rootFilter !== 'all') {
-      const root = this.projectState.allStage1Tasks().find(t => t.id === rootFilter);
-      if (root) {
-        // DEBUG: 追踪带有 "?" displayId 的任务
-        const allStage1Tasks = stages.flatMap(s => s.tasks).filter(t => t.stage === 1 && !t.parentId);
-        const tasksWithQuestionMark = allStage1Tasks.filter(t => t.displayId === '?');
-        if (tasksWithQuestionMark.length > 0) {
-          console.warn('[visibleStages] Stage 1 roots with displayId="?":', 
-            tasksWithQuestionMark.map(t => ({ id: t.id.slice(-4), title: t.title || 'untitled' }))
-          );
-        }
-        
-        const beforeFilter = stages.flatMap(s => s.tasks);
-        stages = stages.map(stage => ({
-          ...stage,
-          tasks: stage.tasks.filter(task => 
-            task.id === root.id || task.displayId.startsWith(root.displayId + ',')
-          )
-        })).filter(stage => stage.tasks.length > 0);
-        const afterFilter = stages.flatMap(s => s.tasks);
-        
-        // DEBUG: 检查是否有任务因为 displayId 问题被过滤掉
-        if (beforeFilter.length !== afterFilter.length) {
-          const filteredOut = beforeFilter.filter(bt => !afterFilter.some(at => at.id === bt.id));
-          const invalidFiltered = filteredOut.filter(t => t.displayId === '?' || !t.displayId.startsWith(root.displayId));
-          if (invalidFiltered.length > 0) {
-            console.warn('[visibleStages] Tasks filtered out due to displayId mismatch:', {
-              rootDisplayId: root.displayId,
-              filteredTasks: invalidFiltered.map(t => ({
-                id: t.id.slice(-4),
-                displayId: t.displayId,
-                title: t.title || 'untitled'
-              }))
-            });
-          }
+    if (root) {
+      // DEBUG: 追踪带有 "?" displayId 的任务
+      const allStage1Tasks = stages.flatMap(s => s.tasks).filter(t => t.stage === 1 && !t.parentId);
+      const tasksWithQuestionMark = allStage1Tasks.filter(t => t.displayId === '?');
+      if (tasksWithQuestionMark.length > 0) {
+        console.warn('[visibleStages] Stage 1 roots with displayId="?":', 
+          tasksWithQuestionMark.map(t => ({ id: t.id.slice(-4), title: t.title || 'untitled' }))
+        );
+      }
+      
+      const beforeFilter = stages.flatMap(s => s.tasks);
+      stages = stages.map(stage => ({
+        ...stage,
+        tasks: stage.tasks.filter(task => 
+          task.id === root.id || task.displayId.startsWith(root.displayId + ',')
+        )
+      })).filter(stage => stage.tasks.length > 0);
+      const afterFilter = stages.flatMap(s => s.tasks);
+      
+      // DEBUG: 检查是否有任务因为 displayId 问题被过滤掉
+      if (beforeFilter.length !== afterFilter.length) {
+        const afterIds = new Set(afterFilter.map(t => t.id));
+        const filteredOut = beforeFilter.filter(bt => !afterIds.has(bt.id));
+        const invalidFiltered = filteredOut.filter(t => t.displayId === '?' || !t.displayId.startsWith(root.displayId));
+        if (invalidFiltered.length > 0) {
+          console.warn('[visibleStages] Tasks filtered out due to displayId mismatch:', {
+            rootDisplayId: root.displayId,
+            filteredTasks: invalidFiltered.map(t => ({
+              id: t.id.slice(-4),
+              displayId: t.displayId,
+              title: t.title || 'untitled'
+            }))
+          });
         }
       }
     }

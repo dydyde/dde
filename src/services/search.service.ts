@@ -198,11 +198,14 @@ export class SearchService {
   }
   
   /**
-   * HTML 转义
+   * HTML 转义（使用字符映射表替代 DOM 操作，避免每次调用都创建 DOM 元素）
    */
   private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 }

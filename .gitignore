@@ -44,3 +44,4 @@ coverage/
 google-chrome-stable_current_amd64.deb
 tmp/page-screenshot.png
 tmp/
+package-lock.json
