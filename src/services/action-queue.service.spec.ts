@@ -205,6 +205,20 @@ describe('ActionQueueService', () => {
       
       expect(service.queueSize()).toBe(0);
     });
+    
+    it('用户可见队列大小应忽略 low 优先级操作', () => {
+      setNetworkStatus(false);
+      
+      service.enqueue({
+        type: 'update',
+        entityType: 'preference',
+        entityId: 'user-1',
+        payload: { preferences: { theme: 'default' }, userId: 'user-1' },
+      });
+      
+      expect(service.queueSize()).toBe(1);
+      expect(service.userVisibleQueueSize()).toBe(0);
+    });
   });
 
   // ==================== 处理器注册和执行 ====================

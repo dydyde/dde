@@ -396,7 +396,7 @@ export class SyncStatusComponent {
   isResyncing = signal(false);
   
   // 从服务获取状态
-  readonly pendingCount = this.actionQueue.queueSize;
+  readonly pendingCount = this.actionQueue.userVisibleQueueSize;
   readonly deadLetterCount = this.actionQueue.deadLetterSize;
   readonly deadLetters = this.actionQueue.deadLetterQueue;
   readonly isProcessing = this.actionQueue.isProcessing;
