@@ -140,6 +140,9 @@ export class FlowDiagramConfigService {
     // 过滤显示的任务：只排除已归档的任务
     // 待分配任务（stage === null）也应该显示，不应该因为坐标为(0,0)而被过滤
     const tasksToShow = tasks.filter(t => t.status !== 'archived');
+
+    // 构建可见任务 ID Set，用于 O(1) 跨树连接存在性检查
+    const visibleTaskIds = new Set(tasksToShow.map(t => t.id));
     
     let newNodeIndex = 0;
     const searchLower = searchQuery.toLowerCase().trim();
@@ -193,8 +196,8 @@ export class FlowDiagramConfigService {
       
       const pairKey = `${conn.source}->${conn.target}`;
       if (!parentChildPairs.has(pairKey)) {
-        const sourceExists = tasksToShow.some(t => t.id === conn.source);
-        const targetExists = tasksToShow.some(t => t.id === conn.target);
+        const sourceExists = visibleTaskIds.has(conn.source);
+        const targetExists = visibleTaskIds.has(conn.target);
         if (sourceExists && targetExists) {
           linkDataArray.push({
             key: `cross-${conn.source}-${conn.target}`,

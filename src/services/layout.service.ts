@@ -253,14 +253,22 @@ export class LayoutService {
 
     stage1Roots.forEach(root => cascadeIterative(root.id));
 
-    tasks
-      .filter(t => t.stage !== null)
-      .sort((a, b) => a.stage! - b.stage! || a.rank - b.rank)
-      .forEach((t, idx, arr) => {
-        const sameStage = arr.filter(s => s.stage === t.stage);
-        const position = sameStage.findIndex(s => s.id === t.id);
-        t.order = position + 1;
-      });
+    // 预先按 stage 分组（O(n)），再按 rank 排序后赋值 order，避免 O(n²) 嵌套过滤
+    const tasksByStage = new Map<number, Task[]>();
+    for (const t of tasks) {
+      if (t.stage !== null) {
+        let group = tasksByStage.get(t.stage!);
+        if (!group) {
+          group = [];
+          tasksByStage.set(t.stage!, group);
+        }
+        group.push(t);
+      }
+    }
+    for (const group of tasksByStage.values()) {
+      group.sort((a, b) => a.rank - b.rank);
+      group.forEach((t, idx) => { t.order = idx + 1; });
+    }
 
     return { ...project, tasks };
   }

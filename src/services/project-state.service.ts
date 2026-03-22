@@ -135,9 +135,12 @@ export class ProjectStateService {
     const tasks = this.tasks();
     const regex = /- \[ \]/;
     const tasksWithUnfinished = tasks.filter(t => !t.deletedAt && regex.test(t.content || ''));
-    
+
+    // 用 Set 存储含未完成项的任务 ID，实现 O(1) 查找，避免 O(n²) 嵌套 some
+    const unfinishedIds = new Set(tasksWithUnfinished.map(t => t.id));
+
     return tasks.filter(t => t.stage === 1 && !t.deletedAt).filter(root => {
-      if (tasksWithUnfinished.some(u => u.id === root.id)) return true;
+      if (unfinishedIds.has(root.id)) return true;
       return tasksWithUnfinished.some(u => u.displayId.startsWith(root.displayId + ','));
     });
   });
