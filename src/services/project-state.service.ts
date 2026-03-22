@@ -135,11 +135,26 @@ export class ProjectStateService {
     const tasks = this.tasks();
     const regex = /- \[ \]/;
     const tasksWithUnfinished = tasks.filter(t => !t.deletedAt && regex.test(t.content || ''));
-    
-    return tasks.filter(t => t.stage === 1 && !t.deletedAt).filter(root => {
-      if (tasksWithUnfinished.some(u => u.id === root.id)) return true;
-      return tasksWithUnfinished.some(u => u.displayId.startsWith(root.displayId + ','));
-    });
+
+    // O(1) 直接命中：将有未完成项的任务 ID 存入 Set
+    const unfinishedIds = new Set(tasksWithUnfinished.map(u => u.id));
+
+    // O(n·d) 预计算祖先前缀集合（d = displayId 平均深度）：
+    // 对于 displayId 为 "1,2,3" 的未完成任务，其祖先的 displayId 为 "1" 和 "1,2"
+    // 这样 rootTask 的 displayId 只需做一次 Set.has() 查找，而非遍历所有未完成任务
+    const unfinishedAncestorDisplayIds = new Set<string>();
+    for (const u of tasksWithUnfinished) {
+      const parts = u.displayId.split(',');
+      for (let i = 1; i < parts.length; i++) {
+        unfinishedAncestorDisplayIds.add(parts.slice(0, i).join(','));
+      }
+    }
+
+    return tasks.filter(t =>
+      t.stage === 1 &&
+      !t.deletedAt &&
+      (unfinishedIds.has(t.id) || unfinishedAncestorDisplayIds.has(t.displayId))
+    );
   });
 
   readonly allStage1Tasks = computed(() => {

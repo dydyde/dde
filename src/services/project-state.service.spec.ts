@@ -289,3 +289,87 @@ describe('ProjectStateService - taskConnectionsMap', () => {
     expect(result.outgoing[0].targetTask).toBeUndefined();
   });
 });
+
+// ========== rootTasks 测试 ==========
+
+describe('ProjectStateService - rootTasks', () => {
+  let service: ProjectStateService;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTasksMap.clear();
+    mockConnectionsMap.clear();
+    mockProjectsSignal.set([]);
+    mockActiveProjectIdSignal.set(null);
+
+    const injector = Injector.create({
+      providers: [
+        { provide: TaskStore, useValue: mockTaskStore },
+        { provide: ProjectStore, useValue: mockProjectStore },
+        { provide: ConnectionStore, useValue: mockConnectionStore },
+        { provide: LayoutService, useValue: mockLayoutService },
+        { provide: UiStateService, useValue: mockUiStateService },
+      ],
+    });
+
+    service = runInInjectionContext(injector, () => new ProjectStateService());
+  });
+
+  it('should return empty array when no tasks', () => {
+    const project = createProject({ id: 'proj-1', tasks: [], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    expect(service.rootTasks()).toEqual([]);
+  });
+
+  it('should include stage-1 task with direct unfinished item', () => {
+    const task = createTask({ id: 't1', stage: 1, displayId: '1', content: '- [ ] 待办' });
+    const project = createProject({ id: 'proj-1', tasks: [task], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    expect(service.rootTasks()).toContain(task);
+  });
+
+  it('should include stage-1 task whose descendant has unfinished item', () => {
+    const root = createTask({ id: 'root', stage: 1, displayId: '1', content: '' });
+    const child = createTask({ id: 'child', stage: 1, displayId: '1,a', content: '- [ ] 子任务待办' });
+    const project = createProject({ id: 'proj-1', tasks: [root, child], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    expect(service.rootTasks()).toContain(root);
+  });
+
+  it('should exclude stage-1 task with no unfinished items anywhere in its subtree', () => {
+    const taskDone = createTask({ id: 't1', stage: 1, displayId: '1', content: '- [x] 已完成' });
+    const project = createProject({ id: 'proj-1', tasks: [taskDone], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    expect(service.rootTasks()).toEqual([]);
+  });
+
+  it('should not include deleted tasks', () => {
+    const task = createTask({ id: 't1', stage: 1, displayId: '1', content: '- [ ] 待办', deletedAt: new Date().toISOString() });
+    const project = createProject({ id: 'proj-1', tasks: [task], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    expect(service.rootTasks()).toEqual([]);
+  });
+
+  it('should handle deeply nested unfinished descendants', () => {
+    const root = createTask({ id: 'r', stage: 1, displayId: '2', content: '' });
+    const deep = createTask({ id: 'd', stage: 1, displayId: '2,b,c,d', content: '- [ ] 深层待办' });
+    const unrelated = createTask({ id: 'u', stage: 1, displayId: '3', content: '' });
+    const project = createProject({ id: 'proj-1', tasks: [root, deep, unrelated], connections: [] });
+    mockProjectsSignal.set([project]);
+    mockActiveProjectIdSignal.set('proj-1');
+
+    const result = service.rootTasks();
+    expect(result).toContain(root);
+    expect(result).not.toContain(unrelated);
+  });
+});

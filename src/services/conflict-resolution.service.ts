@@ -647,10 +647,14 @@ export class ConflictResolutionService {
       const remoteTags = remote.tags || [];
       const mergedTags = this.mergeTagsWithIntent(localTags, remoteTags, localTime, remoteTime);
       mergedTask.tags = mergedTags.length > 0 ? mergedTags : undefined;
-      // 标签变化也算冲突
-      if (local.tags?.length !== remote.tags?.length || 
-          !localTags.every(t => remoteTags.includes(t))) {
+      // 标签变化也算冲突；仅在长度相同时才需要逐一比较成员，此时创建 Set 实现 O(1) 查找
+      if (local.tags?.length !== remote.tags?.length) {
         hasConflict = true;
+      } else {
+        const remoteTagSet = new Set(remoteTags);
+        if (!localTags.every(t => remoteTagSet.has(t))) {
+          hasConflict = true;
+        }
       }
     }
     
