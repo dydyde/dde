@@ -186,25 +186,18 @@ export class UserSessionService {
       }
     });
     
-    // 3. 清理用户偏好键（带 userId 前缀的）
-    if (userId) {
-      const prefixToRemove = `nanoflow.preference.${userId}`;
-      try {
-        Object.keys(localStorage)
-          .filter(key => key.startsWith(prefixToRemove))
-          .forEach(key => localStorage.removeItem(key));
-      } catch (e) {
-        this.logger.warn('清理用户偏好键失败', e);
-      }
-    }
-    
-    // 也清理不带用户前缀的旧偏好键（兼容迁移）
+    // 3. 合并两次 localStorage 遍历：用户偏好键（带 userId 前缀）+ 旧版不带前缀偏好键
     try {
-      Object.keys(localStorage)
-        .filter(key => key.startsWith('nanoflow.preference.') && !key.includes('.user-'))
-        .forEach(key => localStorage.removeItem(key));
+      const userPrefix = userId ? `nanoflow.preference.${userId}` : null;
+      Object.keys(localStorage).forEach(key => {
+        if (userPrefix && key.startsWith(userPrefix)) {
+          localStorage.removeItem(key);
+        } else if (key.startsWith('nanoflow.preference.') && !key.includes('.user-')) {
+          localStorage.removeItem(key);
+        }
+      });
     } catch (e) {
-      this.logger.warn('清理旧偏好键失败', e);
+      this.logger.warn('清理偏好键失败', e);
     }
     
     // 4. 清理 IndexedDB（主数据库）
